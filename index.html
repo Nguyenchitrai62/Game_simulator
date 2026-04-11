@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Evolution Simulator 3D</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="game-canvas"></canvas>
+
+  <!-- HUD Top -->
+  <div class="hud hud-top">
+    <div class="resource-bar" id="resource-bar"></div>
+    <div class="player-stats" id="player-stats">
+      <span class="stat-hp" id="stat-hp">HP: 100/100</span>
+      <span class="stat-atk" id="stat-atk">ATK: 1</span>
+      <span class="stat-def" id="stat-def">DEF: 0</span>
+      <span class="age-badge" id="age-badge">Stone Age</span>
+    </div>
+  </div>
+
+  <!-- Context Action -->
+  <div class="context-action" id="context-action">
+    <span class="key">[E]</span> <span id="context-text">Chop Tree</span>
+  </div>
+
+  <!-- Combat HP bar -->
+  <div class="hp-bar-container" id="combat-hp">
+    <div class="hp-bar-label" id="combat-hp-label">Wolf - 15/15</div>
+    <div class="hp-bar"><div class="hp-bar-fill healthy" id="combat-hp-fill" style="width:100%"></div></div>
+  </div>
+
+  <!-- HUD Bottom -->
+  <div class="hud-bottom">
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="none" onclick="GameHUD.closePanels()">Close</button>
+      <button class="tab-btn" data-tab="build" onclick="GameHUD.switchTab('build')">Build</button>
+      <button class="tab-btn" data-tab="craft" onclick="GameHUD.switchTab('craft')">Craft</button>
+      <button class="tab-btn" data-tab="inventory" onclick="GameHUD.switchTab('inventory')">Inventory</button>
+      <button class="tab-btn" data-tab="stats" onclick="GameHUD.switchTab('stats')">Stats</button>
+    </div>
+    <div class="panel" id="panel-build"></div>
+    <div class="panel" id="panel-craft"></div>
+    <div class="panel" id="panel-inventory"></div>
+    <div class="panel" id="panel-stats"></div>
+  </div>
+
+  <!-- Notification -->
+  <div id="notification"></div>
+
+  <!-- Minimap -->
+  <div id="minimap"><canvas id="minimap-canvas" width="116" height="116"></canvas></div>
+
+  <!-- Building Inspector HUD -->
+  <div id="building-inspector" class="hud-inspector"></div>
+
+  <!-- Save info -->
+  <div class="save-info" id="save-info"></div>
+
+  <!-- Three.js from CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <!-- Data Layer -->
+  <script src="content/manifest.js"></script>
+  <script src="content/base_stone_age.js"></script>
+  <script src="content/expansion_bronze_age.js"></script>
+  <script src="balance/balance.js"></script>
+
+  <!-- Engine Core -->
+  <script src="engine/registry.js"></script>
+  <script src="engine/gameState.js"></script>
+
+  <!-- Persistence -->
+  <script src="storage/localStorage.js"></script>
+
+  <!-- Game Systems -->
+  <script src="engine/tickSystem.js"></script>
+  <script src="engine/craftSystem.js"></script>
+  <script src="engine/unlockSystem.js"></script>
+  <script src="engine/upgradeSystem.js"></script>
+
+  <!-- World -->
+  <script src="world/scene.js"></script>
+  <script src="world/terrain.js"></script>
+  <script src="world/entities.js"></script>
+  <script src="world/player.js"></script>
+  <script src="world/combat.js"></script>
+  <script src="world/buildingSystem.js"></script>
+
+  <!-- UI -->
+  <script src="ui/hud.js"></script>
+
+  <!-- Entry Point -->
+  <script src="main.js"></script>
+
+  <!-- Dev Tools -->
+  <script src="dev/validate.js"></script>
+  <script src="dev/ai_generate.js"></script>
+  <script src="dev/preview.js"></script>
+</body>
+</html>
