@@ -129,6 +129,10 @@ window.GameCombat = (function () {
       // Hide the animal
       GameEntities.hideObject(target);
 
+      // Check for newly unlocked content after combat loot
+      UnlockSystem.checkAll();
+      GameHUD.renderAll();
+
       // Respawn
       var respawnTime = balance ? (balance.respawnTime || 60) : 60;
       setTimeout(function () {

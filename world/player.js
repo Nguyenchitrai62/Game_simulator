@@ -243,6 +243,11 @@ window.GamePlayer = (function () {
       }
     }
 
+    // Sync position to GameState for saving
+    if (GameState && GameState.setPlayerPosition) {
+      GameState.setPlayerPosition(_x, _z);
+    }
+
     // Update mesh position
     if (mesh) {
       mesh.position.x += (_x - mesh.position.x) * 0.3;
@@ -404,6 +409,9 @@ window.GamePlayer = (function () {
     
     if (messages.length > 0) {
       GameHUD.showSuccess("Collected from " + buildingName + ": " + messages.join(", "));
+      
+      // Check for newly unlocked content after collecting resources
+      UnlockSystem.checkAll();
       GameHUD.renderAll();
     }
   }
@@ -449,6 +457,10 @@ window.GamePlayer = (function () {
       // Hide the 3D mesh
       GameEntities.hideObject(objData);
 
+      // Check for newly unlocked content after harvesting
+      UnlockSystem.checkAll();
+      GameHUD.renderAll();
+
       // Schedule respawn
       var respawnTime = balance.respawnTime || 30;
       setTimeout(function () {
@@ -472,6 +484,10 @@ window.GamePlayer = (function () {
     _z = z;
     if (mesh) {
       mesh.position.set(x, 0, z);
+    }
+    // Also sync to GameState
+    if (GameState && GameState.setPlayerPosition) {
+      GameState.setPlayerPosition(x, z);
     }
   }
 

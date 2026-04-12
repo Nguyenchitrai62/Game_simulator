@@ -37,6 +37,10 @@ window.CraftSystem = (function () {
       }
     }
 
+    // Check for newly unlocked content after crafting
+    UnlockSystem.checkAll();
+    GameHUD.renderAll();
+
     return true;
   }
 

@@ -62,6 +62,14 @@ window.GameState = (function () {
     if (_state.resources[id] === undefined) _state.resources[id] = 0;
     _state.resources[id] += amount;
     if (_state.resources[id] < 0) _state.resources[id] = 0;
+    
+    // Auto-unlock resource if not already unlocked
+    if (amount > 0 && _state.unlocked.indexOf(id) === -1) {
+      var entity = GameRegistry.getEntity(id);
+      if (entity && entity.type === 'resource') {
+        _state.unlocked.push(id);
+      }
+    }
   }
 
   function addFractionalResource(id, amount) {
@@ -179,6 +187,11 @@ window.GameState = (function () {
       }
     }
     return speed;
+  }
+
+  function setPlayerPosition(x, z) {
+    _state.player.x = x;
+    _state.player.z = z;
   }
 
   function equipItem(equipmentId) {
@@ -408,7 +421,7 @@ window.GameState = (function () {
     unlock: unlock, isUnlocked: isUnlocked, getUnlocked: getUnlocked,
     setAge: setAge, getAge: getAge,
     getVersion: getVersion, setVersion: setVersion,
-    getPlayer: getPlayer, setPlayerHP: setPlayerHP,
+    getPlayer: getPlayer, setPlayerHP: setPlayerHP, setPlayerPosition: setPlayerPosition,
     getPlayerMaxHp: getPlayerMaxHp, getPlayerAttack: getPlayerAttack, getPlayerDefense: getPlayerDefense,
     getPlayerSpeed: getPlayerSpeed,
     equipItem: equipItem, unequipSlot: unequipSlot,

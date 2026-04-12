@@ -47,13 +47,81 @@ window.GameActions = (function () {
     GameHUD.renderAll();
   }
 
+  function advanceAge(ageId) {
+    var ageEntity = GameRegistry.getEntity(ageId);
+    if (!ageEntity || ageEntity.type !== 'age') {
+      GameHUD.showError("Invalid age");
+      return;
+    }
+
+    var balance = GameRegistry.getBalance(ageId);
+    if (!balance || !balance.advanceFrom) {
+      GameHUD.showError("Cannot advance to this age");
+      return;
+    }
+
+    var conditions = balance.advanceFrom;
+
+    // Check age requirement
+    if (conditions.age && GameState.getAge() !== conditions.age) {
+      GameHUD.showError("Must be in " + conditions.age + " first");
+      return;
+    }
+
+    // Check resource requirements
+    if (conditions.resources) {
+      for (var resId in conditions.resources) {
+        var needed = conditions.resources[resId];
+        if (!GameState.hasResource(resId, needed)) {
+          var resEntity = GameRegistry.getEntity(resId);
+          var resName = resEntity ? resEntity.name : resId;
+          GameHUD.showError("Need " + needed + " " + resName);
+          return;
+        }
+      }
+    }
+
+    // Check building requirements
+    if (conditions.buildings) {
+      for (var buildingId in conditions.buildings) {
+        var needed = conditions.buildings[buildingId];
+        var current = GameState.getBuildingCount(buildingId);
+        if (current < needed) {
+          var buildingEntity = GameRegistry.getEntity(buildingId);
+          var buildingName = buildingEntity ? buildingEntity.name : buildingId;
+          GameHUD.showError("Need " + needed + " " + buildingName + " (have " + current + ")");
+          return;
+        }
+      }
+    }
+
+    // All conditions met - advance age
+    GameState.setAge(ageId);
+    
+    // Add starting resources for new age
+    if (balance.startResources) {
+      for (var resId in balance.startResources) {
+        GameState.addResource(resId, balance.startResources[resId]);
+      }
+    }
+
+    // Check for newly unlocked content
+    UnlockSystem.checkAll();
+    UnlockSystem.checkAll(); // Second pass for chain dependencies
+
+    GameStorage.save();
+    GameHUD.showSuccess("Advanced to " + ageEntity.name + "!");
+    GameHUD.renderAll();
+  }
+
   return {
     startBuild: startBuild,
     craft: craft,
     equip: equip,
     unequip: unequip,
     saveGame: saveGame,
-    resetGame: resetGame
+    resetGame: resetGame,
+    advanceAge: advanceAge
   };
 })();
 

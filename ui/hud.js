@@ -400,6 +400,59 @@ window.GameHUD = (function () {
       html += '</div>';
     }
 
+    // Age Advancement
+    var currentAge = GameState.getAge();
+    var ages = GameRegistry.getEntitiesByType("age");
+    var nextAge = null;
+    for (var i = 0; i < ages.length; i++) {
+      if (!GameState.isUnlocked(ages[i].id) && ages[i].id !== currentAge) {
+        var ageBalance = GameRegistry.getBalance(ages[i].id);
+        if (ageBalance && ageBalance.advanceFrom && ageBalance.advanceFrom.age === currentAge) {
+          nextAge = ages[i];
+          break;
+        }
+      }
+    }
+
+    if (nextAge) {
+      var balance = GameRegistry.getBalance(nextAge.id);
+      html += '<div class="card"><div class="card-name">🏛️ Age Advancement: ' + escapeHtml(nextAge.name) + '</div>';
+      var canAdvance = true;
+      var requirements = [];
+
+      if (balance.advanceFrom.resources) {
+        for (var resId in balance.advanceFrom.resources) {
+          var needed = balance.advanceFrom.resources[resId];
+          var current = GameState.getResource(resId);
+          var met = current >= needed;
+          if (!met) canAdvance = false;
+          var resEntity = GameRegistry.getEntity(resId);
+          var resName = resEntity ? resEntity.name : resId;
+          var className = met ? 'cost-ok' : 'cost-lack';
+          requirements.push('<span class="' + className + '">' + resName + ': ' + Math.floor(current) + '/' + needed + '</span>');
+        }
+      }
+
+      if (balance.advanceFrom.buildings) {
+        for (var bldId in balance.advanceFrom.buildings) {
+          var needed = balance.advanceFrom.buildings[bldId];
+          var current = GameState.getBuildingCount(bldId);
+          var met = current >= needed;
+          if (!met) canAdvance = false;
+          var bldEntity = GameRegistry.getEntity(bldId);
+          var bldName = bldEntity ? bldEntity.name : bldId;
+          var className = met ? 'cost-ok' : 'cost-lack';
+          requirements.push('<span class="' + className + '">' + bldName + ': ' + current + '/' + needed + '</span>');
+        }
+      }
+
+      html += '<div class="card-info">' + requirements.join(' | ') + '</div>';
+      html += '<button class="btn ' + (canAdvance ? 'btn-craft' : 'btn-disabled') + '" ' + 
+              'onclick="GameActions.advanceAge(\'' + nextAge.id + '\')" ' +
+              (canAdvance ? '' : 'disabled') + '>Advance!</button>';
+      html += '</div>';
+    }
+
     html += '<div style="margin-top:8px">';
     html += '<button class="btn btn-secondary" onclick="GameActions.saveGame()">Save</button> ';
     html += '<button class="btn btn-secondary" onclick="GameActions.resetGame()">Reset</button>';

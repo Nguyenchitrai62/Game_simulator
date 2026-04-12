@@ -55,6 +55,10 @@ window.UpgradeSystem = (function () {
       }
     }
 
+    // Check for newly unlocked content after upgrade
+    UnlockSystem.checkAll();
+    GameHUD.renderAll();
+
     return check.level;
   }
 

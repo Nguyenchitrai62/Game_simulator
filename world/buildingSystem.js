@@ -150,6 +150,9 @@ window.BuildingSystem = (function () {
       NPCSystem.spawnWorkersForBuilding(uid);
     }
 
+    // Check for newly unlocked content after building
+    UnlockSystem.checkAll();
+
     GameHUD.renderAll();
     GameStorage.save();
     GameHUD.showSuccess("Đã xây: " + (entity ? entity.name : buildingId));
