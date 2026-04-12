@@ -1,6 +1,6 @@
 # Evolution Simulator 3D — Game Documentation
 
-> Phiên bản: 2.0.0 | Cập nhật: 2026-04-12
+> Phiên bản: 1.0.0 | Cập nhật: 2026-04-12
 
 ---
 
@@ -34,7 +34,8 @@ d:\Source_code\Game_simulator\
 │   ├── tickSystem.js           ← Production ticks (1 giây/tick)
 │   ├── craftSystem.js          ← Crafting: input → output
 │   ├── unlockSystem.js         ← Check unlock conditions (age/resources/buildings)
-│   └── upgradeSystem.js        ← Building upgrade logic
+│   ├── upgradeSystem.js        ← Building upgrade logic
+│   └── techSystem.js           ← [UNUSED] Technology research system (not loaded)
 │
 ├── /world                      ← 3D Layer (Three.js)
 │   ├── scene.js                ← Scene, camera isometric, render loop, lighting
@@ -56,7 +57,8 @@ d:\Source_code\Game_simulator\
 │   └── localStorage.js         ← Save/load game state
 │
 ├── /ui
-│   └── hud.js                  ← HUD overlay (resources, panels, notifications)
+│   ├── hud.js                  ← HUD overlay (resources, panels, notifications)
+│   └── render.js               ← [UNUSED] Alternative UI renderer (not loaded)
 │
 └── /dev                        ← Developer tools
     ├── validate.js             ← Validate content integrity
@@ -72,8 +74,9 @@ d:\Source_code\Game_simulator\
 3. Engine Core: registry → gameState
 4. Persistence: localStorage
 5. Systems: tickSystem → craftSystem → unlockSystem → upgradeSystem
+   (Note: techSystem.js exists but is NOT loaded - causes TechSystem.tick() error)
 6. World: scene → terrain → entities → player → combat → buildingSystem
-7. UI: hud
+7. UI: hud (render.js exists but NOT loaded)
 8. Entry: main
 9. Dev: validate → ai_generate → preview
 ```
@@ -217,7 +220,7 @@ d:\Source_code\Game_simulator\
   buildings: { "building.wood_cutter": 2, ... },   // Tổng count mỗi loại
   unlocked: ["age.stone", "resource.wood", ...],    // Danh sách entity ID đã unlock
   age: "age.stone",
-  version: "2.0.0",
+  version: "1.0.0",
 
   // === Player ===
   player: {
@@ -632,7 +635,7 @@ window.GAME_CONTENT["expansion_iron_age"] = {
 
 ```js
 window.GAME_MANIFEST = {
-  version: "3.0.0",
+  version: "2.0.0",  // Increment from current 1.0.0
   packs: ["base_stone_age", "expansion_bronze_age", "expansion_iron_age"]
 };
 ```
