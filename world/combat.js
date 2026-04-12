@@ -24,6 +24,10 @@ window.GameCombat = (function () {
     var hpContainer = document.getElementById("combat-hp");
     if (hpContainer) hpContainer.classList.add("show");
 
+    // Show player HP bar in combat mode
+    var playerHpWrapper = document.getElementById("player-hp-wrapper");
+    if (playerHpWrapper) playerHpWrapper.classList.add("in-combat");
+
     updateCombatUI();
   }
 
@@ -143,6 +147,10 @@ window.GameCombat = (function () {
     // Hide combat HP bar
     var hpContainer = document.getElementById("combat-hp");
     if (hpContainer) hpContainer.classList.remove("show");
+
+    // Remove combat mode from player HP bar
+    var playerHpWrapper = document.getElementById("player-hp-wrapper");
+    if (playerHpWrapper) playerHpWrapper.classList.remove("in-combat");
   }
 
   function playerDied() {

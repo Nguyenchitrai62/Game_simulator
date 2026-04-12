@@ -72,18 +72,44 @@ window.GameHUD = (function () {
     var atk = GameState.getPlayerAttack();
     var def = GameState.getPlayerDefense();
 
-    var hpEl = document.getElementById("stat-hp");
     var atkEl = document.getElementById("stat-atk");
     var defEl = document.getElementById("stat-def");
     var ageEl = document.getElementById("age-badge");
 
-    if (hpEl) hpEl.textContent = "HP: " + Math.floor(hp) + "/" + maxHp;
     if (atkEl) atkEl.textContent = "ATK: " + atk;
     if (defEl) defEl.textContent = "DEF: " + def;
 
     if (ageEl) {
       var ageEntity = GameRegistry.getEntity(GameState.getAge());
       ageEl.textContent = ageEntity ? ageEntity.name : GameState.getAge();
+    }
+
+    // Update player HP bar
+    var hpFill = document.getElementById("player-hp-fill");
+    var hpText = document.getElementById("player-hp-text");
+    var hpWrapper = document.getElementById("player-hp-wrapper");
+
+    if (hpFill && hpText) {
+      var pct = Math.max(0, (hp / maxHp) * 100);
+      hpFill.style.width = pct + "%";
+      hpText.textContent = Math.floor(hp) + " / " + maxHp;
+
+      // Color class
+      hpFill.classList.remove("hp-warn", "hp-danger");
+      if (pct <= 30) {
+        hpFill.classList.add("hp-danger");
+      } else if (pct <= 60) {
+        hpFill.classList.add("hp-warn");
+      }
+
+      // Low HP pulse warning
+      if (hpWrapper) {
+        if (pct <= 30) {
+          hpWrapper.classList.add("low-hp");
+        } else {
+          hpWrapper.classList.remove("low-hp");
+        }
+      }
     }
 
     // Save info
