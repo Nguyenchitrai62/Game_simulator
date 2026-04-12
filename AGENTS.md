@@ -34,8 +34,7 @@ d:\Source_code\Game_simulator\
 │   ├── tickSystem.js           ← Production ticks (1 giây/tick)
 │   ├── craftSystem.js          ← Crafting: input → output
 │   ├── unlockSystem.js         ← Check unlock conditions (age/resources/buildings)
-│   ├── upgradeSystem.js        ← Building upgrade logic
-│   └── techSystem.js           ← [UNUSED] Technology research system (not loaded)
+│   └── upgradeSystem.js        ← Building upgrade logic
 │
 ├── /world                      ← 3D Layer (Three.js)
 │   ├── scene.js                ← Scene, camera isometric, render loop, lighting
@@ -43,7 +42,8 @@ d:\Source_code\Game_simulator\
 │   ├── entities.js             ← 3D models: trees, rocks, animals, deposits
 │   ├── player.js               ← Player character, WASD movement, interaction
 │   ├── combat.js               ← Click-to-attack combat system
-│   └── buildingSystem.js       ← Building placement + upgrade on grid
+│   ├── buildingSystem.js       ← Building placement + upgrade on grid
+│   └── npcSystem.js            ← NPC worker AI: pathfinding, harvesting, storage
 │
 ├── /content                    ← Content packs (append-only)
 │   ├── manifest.js             ← Version + pack list
@@ -57,8 +57,7 @@ d:\Source_code\Game_simulator\
 │   └── localStorage.js         ← Save/load game state
 │
 ├── /ui
-│   ├── hud.js                  ← HUD overlay (resources, panels, notifications)
-│   └── render.js               ← [UNUSED] Alternative UI renderer (not loaded)
+│   └── hud.js                  ← HUD overlay (resources, panels, notifications)
 │
 └── /dev                        ← Developer tools
     ├── validate.js             ← Validate content integrity
@@ -74,9 +73,8 @@ d:\Source_code\Game_simulator\
 3. Engine Core: registry → gameState
 4. Persistence: localStorage
 5. Systems: tickSystem → craftSystem → unlockSystem → upgradeSystem
-   (Note: techSystem.js exists but is NOT loaded - causes TechSystem.tick() error)
-6. World: scene → terrain → entities → player → combat → buildingSystem
-7. UI: hud (render.js exists but NOT loaded)
+6. World: scene → terrain → entities → player → combat → buildingSystem → npcSystem
+7. UI: hud
 8. Entry: main
 9. Dev: validate → ai_generate → preview
 ```
@@ -144,7 +142,7 @@ d:\Source_code\Game_simulator\
     roofColor: 0x2d5a27,          // (building only) roof color
     scale: 1.0                     // Size multiplier
   },
-  slot: "weapon",                  // (equipment only) weapon | offhand | armor
+  slot: "weapon",                  // (equipment only) weapon | offhand | armor | boots
   unlock: {                        // Điều kiện unlock
     age: "age.stone",              // Phải ở age này
     resources: { "resource.wood": 15 },   // (optional) Cần đủ tài nguyên
@@ -191,8 +189,8 @@ d:\Source_code\Game_simulator\
 
 // === Equipment ===
 "equipment.wooden_sword": {
-  stats: { attack: 3 },            // attack, defense, maxHp
-  slot: "weapon"                    // weapon | offhand | armor
+  stats: { attack: 3 },            // attack, defense, maxHp, speed
+  slot: "weapon"                   // weapon | offhand | armor | boots
 }
 
 // === Ages ===
@@ -231,7 +229,8 @@ d:\Source_code\Game_simulator\
     equipped: {
       weapon: null,                  // "equipment.wooden_sword" hoặc null
       offhand: null,
-      armor: null
+      armor: null,
+      boots: null
     }
   },
 
@@ -270,6 +269,7 @@ d:\Source_code\Game_simulator\
 PlayerMaxHp    = 100 + armor.stats.maxHp
 PlayerAttack   = player.baseAttack + weapon.stats.attack
 PlayerDefense  = player.baseDefense + offhand.stats.defense + armor.stats.defense
+PlayerSpeed    = player.baseSpeed + boots.stats.speed
 ```
 
 ---
@@ -435,6 +435,56 @@ Build mode flow:
 - Must be walkable terrain
 - Không overlap existing buildings (0.7 unit buffer)
 
+### 7.6 NPC System (`window.NPCSystem`)
+
+Worker NPCs tự động thu thập tài nguyên cho buildings.
+
+```
+Init flow:
+1. NPCSystem.init() - Reset NPC array
+2. SpawnWorkersForBuilding(uid) - Tạo workers cho mỗi building
+   - Số lượng từ balance.workerCount[level]
+   - Tạo 3D mesh (GameEntities.createNPCMesh)
+   - Init tại vị trí building
+
+Update loop (mỗi frame):
+  NPCSystem.update(deltaTime) - Update tất cả NPCs
+  
+NPC State Machine:
+  IDLE → FIND_NODE → WALK_TO_NODE → HARVEST → WALK_HOME → DEPOSIT → IDLE
+  
+States:
+  - IDLE: Chờ, chuyển sang tìm node
+  - FIND_NODE: Tìm resource node gần nhất (searchRadius từ balance)
+  - WALK_TO_NODE: Di chuyển đến node (pathfinding)
+  - HARVEST: Đập node (1 hit/giây), lấy rewards khi node bị phá
+  - WALK_HOME: Quay về building với tài nguyên
+  - DEPOSIT: Gửi tài nguyên vào building storage (buildingStorage)
+  
+Building types:
+  - Wood Cutter → harvests node.tree
+  - Stone Quarry → harvests node.rock
+  - Berry Gatherer → harvests node.berry_bush
+  - Flint Mine → harvests node.flint_deposit
+  - Copper Mine → harvests node.copper_deposit
+  - Tin Mine → harvests node.tin_deposit
+  - Smelter → no harvesting (processes resources from storage)
+```
+
+**Balance data required:**
+```js
+"building.wood_cutter": {
+  searchRadius: { 1: 5, 2: 8, 3: 12 },  // Radius per level
+  workerCount: { 1: 1, 2: 2, 3: 3 }     // Workers per level
+}
+```
+
+**API:**
+- `init()` - Reset system
+- `spawnWorkersForBuilding(uid)` - Tạo workers cho building
+- `despawnWorkersForBuilding(uid)` - Xóa workers khi building bị phá
+- `update(deltaTime)` - Update tất cả NPCs (called từ scene.js)
+
 ---
 
 ## 8. 3D Models (Programmatic)
@@ -455,6 +505,7 @@ Tất cả models tạo từ Three.js primitives, không cần external files:
 | **Lion** | Same as bear | `0xC4A24E` |
 | **Buildings** | Box base + pyramid roof + door plane | Color/roofColor từ entity.visual |
 | **Player** | Box body + sphere head + 4 limb boxes | Body: `0x4488cc`, Head: `0xDEB887`, Legs: `0x3a3a5c` |
+| **NPC** | Smaller player-like mesh (0.6x scale) | Body: `0x88cc44`, Head: `0xDEB887` |
 | **Terrain** | Plane per chunk + GridHelper | `0x7ec850` |
 
 Tất cả có circular shadow (transparent black CircleGeometry).
@@ -489,11 +540,13 @@ Tất cả có circular shadow (transparent black CircleGeometry).
 | `equipment.stone_spear` | equipment | Stone Spear (+6 ATK) | `age.stone` + 3 tools |
 | `equipment.stone_shield` | equipment | Stone Shield (+3 DEF) | `age.stone` + 1 stone_quarry |
 | `equipment.leather_armor` | equipment | Leather Armor (+5 DEF, +10 HP) | `age.stone` + 3 leather |
+| `equipment.leather_boots` | equipment | Leather Boots (+2 Speed) | `age.stone` |
 | `recipe.stone_tool` | recipe | Stone Tool | `age.stone` |
 | `recipe.wooden_sword` | recipe | Wooden Sword | `age.stone` |
 | `recipe.stone_spear` | recipe | Stone Spear | `age.stone` + 1 flint_mine |
 | `recipe.stone_shield` | recipe | Stone Shield | `age.stone` + 1 stone_quarry |
 | `recipe.leather_armor` | recipe | Leather Armor | `age.stone` + 3 leather |
+| `recipe.leather_boots` | recipe | Leather Boots | `age.stone` |
 
 ### Bronze Age (expansion_bronze_age.js)
 
@@ -566,6 +619,7 @@ Wood: 10, Stone: 5, Food: 10, Flint: 3, Tool: 0, Leather: 0
 | Stone Spear | 8 Wood + 4 Flint + 3 Stone | +1 Stone Spear |
 | Stone Shield | 8 Stone + 4 Wood + 2 Flint | +1 Stone Shield |
 | Leather Armor | 5 Leather + 3 Flint | +1 Leather Armor |
+| Leather Boots | 3 Leather + 2 Wood | +1 Leather Boots |
 | Bronze Sword | 5 Bronze + 3 Wood | +1 Bronze Sword |
 | Bronze Shield | 5 Bronze + 4 Wood | +1 Bronze Shield |
 | Bronze Armor | 8 Bronze + 3 Leather | +1 Bronze Armor |
@@ -581,6 +635,7 @@ Wood: 10, Stone: 5, Food: 10, Flint: 3, Tool: 0, Leather: 0
 | Bronze Shield | offhand | +6 DEF |
 | Leather Armor | armor | +5 DEF, +10 Max HP |
 | Bronze Armor | armor | +10 DEF, +20 Max HP |
+| Leather Boots | boots | +2 Speed |
 
 ---
 
@@ -592,13 +647,15 @@ Wood: 10, Stone: 5, Food: 10, Flint: 3, Tool: 0, Leather: 0
 3. GameState.init() OR load()       ← Fresh start or restore save
 4. GameScene.init()                 ← Three.js scene, camera, renderer, render loop starts
 5. GameTerrain.init(worldSeed)      ← Chunk system with persistent seed
-6. GamePlayer.init(x, z)           ← Create 3D player, register input handlers
-7. GameTerrain.update(x, z)        ← Generate initial chunks around player
-8. GameEntities.createObjectForChunk() × N  ← Create 3D meshes for all chunk objects
-9. Restore building instances       ← Re-create 3D meshes for saved buildings
-10. UnlockSystem.checkAll() × 2    ← Unlock entities (2 passes for chain deps)
-11. GameHUD.renderAll()            ← Initial UI render
-12. Register mousemove handler     ← For build mode preview
+6. NPCSystem.init()                 ← Initialize NPC worker system
+7. GamePlayer.init(x, z)            ← Create 3D player, register input handlers
+8. GameTerrain.update(x, z)         ← Generate initial chunks around player
+9. GameEntities.createObjectForChunk() × N  ← Create 3D meshes for all chunk objects
+10. Restore building instances      ← Re-create 3D meshes for saved buildings
+11. NPCSystem.spawnWorkersForBuilding() × N ← Spawn workers for each building
+12. UnlockSystem.checkAll() × 2     ← Unlock entities (2 passes for chain deps)
+13. GameHUD.renderAll()             ← Initial UI render
+14. Register mousemove handler      ← For build mode preview
 ```
 
 ---

@@ -155,58 +155,6 @@ window.GAME_CONTENT["base_stone_age"] = {
       visual: { shape: "building", color: 0x4a4a4a, roofColor: 0x808080, scale: 1.0 },
       unlock: { age: "age.stone", buildings: { "building.stone_quarry": 1 } }
     },
-    {
-      id: "building.library",
-      type: "building",
-      name: "Library",
-      description: "Generates Research Points. Unlocks Technology Tree.",
-      visual: { shape: "building", color: 0x8B4513, roofColor: 0x2d5a27, scale: 1.2 },
-      unlock: { age: "age.stone", buildings: { "building.stone_quarry": 2 } }
-    },
-
-    // === TECHNOLOGIES ===
-    {
-      id: "tech.basic_tools",
-      type: "technology",
-      name: "Basic Tools",
-      description: "Fundamental toolmaking techniques.",
-      unlock: { age: "age.stone" }
-    },
-    {
-      id: "tech.woodworking",
-      type: "technology",
-      name: "Woodworking",
-      description: "Advanced wood crafting techniques.",
-      unlock: { age: "age.stone" }
-    },
-    {
-      id: "tech.hunting",
-      type: "technology",
-      name: "Hunting",
-      description: "Improved hunting and leather working.",
-      unlock: { age: "age.stone" }
-    },
-    {
-      id: "tech.stoneworking",
-      type: "technology",
-      name: "Stoneworking",
-      description: "Precision stone crafting.",
-      unlock: { age: "age.stone" }
-    },
-    {
-      id: "tech.agriculture",
-      type: "technology",
-      name: "Agriculture",
-      description: "Early farming methods.",
-      unlock: { age: "age.stone" }
-    },
-    {
-      id: "tech.fire_mastery",
-      type: "technology",
-      name: "Fire Mastery",
-      description: "Controlled fire usage.",
-      unlock: { age: "age.stone" }
-    },
 
     // === EQUIPMENT ===
     {

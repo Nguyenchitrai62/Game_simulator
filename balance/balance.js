@@ -85,42 +85,6 @@ window.GAME_BALANCE = {
       3: { cost: { "resource.wood": 120, "resource.stone": 60, "resource.flint": 20 }, productionMultiplier: 2.0 }
     }
   },
-  "building.library": {
-    cost: { "resource.wood": 40, "resource.stone": 30, "resource.flint": 15 },
-    produces: { "research_point": 1 }
-  },
-
-  // === TECHNOLOGIES ===
-  "tech.basic_tools": {
-    cost: 20,
-    prerequisites: [],
-    unlocks: ["building.flint_mine"]
-  },
-  "tech.woodworking": {
-    cost: 35,
-    prerequisites: ["tech.basic_tools"],
-    unlocks: ["recipe.wooden_sword", "recipe.stone_spear"]
-  },
-  "tech.hunting": {
-    cost: 30,
-    prerequisites: ["tech.basic_tools"],
-    unlocks: ["recipe.leather_armor"]
-  },
-  "tech.stoneworking": {
-    cost: 50,
-    prerequisites: ["tech.woodworking", "tech.hunting"],
-    unlocks: ["recipe.stone_shield"]
-  },
-  "tech.agriculture": {
-    cost: 45,
-    prerequisites: ["tech.basic_tools"],
-    unlocks: []
-  },
-  "tech.fire_mastery": {
-    cost: 60,
-    prerequisites: ["tech.stoneworking", "tech.agriculture"],
-    unlocks: []
-  },
 
   // === RECIPES ===
   "recipe.stone_tool": {
@@ -242,6 +206,8 @@ window.GAME_BALANCE = {
   },
   "building.smelter": {
     cost: { "resource.stone": 40, "resource.copper": 10, "resource.tin": 5 },
+    searchRadius: { 1: 0, 2: 0 },  // No gathering - processes resources
+    workerCount: { 1: 1, 2: 2 },    // Workers process materials
     produces: { "resource.bronze": 1 },
     consumesPerTick: { "resource.copper": 2, "resource.tin": 1 },
     upgrades: {

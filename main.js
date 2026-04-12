@@ -9,20 +9,6 @@ window.GameActions = (function () {
 
     if (success) {
       var recipeEntity = GameRegistry.getEntity(recipeId);
-      var balance = GameRegistry.getBalance(recipeId);
-
-      // If output is equipment, add to inventory
-      if (balance && balance.output) {
-        for (var id in balance.output) {
-          var entity = GameRegistry.getEntity(id);
-          if (entity && entity.type === "equipment") {
-            GameState.addToInventory(id, balance.output[id]);
-            // Remove from resources (craft output goes to inventory, not resources)
-            GameState.addResource(id, -balance.output[id]);
-          }
-        }
-      }
-
       GameStorage.save();
       var name = recipeEntity ? recipeEntity.name : recipeId;
       GameHUD.showSuccess(`Crafted: ${name}`);

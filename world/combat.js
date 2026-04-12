@@ -187,10 +187,15 @@ window.GameCombat = (function () {
 
   function isActive() { return _activeCombat !== null; }
 
+  function getTarget() {
+    return _activeCombat ? _activeCombat.target : null;
+  }
+
   return {
     startCombat: startCombat,
     update: update,
     endCombat: endCombat,
-    isActive: isActive
+    isActive: isActive,
+    getTarget: getTarget
   };
 })();

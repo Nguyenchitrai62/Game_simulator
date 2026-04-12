@@ -214,6 +214,19 @@ window.GameEntities = (function () {
     if (mesh) {
       mesh.userData._hidden = false;
       mesh.visible = true;
+      
+      // For animals, reset position to spawn point on respawn
+      if (objData.type && objData.type.startsWith("animal.")) {
+        if (mesh.userData._spawnX !== undefined && mesh.userData._spawnZ !== undefined) {
+          mesh.position.x = mesh.userData._spawnX;
+          mesh.position.z = mesh.userData._spawnZ;
+          objData.worldX = mesh.userData._spawnX;
+          objData.worldZ = mesh.userData._spawnZ;
+        }
+        // Reset wander timer to pick new direction
+        mesh.userData._wanderTime = performance.now() / 1000;
+      }
+      
       mesh.traverse(function(child) {
         if (child.isMesh && child.material) {
           // Skip shadow mesh (positioned at y=0.02 with low opacity)
@@ -240,13 +253,22 @@ window.GameEntities = (function () {
       if (objData.type && objData.type.startsWith("animal.") && objData.hp > 0 && !objData._destroyed) {
         var time = performance.now() / 1000;
         
+        // Check if this animal is in combat
+        var isInCombat = false;
+        if (window.GameCombat && GameCombat.isActive && GameCombat.isActive()) {
+          var activeCombat = GameCombat.getTarget ? GameCombat.getTarget() : null;
+          isInCombat = activeCombat === objData;
+        }
+        
         // Slow wandering movement (not during combat)
-        var isInCombat = window.GameCombat && GameCombat.isActive && GameCombat.isActive();
         if (!isInCombat) {
           // Initialize wander state if needed
           if (!mesh.userData._wanderTime) {
             mesh.userData._wanderTime = time;
             mesh.userData._wanderDir = Math.random() * Math.PI * 2;
+            // Store spawn point
+            mesh.userData._spawnX = objData.worldX;
+            mesh.userData._spawnZ = objData.worldZ;
           }
           
           // Change direction every 3-5 seconds
@@ -262,15 +284,28 @@ window.GameEntities = (function () {
           
           // Check if walkable and within reasonable range of spawn point
           var distFromSpawn = Math.sqrt(
-            Math.pow(newX - objData.worldX, 2) + 
-            Math.pow(newZ - objData.worldZ, 2)
+            Math.pow(newX - mesh.userData._spawnX, 2) + 
+            Math.pow(newZ - mesh.userData._spawnZ, 2)
           );
           
           if (distFromSpawn < 3 && window.GameTerrain && GameTerrain.isWalkable(newX, newZ)) {
+            // Update mesh position
             mesh.position.x = newX;
             mesh.position.z = newZ;
-            // Face movement direction
-            mesh.rotation.y = mesh.userData._wanderDir;
+            
+            // Update hitbox position (so combat/interaction works)
+            objData.worldX = newX;
+            objData.worldZ = newZ;
+            
+            // Smooth rotation (like player)
+            var targetAngle = mesh.userData._wanderDir;
+            var angleDiff = targetAngle - mesh.rotation.y;
+            
+            // Normalize angle difference to always rotate the shortest way
+            while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+            while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+            
+            mesh.rotation.y += angleDiff * 0.1; // Slower rotation than player
           } else {
             // Hit obstacle or too far, pick new direction
             mesh.userData._wanderDir = Math.random() * Math.PI * 2;
