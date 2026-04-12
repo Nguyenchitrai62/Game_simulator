@@ -31,6 +31,25 @@ window.GameTerrain = (function () {
         var key = cx + "," + cz;
         if (!chunks[key]) {
           generateChunk(cx, cz);
+
+          // Restore saved object states from previous visit
+          var savedData = GameState.getChunkData(key);
+          if (savedData && savedData.objects) {
+            var savedMap = {};
+            savedData.objects.forEach(function (obj) { savedMap[obj.id] = obj; });
+            if (chunks[key] && chunks[key].objects) {
+              chunks[key].objects.forEach(function (obj) {
+                if (savedMap[obj.id]) {
+                  obj.hp = savedMap[obj.id].hp;
+                  obj._destroyed = savedMap[obj.id]._destroyed;
+                  // If destroyed, hide the 3D mesh
+                  if (obj._destroyed || obj.hp <= 0) {
+                    GameEntities.hideObject(obj);
+                  }
+                }
+              });
+            }
+          }
         }
       }
     }
@@ -41,8 +60,18 @@ window.GameTerrain = (function () {
       var cx = parseInt(parts[0]);
       var cz = parseInt(parts[1]);
       if (Math.abs(cx - pcx) > RENDER_DISTANCE + 1 || Math.abs(cz - pcz) > RENDER_DISTANCE + 1) {
-        if (chunks[key].mesh) {
-          GameScene.getScene().remove(chunks[key].mesh);
+        // Save object HP states before unloading
+        var chunkToUnload = chunks[key];
+        if (chunkToUnload.objects) {
+          var savedObjects = [];
+          chunkToUnload.objects.forEach(function (obj) {
+            savedObjects.push({ id: obj.id, hp: obj.hp, _destroyed: !!obj._destroyed });
+          });
+          GameState.saveChunkData(key, { cx: cx, cz: cz, objects: savedObjects });
+        }
+
+        if (chunkToUnload.mesh) {
+          GameScene.getScene().remove(chunkToUnload.mesh);
         }
         delete chunks[key];
       }
@@ -222,7 +251,7 @@ window.GameTerrain = (function () {
     // Check for solid objects at this position
     for (var i = 0; i < chunk.objects.length; i++) {
       var obj = chunk.objects[i];
-      if (obj.hp <= 0) continue;
+      if (obj.hp <= 0 || obj._destroyed) continue;
       var dx = Math.abs(obj.x - localX);
       var dz = Math.abs(obj.z - localZ);
       if (dx < 0.4 && dz < 0.4) return false;
@@ -250,7 +279,7 @@ window.GameTerrain = (function () {
       var chunk = chunks[key];
       for (var i = 0; i < chunk.objects.length; i++) {
         var obj = chunk.objects[i];
-        if (obj.hp <= 0) continue;
+        if (obj.hp <= 0 || obj._destroyed) continue;
         var dx = obj.worldX - worldX;
         var dz = obj.worldZ - worldZ;
         var dist = Math.sqrt(dx * dx + dz * dz);

@@ -14,7 +14,8 @@ window.GameEntities = (function () {
     var chunkSize = GameTerrain.getChunkSize();
 
     chunkData.objects.forEach(function (obj) {
-      if (obj.hp <= 0) return;
+      if (obj.hp <= 0 || obj._destroyed) return;
+      if (_meshMap.has(obj.id)) return;
 
       var entity = GameRegistry.getEntity(obj.type);
       var mesh = createMesh(obj.type, entity);
@@ -201,42 +202,8 @@ window.GameEntities = (function () {
   function hideObject(objData) {
     var mesh = _meshMap.get(objData.id);
     if (mesh) {
-      // Fade out animation
-      var fadeStart = performance.now();
-      var fadeDuration = 500;
-      
-      function animateFade() {
-        var elapsed = performance.now() - fadeStart;
-        var progress = Math.min(elapsed / fadeDuration, 1);
-        
-        mesh.traverse(function(child) {
-          if (child.isMesh && child.material) {
-            if (!child.material._originalOpacity) {
-              child.material._originalOpacity = child.material.opacity;
-              child.material.transparent = true;
-            }
-            child.material.opacity = child.material._originalOpacity * (1 - progress);
-          }
-        });
-        
-        if (progress < 1) {
-          requestAnimationFrame(animateFade);
-        } else {
-          mesh.visible = false;
-          // Reset materials for next respawn
-          mesh.traverse(function(child) {
-            if (child.isMesh && child.material && child.material._originalOpacity) {
-              child.material.opacity = child.material._originalOpacity;
-              child.material.transparent = false;
-              delete child.material._originalOpacity;
-            }
-          });
-          // Remove completely from raycast list while hidden
-          mesh.userData._hidden = true;
-        }
-      }
-      
-      animateFade();
+      mesh.userData._hidden = true;
+      mesh.visible = false;
     }
   }
 

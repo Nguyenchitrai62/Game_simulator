@@ -112,15 +112,6 @@ window.GamePlayer = (function () {
   function onCanvasClick(event) {
     if (event.target.id !== 'game-canvas') return;
 
-    // Build mode: click to place building
-    if (typeof BuildingSystem !== 'undefined' && BuildingSystem.isBuildMode()) {
-      var groundPoint = raycastGround(event);
-      if (groundPoint) {
-        GameActions.handleBuildClick(groundPoint.x, groundPoint.z);
-      }
-      return;
-    }
-
     // Click objects to interact (walk to + chop/mine/fight)
     var mouse = new THREE.Vector2(
       (event.clientX / window.innerWidth) * 2 - 1,
@@ -270,10 +261,12 @@ window.GamePlayer = (function () {
       var entity = GameRegistry.getEntity(nearObj.type);
       var name = entity ? entity.name : nearObj.type;
       var action = nearObj.type.startsWith("animal.") ? "Fight" : nearObj.type === "node.berry_bush" ? "Gather" : nearObj.type.startsWith("node.") ? "Harvest" : "Interact";
-      textEl.textContent = action + " " + name;
+      textEl.textContent = action + " " + name + " (" + nearObj.hp + "/" + nearObj.maxHp + ")";
       el.classList.add('show');
+      GameHUD.showObjectHpBar(nearObj);
     } else {
       el.classList.remove('show');
+      GameHUD.hideObjectHpBar();
     }
   }
 
@@ -310,7 +303,8 @@ window.GamePlayer = (function () {
     }
 
     // Show damage
-    GameHUD.showDamageNumber(objData.worldX, 0.5, objData.worldZ, "HIT", "damage");
+    GameHUD.showDamageNumber(objData.worldX, 0.5, objData.worldZ, "HIT (" + Math.max(0, objData.hp) + "/" + objData.maxHp + ")", "damage");
+    GameHUD.showObjectHpBar(objData);
 
     if (objData.hp <= 0 && !objData._destroyed) {
       objData._destroyed = true;

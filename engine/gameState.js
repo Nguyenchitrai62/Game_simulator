@@ -123,8 +123,9 @@ window.GameState = (function () {
     var armorId = _state.player.equipped.armor;
     if (armorId) {
       var entity = GameRegistry.getEntity(armorId);
-      if (entity && entity.stats && entity.stats.maxHp) {
-        maxHp += entity.stats.maxHp;
+      var stats = (entity && entity.stats) || (GameRegistry.getBalance(armorId) || {}).stats;
+      if (stats && stats.maxHp) {
+        maxHp += stats.maxHp;
       }
     }
     return maxHp;
@@ -135,8 +136,9 @@ window.GameState = (function () {
     var weaponId = _state.player.equipped.weapon;
     if (weaponId) {
       var entity = GameRegistry.getEntity(weaponId);
-      if (entity && entity.stats && entity.stats.attack) {
-        atk += entity.stats.attack;
+      var stats = (entity && entity.stats) || (GameRegistry.getBalance(weaponId) || {}).stats;
+      if (stats && stats.attack) {
+        atk += stats.attack;
       }
     }
     return atk;
@@ -147,15 +149,17 @@ window.GameState = (function () {
     var offhandId = _state.player.equipped.offhand;
     if (offhandId) {
       var entity = GameRegistry.getEntity(offhandId);
-      if (entity && entity.stats && entity.stats.defense) {
-        def += entity.stats.defense;
+      var stats = (entity && entity.stats) || (GameRegistry.getBalance(offhandId) || {}).stats;
+      if (stats && stats.defense) {
+        def += stats.defense;
       }
     }
     var armorId = _state.player.equipped.armor;
     if (armorId) {
       var entity = GameRegistry.getEntity(armorId);
-      if (entity && entity.stats && entity.stats.defense) {
-        def += entity.stats.defense;
+      var stats = (entity && entity.stats) || (GameRegistry.getBalance(armorId) || {}).stats;
+      if (stats && stats.defense) {
+        def += stats.defense;
       }
     }
     return def;
@@ -164,6 +168,11 @@ window.GameState = (function () {
   function equipItem(equipmentId) {
     var entity = GameRegistry.getEntity(equipmentId);
     if (!entity || entity.type !== "equipment") return false;
+    
+    // MUST have at least 1 item in inventory
+    if (!_state.inventory[equipmentId] || _state.inventory[equipmentId] <= 0) {
+      return false;
+    }
 
     var slot = entity.slot;
     var oldMaxHp = getPlayerMaxHp();
@@ -172,8 +181,12 @@ window.GameState = (function () {
     if (_state.player.equipped[slot]) {
       addToInventory(_state.player.equipped[slot], 1);
     }
-    // Remove from inventory
-    removeFromInventory(equipmentId, 1);
+    // ONLY decrement, NEVER set to zero completely!
+    _state.inventory[equipmentId] -= 1;
+    if (_state.inventory[equipmentId] <= 0) {
+      delete _state.inventory[equipmentId];
+    }
+    
     _state.player.equipped[slot] = equipmentId;
 
     // Update maxHP and actual HP proportionally
@@ -227,20 +240,21 @@ window.GameState = (function () {
   function destroyInstance(uid) {
     var instance = getInstance(uid);
     if (!instance) return false;
-    
+
     var entity = GameRegistry.getEntity(instance.entityId);
     if (!entity) return false;
-    
-    // Refund 50% cost
-    if (entity.cost) {
-      for (var resId in entity.cost) {
-        var refundAmount = Math.floor(entity.cost[resId] * 0.5);
+
+    // Refund 50% cost from balance data
+    var balance = GameRegistry.getBalance(instance.entityId);
+    if (balance && balance.cost) {
+      for (var resId in balance.cost) {
+        var refundAmount = Math.floor(balance.cost[resId] * 0.5);
         if (refundAmount > 0) {
           addResource(resId, refundAmount);
         }
       }
     }
-    
+
     // Decrease building count
     if (_state.buildings[instance.entityId] > 0) {
       _state.buildings[instance.entityId]--;
@@ -248,16 +262,16 @@ window.GameState = (function () {
         delete _state.buildings[instance.entityId];
       }
     }
-    
+
     // Release grid tile
-    GameWorld.releaseTile(instance.x, instance.z);
-    
+    GameTerrain.releaseTile(instance.x, instance.z);
+
     // Remove instance
     removeInstance(uid);
-    
+
     // Recheck unlocks
     UnlockSystem.checkAll();
-    
+
     return true;
   }
 
