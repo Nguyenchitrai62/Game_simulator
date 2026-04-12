@@ -22,10 +22,21 @@ window.NPCSystem = (function() {
 
   /**
    * Initialize NPC system
+   * Cleans up existing NPCs and meshes
    */
   function init() {
+    // Remove all existing NPC meshes from scene
+    const scene = GameScene.getScene();
+    npcs.forEach(npc => {
+      if (npc.mesh && scene) {
+        scene.remove(npc.mesh);
+      }
+    });
+    
+    // Reset NPC array
     npcs = [];
     nextNPCId = 1;
+    
     console.log('[NPCSystem] Initialized');
   }
 
@@ -49,7 +60,12 @@ window.NPCSystem = (function() {
     }
 
     const level = instance.level || 1;
-    const workerCount = balance.workerCount[level] || 1;
+    const workerCount = balance.workerCount[level];
+    
+    // If workerCount is 0 or undefined, don't spawn workers (e.g. Warehouse)
+    if (!workerCount || workerCount === 0) {
+      return;
+    }
 
     // Count existing workers for this building
     const existingWorkers = npcs.filter(npc => npc.buildingUid === instanceUid).length;
@@ -109,6 +125,17 @@ window.NPCSystem = (function() {
    */
   function update(deltaTime) {
     npcs.forEach(npc => {
+      // Safety check: Skip NPCs for non-harvester buildings (e.g. Warehouse)
+      const building = GameState.getInstance(npc.buildingUid);
+      if (building) {
+        const balance = GameRegistry.getBalance(building.entityId);
+        const level = building.level || 1;
+        if (balance && balance.workerCount && balance.workerCount[level] === 0) {
+          // This NPC shouldn't exist - skip update
+          return;
+        }
+      }
+      
       updateNPC(npc, deltaTime);
       
       // Update 3D mesh position
@@ -171,13 +198,31 @@ window.NPCSystem = (function() {
       return;
     }
 
+    // Check if storage is full (prevent harvesting if no space)
+    const storageUsed = GameState.getStorageUsed(npc.buildingUid);
+    const storageCapacity = GameState.getStorageCapacity(npc.buildingUid);
+    
+    if (storageUsed >= storageCapacity && storageCapacity < Infinity) {
+      // Storage full - wait at building (idle)
+      npc.state = STATE.IDLE;
+      npc.waitingForStorage = true;
+      return;
+    }
+    
+    // Clear waiting flag if we can harvest again
+    npc.waitingForStorage = false;
+
     const balance = GameRegistry.getBalance(building.entityId);
     const searchRadius = (balance.searchRadius && balance.searchRadius[building.level]) || 5;
 
     // Determine what resource this building type harvests
     const targetNodeType = getHarvestNodeType(building.entityId);
     if (!targetNodeType) {
-      console.warn('[NPCSystem] No harvest node type for building:', building.entityId);
+      // Building doesn't harvest (e.g. Warehouse) - mark NPC as idle permanently
+      if (!npc._noHarvestWarningShown) {
+        console.warn('[NPCSystem] No harvest node type for building:', building.entityId, '- NPC will remain idle');
+        npc._noHarvestWarningShown = true;
+      }
       npc.state = STATE.IDLE;
       return;
     }
@@ -233,14 +278,30 @@ window.NPCSystem = (function() {
 
     const node = npc.targetNode.object;
     
-    // Harvest at 1 hit per second
+    // Harvest at 1 hit per second (modified by specialization and research)
+    var specBonus = getSpecializationBonus(npc);
+    var harvestSpeed = specBonus.harvestSpeed;
+    
+    // Apply global research bonus to harvest speed
+    if (window.ResearchSystem) {
+      var globalBonuses = ResearchSystem.getGlobalBonuses();
+      harvestSpeed *= (1 + (globalBonuses.harvestSpeedBonus || 0));
+    }
+    
+    var harvestInterval = 1.0 / harvestSpeed;  // Faster if specialized/researched
+    
     npc.harvestProgress += deltaTime;
     
-    if (npc.harvestProgress >= 1.0) {
+    if (npc.harvestProgress >= harvestInterval) {
       npc.harvestProgress = 0;
       
-      // Apply damage to node
-      node.hp -= 1;
+      // Apply damage to node (1 base damage, can be modified by training level)
+      var damageAmount = 1;
+      if (npc.trainingLevel > 1) {
+        damageAmount *= (1 + ((npc.trainingLevel - 1) * 0.1));  // +10% per training level
+      }
+      
+      node.hp -= damageAmount;
       
       // HP bar is automatically updated by updateNodeHpBars() in render loop
       
@@ -295,18 +356,35 @@ window.NPCSystem = (function() {
    * DEPOSIT state - deposit resources to building storage
    */
   function handleDeposit(npc) {
-    // Add harvested resources to building storage
+    var deposited = false;
+    var leftover = {};
+    
+    // Try to deposit harvested resources to building storage (check capacity) 
     for (const [resourceId, amount] of Object.entries(npc.harvestedAmount)) {
-      GameState.addBuildingStorage(npc.buildingUid, resourceId, amount);
+      if (GameState.canDeposit(npc.buildingUid, resourceId, amount)) {
+        GameState.addBuildingStorage(npc.buildingUid, resourceId, amount);
+        deposited = true;
+      } else {
+        // Storage full - keep in NPC inventory (will try again later)
+        leftover[resourceId] = amount;
+      }
     }
     
-    // Clear carried resources
-    npc.harvestedAmount = {};
-    npc.targetNode = null;
-    npc.targetPosition = null;
+    // Update carried resources (only keep what couldn't be deposited)
+    npc.harvestedAmount = leftover;
     
-    // Return to idle (will find new node)
-    npc.state = STATE.IDLE;
+    if (Object.keys(leftover).length === 0) {
+      // Successfully deposited everything - can go find new node
+      npc.targetNode = null;
+      npc.targetPosition = null;
+      npc.state = STATE.IDLE;
+    } else {
+      // Storage full - wait at building (idle but carrying resources)
+      npc.targetNode = null;
+      npc.targetPosition = null;
+      npc.state = STATE.IDLE;
+      npc.waitingForStorage = true;
+    }
   }
 
   /**
@@ -370,7 +448,9 @@ window.NPCSystem = (function() {
       'building.berry_gatherer': 'node.berry_bush',
       'building.flint_mine': 'node.flint_deposit',
       'building.copper_mine': 'node.copper_deposit',
-      'building.tin_mine': 'node.tin_deposit'
+      'building.tin_mine': 'node.tin_deposit',
+      'building.iron_mine': 'node.iron_deposit',
+      'building.coal_mine': 'node.coal_deposit'
     };
     return map[buildingEntityId];
   }
@@ -487,6 +567,20 @@ window.NPCSystem = (function() {
     return activeNodes;
   }
 
+  /**
+   * Get NPC by UID
+   */
+  function getNPCByUid(npcUid) {
+    return npcs.find(npc => npc.uid === npcUid) || null;
+  }
+
+  /**
+   * Get specialization bonus for NPC (simplified - always base values)
+   */
+  function getSpecializationBonus(npc) {
+    return { harvestSpeed: 1.0, moveSpeed: 1.0 };
+  }
+
   return {
     init,
     spawnWorkersForBuilding,
@@ -494,6 +588,8 @@ window.NPCSystem = (function() {
     update,
     getAllNPCs,
     getNPCsForBuilding,
-    getActiveHarvestNodes
+    getActiveHarvestNodes,
+    getNPCByUid,
+    getSpecializationBonus
   };
 })();

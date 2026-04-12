@@ -10,6 +10,14 @@ window.GameScene = (function () {
   var speedSteps = [0.25, 0.5, 1, 2, 5];
 
   function init() {
+    console.log('[GameScene] Initializing 3D scene...');
+    
+    if (typeof THREE === 'undefined') {
+      console.error('[GameScene] ❌ THREE.js not loaded!');
+      alert('ERROR: THREE.js library not loaded. Cannot start game.');
+      return;
+    }
+    
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87CEEB);
     scene.fog = new THREE.Fog(0x87CEEB, 40, 80);
@@ -77,6 +85,20 @@ window.GameScene = (function () {
   }
 
   function startLoop() {
+    console.log('[GameScene] Starting render loop...');
+    
+    if (!renderer) {
+      console.error('[GameScene] ❌ Renderer not initialized!');
+      return;
+    }
+    
+    if (!scene) {
+      console.error('[GameScene] ❌ Scene not initialized!');
+      return;
+    }
+    
+    console.log('[GameScene] ✅ Scene initialized with', scene.children.length, 'objects');
+    
     _lastTime = performance.now();
     function loop(now) {
       _animFrameId = requestAnimationFrame(loop);

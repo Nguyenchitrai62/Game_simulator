@@ -67,8 +67,11 @@ window.GameEntities = (function () {
       leaves2.castShadow = true;
       group.add(leaves2);
 
-    } else if (type === "node.rock" || type === "node.copper_deposit" || type === "node.tin_deposit") {
-      var rockColor = mainColor || 0x808080;
+    } else if (type === "node.rock" || type === "node.copper_deposit" || type === "node.tin_deposit" || type === "node.iron_deposit" || type === "node.coal_deposit") {
+      var rockColor = mainColor || (type === "node.copper_deposit" ? 0xB87333 :
+                                      type === "node.tin_deposit" ? 0xC0C0C0 :
+                                      type === "node.iron_deposit" ? 0x8B7355 :
+                                      type === "node.coal_deposit" ? 0x2F2F2F : 0x808080);
       var rockGeo = new THREE.DodecahedronGeometry(0.35 * scale, 0);
       var rockMat = new THREE.MeshLambertMaterial({ color: rockColor });
       var rock = new THREE.Mesh(rockGeo, rockMat);
@@ -123,11 +126,14 @@ window.GameEntities = (function () {
       sharp.castShadow = true;
       group.add(sharp);
 
-    } else if (type === "animal.wolf" || type === "animal.boar" || type === "animal.bear" || type === "animal.lion") {
+    } else if (type === "animal.wolf" || type === "animal.boar" || type === "animal.bear" || type === "animal.lion" || type === "animal.bandit" || type === "animal.sabertooth") {
       var animalColor = mainColor || (type === "animal.wolf" ? 0x808080 : 
                                         type === "animal.boar" ? 0x8B6914 : 
-                                        type === "animal.lion" ? 0xC4A24E : 0x5C4033);
-      var animalScale = scale || (type === "animal.bear" || type === "animal.lion" ? 0.8 : 0.6);
+                                        type === "animal.lion" ? 0xC4A24E :
+                                        type === "animal.bandit" ? 0x8B4513 :
+                                        type === "animal.sabertooth" ? 0xF4A460 : 0x5C4033);
+      var animalScale = scale || (type === "animal.bear" || type === "animal.lion" || type === "animal.sabertooth" ? 0.8 : 
+                                    type === "animal.bandit" ? 0.7 : 0.6);
 
       // Body
       var bodyLen = type === "animal.bear" || type === "animal.lion" ? 0.7 : 0.5;
@@ -262,6 +268,40 @@ window.GameEntities = (function () {
         
         // Slow wandering movement (not during combat)
         if (!isInCombat) {
+          // Aggro check - animals attack player when nearby
+          if (window.GamePlayer && window.GameCombat) {
+            var playerPos = GamePlayer.getPosition();
+            var distToPlayer = Math.sqrt(
+              Math.pow(objData.worldX - playerPos.x, 2) +
+              Math.pow(objData.worldZ - playerPos.z, 2)
+            );
+            var balance = GameRegistry.getBalance(objData.type);
+            var aggroRange = (balance && balance.aggroRange) || 3;
+
+            if (distToPlayer < aggroRange && !GameCombat.isActive()) {
+              GameCombat.startCombat(objData);
+              return; // Skip further animation this frame
+            }
+
+            // Chase player if within aggro range x2 (pursuit range)
+            if (distToPlayer < aggroRange * 2 && distToPlayer > aggroRange && !GameCombat.isActive()) {
+              var chaseSpeed = 1.0 * dt;
+              var chaseDx = (playerPos.x - objData.worldX) / distToPlayer;
+              var chaseDz = (playerPos.z - objData.worldZ) / distToPlayer;
+              var chaseX = mesh.position.x + chaseDx * chaseSpeed;
+              var chaseZ = mesh.position.z + chaseDz * chaseSpeed;
+              if (window.GameTerrain && GameTerrain.isWalkable(chaseX, chaseZ)) {
+                mesh.position.x = chaseX;
+                mesh.position.z = chaseZ;
+                objData.worldX = chaseX;
+                objData.worldZ = chaseZ;
+                var chaseAngle = Math.atan2(chaseDx, chaseDz);
+                mesh.rotation.y = chaseAngle;
+              }
+              return; // Skip wandering while chasing
+            }
+          }
+
           // Initialize wander state if needed
           if (!mesh.userData._wanderTime) {
             mesh.userData._wanderTime = time;
@@ -432,26 +472,38 @@ window.GameEntities = (function () {
    */
   function destroyNode(nodeData) {
     if (!nodeData) return;
-    
+
     // Mark as destroyed
     nodeData._destroyed = true;
     nodeData.hp = 0;
-    
+
     // Hide mesh
     hideObject(nodeData);
-    
-    // Schedule respawn
+
+    // Schedule respawn with player collision check
     var balance = GameRegistry.getBalance(nodeData.type);
     var respawnTime = (balance && balance.respawnTime) || 30;
-    
-    setTimeout(function() {
-      if (nodeData._destroyed) {
-        nodeData._destroyed = false;
-        var maxHp = nodeData.maxHp || (balance && balance.hp) || 10;
-        nodeData.hp = maxHp;
-        showObject(nodeData);
+
+    function tryRespawn() {
+      if (!nodeData._destroyed) return;
+      // Check if player is too close - delay respawn if so
+      if (window.GamePlayer) {
+        var playerPos = GamePlayer.getPosition();
+        var dx = Math.abs(nodeData.worldX - playerPos.x);
+        var dz = Math.abs(nodeData.worldZ - playerPos.z);
+        if (dx < 2 && dz < 2) {
+          // Player is standing on this spot, retry in 5 seconds
+          setTimeout(tryRespawn, 5000);
+          return;
+        }
       }
-    }, respawnTime * 1000);
+      nodeData._destroyed = false;
+      var maxHp = nodeData.maxHp || (balance && balance.hp) || 10;
+      nodeData.hp = maxHp;
+      showObject(nodeData);
+    }
+
+    setTimeout(tryRespawn, respawnTime * 1000);
   }
 
   return {

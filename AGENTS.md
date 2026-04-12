@@ -1,82 +1,86 @@
 # Evolution Simulator 3D — Game Documentation
 
-> Phiên bản: 1.0.0 | Cập nhật: 2026-04-12
+> Version: 2.0.0 | Updated: 2026-04-13
 
 ---
 
-## 1. Tổng quan
+## 1. Overview
 
-Game mô phỏng tiến hóa từ Stone Age sang Bronze Age, chạy hoàn toàn trên frontend bằng cách mở `index.html`. Sử dụng Three.js (CDN) cho 3D isometric rendering, vanilla JS không framework.
+3D evolution simulator: Stone Age -> Bronze Age -> Iron Age. Runs entirely in browser via `index.html`. Three.js (local `three.min.js`) for 3D isometric rendering, vanilla JS, no framework.
 
-### Nguyên tắc kiến trúc
+### Architecture Principles
 
-| Nguyên tắc | Mô tả |
-|------------|-------|
-| **Data-driven** | Content chỉ define entity tồn tại. Balance giữ TẤT CẢ số liệu gameplay. Engine luôn đọc từ balance. |
-| **Append-only content** | Không sửa/xóa content pack cũ. Chỉ thêm pack mới + tăng version. |
-| **Single balance file** | Chỉnh toàn game bằng 1 file `balance.js`. |
-| **No AI exposed** | AI chỉ dùng dev-side để generate content. User chỉ chơi content đã release. |
+| Principle | Description |
+|-----------|-------------|
+| **Data-driven** | Content defines entities. Balance holds ALL gameplay numbers. Engine reads from balance. |
+| **Append-only content** | Never edit/delete old content packs. Only add new packs + increment version. |
+| **Single balance file** | Tune entire game via one file: `balance.js`. |
+| **No AI exposed** | AI is dev-side only for content generation. Users play released content. |
 
 ---
 
-## 2. Cấu trúc Project
+## 2. Project Structure
 
 ```
 d:\Source_code\Game_simulator\
-│
-├── index.html                  ← Entry point, HUD skeleton
-├── main.js                     ← Init toàn bộ hệ thống + GameActions
-├── style.css                   ← HUD overlay styles
-│
-├── /engine                     ← Logic engine (không phụ thuộc 3D)
-│   ├── registry.js             ← Merge content + balance → runtime entities
-│   ├── gameState.js            ← Mutable state: resources, player, inventory, instances
-│   ├── tickSystem.js           ← Production ticks (1 giây/tick)
-│   ├── craftSystem.js          ← Crafting: input → output
-│   ├── unlockSystem.js         ← Check unlock conditions (age/resources/buildings)
-│   └── upgradeSystem.js        ← Building upgrade logic
-│
-├── /world                      ← 3D Layer (Three.js)
-│   ├── scene.js                ← Scene, camera isometric, render loop, lighting
-│   ├── terrain.js              ← Chunk-based infinite world, seeded procedural gen
-│   ├── entities.js             ← 3D models: trees, rocks, animals, deposits
-│   ├── player.js               ← Player character, WASD movement, interaction
-│   ├── combat.js               ← Click-to-attack combat system
-│   ├── buildingSystem.js       ← Building placement + upgrade on grid
-│   └── npcSystem.js            ← NPC worker AI: pathfinding, harvesting, storage
-│
-├── /content                    ← Content packs (append-only)
-│   ├── manifest.js             ← Version + pack list
-│   ├── base_stone_age.js       ← Stone Age entities
-│   └── expansion_bronze_age.js ← Bronze Age entities
-│
-├── /balance
-│   └── balance.js              ← TOÀN BỘ số liệu gameplay
-│
-├── /storage
-│   └── localStorage.js         ← Save/load game state
-│
-├── /ui
-│   └── hud.js                  ← HUD overlay (resources, panels, notifications)
-│
-└── /dev                        ← Developer tools
-    ├── validate.js             ← Validate content integrity
-    ├── ai_generate.js          ← Content generator stub
-    └── preview.js              ← Preview generated content
+|
+|-- index.html                  <- Entry point, HUD skeleton
+|-- main.js                     <- Init + GameActions API
+|-- style.css                   <- HUD styles (dark theme)
+|-- three.min.js                <- Three.js (local)
+|
+|-- /engine                     <- Logic engine (no 3D dependency)
+|   |-- registry.js             <- Merge content + balance -> runtime entities
+|   |-- gameState.js            <- Mutable state: resources, player, inventory, instances
+|   |-- tickSystem.js           <- Production ticks (~1s/tick), consumption, warehouse transfer
+|   |-- craftSystem.js          <- Crafting: input -> output
+|   |-- unlockSystem.js         <- Multi-pass unlock check (age/resources/buildings/tech)
+|   |-- upgradeSystem.js        <- Per-instance building upgrade
+|   |-- researchSystem.js       <- Technology research: prerequisites, global bonuses
+|   |-- synergy.js              <- Building proximity bonuses (wired, data pending)
+|
+|-- /world                      <- 3D Layer (Three.js)
+|   |-- scene.js                <- Scene, orthographic camera, render loop, lighting, game speed
+|   |-- terrain.js              <- Chunk-based infinite world, seeded procedural gen
+|   |-- entities.js             <- 3D meshes + animal wandering AI + node respawn
+|   |-- player.js               <- Player character, WASD, interaction, HP regen
+|   |-- combat.js               <- Click-to-attack, 0.5s interval, death penalty
+|   |-- buildingSystem.js       <- Build mode preview + placement + upgrade visuals + destruction
+|   |-- npcSystem.js            <- NPC workers: IDLE->FIND_NODE->WALK->HARVEST->WALK_HOME->DEPOSIT
+|
+|-- /content                    <- Content packs (append-only)
+|   |-- manifest.js             <- Version "2.0.0" + pack list
+|   |-- base_stone_age.js       <- Stone Age (30 entities)
+|   |-- expansion_bronze_age.js <- Bronze Age (17 entities)
+|   |-- expansion_iron_age.js   <- Iron Age (20 entities)
+|
+|-- /balance
+|   |-- balance.js              <- ALL gameplay numbers (nodes, animals, buildings, recipes, equipment, ages, tech)
+|
+|-- /storage
+|   |-- localStorage.js         <- Save/load + version check
+|
+|-- /ui
+|   |-- hud.js                  <- Full HUD: resources, modal (5 tabs), building inspector, notifications
+|
+|-- /dev                        <- Developer tools
+|   |-- validate.js             <- Content integrity validator
+|   |-- ai_generate.js          <- Content generator stub
+|   |-- preview.js              <- Preview generated content
 ```
 
 ### Script Load Order (index.html)
 
 ```
-1. Three.js r128 (CDN)
-2. Data: manifest → base_stone_age → expansion_bronze_age → balance
-3. Engine Core: registry → gameState
+1. three.min.js (local)
+2. Data: manifest -> base_stone_age -> expansion_bronze_age -> expansion_iron_age -> balance
+3. Engine Core: registry -> gameState
 4. Persistence: localStorage
-5. Systems: tickSystem → craftSystem → unlockSystem → upgradeSystem
-6. World: scene → terrain → entities → player → combat → buildingSystem → npcSystem
-7. UI: hud
+5. Systems: tickSystem -> craftSystem -> unlockSystem -> upgradeSystem -> synergy -> researchSystem
+6. World: scene -> terrain -> entities -> player -> combat -> buildingSystem -> npcSystem
+7. UI: hud (MUST load before main.js)
 8. Entry: main
-9. Dev: validate → ai_generate → preview
+9. Dev: validate -> ai_generate -> preview
 ```
 
 ---
@@ -84,29 +88,17 @@ d:\Source_code\Game_simulator\
 ## 3. Data Flow
 
 ```
-┌─────────────┐     ┌─────────────┐
-│ Content Pack │     │ Balance.js  │
-│ (entities)  │     │ (numbers)   │
-└──────┬──────┘     └──────┬──────┘
-       │                   │
-       └───────┬───────────┘
-               ▼
-        ┌─────────────┐
-        │  Registry    │  merge content + balance → runtime entity
-        │  (init)      │
-        └──────┬──────┘
-               │
-       ┌───────┼───────┐
-       ▼       ▼       ▼
-  ┌────────┐ ┌────────┐ ┌────────────┐
-  │ Game   │ │ UI/HUD │ │ World/3D   │
-  │ Systems│ │ render │ │ rendering  │
-  └───┬────┘ └────────┘ └────────────┘
-      │
-      ▼
-  ┌────────┐
-  │ State  │  ←─ save/load → localStorage
-  └────────┘
+Content Pack (entities) + Balance.js (numbers)
+        |
+        v
+   Registry (merge -> runtime entity)
+        |
+   +----+----+
+   |    |    |
+Systems  HUD  World/3D
+   |
+   v
+ Game State <--save/load--> localStorage
 ```
 
 ---
@@ -115,481 +107,220 @@ d:\Source_code\Game_simulator\
 
 ### 4.1 Entity Types
 
-| Type | Prefix | Mô tả | Nguồn |
-|------|--------|--------|-------|
-| `age` | `age.` | Kỷ nguyên | Content pack |
-| `resource` | `resource.` | Tài nguyên đếm được | Content pack |
-| `resource_node` | `node.` | Object trong world (chặt/đào được) | Content pack |
-| `animal` | `animal.` | Quái vật đánh được | Content pack |
-| `building` | `building.` | Công trình đặt trong world | Content pack |
-| `equipment` | `equipment.` | Trang bị tăng chỉ số | Content pack |
-| `recipe` | `recipe.` | Công thức chế tạo | Content pack |
+| Type | Prefix | Source |
+|------|--------|--------|
+| `age` | `age.` | Content pack |
+| `resource` | `resource.` | Content pack |
+| `resource_node` | `node.` | Content pack |
+| `animal` | `animal.` | Content pack |
+| `building` | `building.` | Content pack |
+| `equipment` | `equipment.` | Content pack |
+| `recipe` | `recipe.` | Content pack |
+| `technology` | `tech.` | Content pack |
 
-### 4.2 Entity Fields (Content Pack)
+### 4.2 Content Entity Fields
 
 ```js
-// Mọi entity đều có:
 {
-  id: "building.wood_cutter",    // Dot-namespaced ID
+  id: "building.wood_cutter",     // Dot-namespaced ID
   type: "building",               // Entity type
   name: "Wood Cutter",            // Display name
   description: "Auto-gathers wood.",
-
-  // Tùy type:
-  visual: {                        // 3D rendering data
-    shape: "building",             // tree, rock, building, wolf, boar, bear, bush, flint
-    color: 0x8B4513,              // Main color (hex)
-    roofColor: 0x2d5a27,          // (building only) roof color
-    scale: 1.0                     // Size multiplier
-  },
-  slot: "weapon",                  // (equipment only) weapon | offhand | armor | boots
-  unlock: {                        // Điều kiện unlock
-    age: "age.stone",              // Phải ở age này
-    resources: { "resource.wood": 15 },   // (optional) Cần đủ tài nguyên
-    buildings: { "building.wood_cutter": 1 }  // (optional) Cần đủ buildings
+  visual: { shape, color, roofColor?, scale? },  // 3D rendering
+  slot: "weapon",                 // equipment only: weapon|offhand|armor|boots
+  unlock: {                       // Unlock conditions
+    age: "age.stone",
+    resources?: { "resource.wood": 15 },
+    buildings?: { "building.wood_cutter": 1 },
+    technologies?: ["tech.advanced_tools"]  // NEW in v2
   }
 }
 ```
 
-### 4.3 Balance Fields
+### 4.3 Balance Fields (key patterns)
 
 ```js
-// === Resource Nodes ===
-"node.tree": {
-  hp: 3,                          // Hit points
-  rewards: { "resource.wood": 3 }, // Loot khi phá xong
-  respawnTime: 30                  // Giây để respawn
+// Resource Nodes
+"node.tree": { hp, rewards: { "resource.id": amt }, respawnTime }
+
+// Animals
+"animal.wolf": { hp, attack, defense, rewards, respawnTime, aggroRange }
+
+// Buildings
+"building.id": {
+  cost, produces?, consumesPerTick?,
+  searchRadius: { level: radius },
+  workerCount: { level: count },
+  storageCapacity: { level: capacity },
+  productionSpeed: { level: speed },
+  synergyFrom?: {},               // Proximity bonus source (data pending)
+  transferRange?: 5,              // Warehouse only: transfer to warehouse range
+  upgrades: { level: { cost, productionMultiplier } }
 }
 
-// === Animals ===
-"animal.wolf": {
-  hp: 15,                          // Hit points
-  attack: 3,                       // Damage per hit
-  defense: 1,                      // Damage reduction
-  rewards: { "resource.food": 5 }, // Loot khi giết
-  respawnTime: 60
-}
+// Recipes
+"recipe.id": { input: {...}, output: {...} }
 
-// === Buildings ===
-"building.wood_cutter": {
-  cost: { "resource.wood": 10 },   // Chi phí xây
-  produces: { "resource.wood": 2 },// Sản xuất/tick
-  consumesPerTick: { ... },        // (optional) Tiêu thụ/tick
-  upgrades: {                      // (optional) Cấp nâng cấp
-    2: { cost: { ... }, productionMultiplier: 1.5 },
-    3: { cost: { ... }, productionMultiplier: 2.0 }
-  }
-}
+// Equipment
+"equipment.id": { stats: { attack?, defense?, maxHp?, speed? }, slot }
 
-// === Recipes ===
-"recipe.wooden_sword": {
-  input: { "resource.wood": 5, "resource.flint": 2 },
-  output: { "equipment.wooden_sword": 1 }
-}
+// Ages
+"age.id": { startResources, advanceFrom?: { age, resources, buildings } }
 
-// === Equipment ===
-"equipment.wooden_sword": {
-  stats: { attack: 3 },            // attack, defense, maxHp, speed
-  slot: "weapon"                   // weapon | offhand | armor | boots
-}
-
-// === Ages ===
-"age.stone": {
-  startResources: { "resource.wood": 10, ... }
-}
-"age.bronze": {
-  startResources: { ... },
-  advanceFrom: {                   // Điều kiện advance
-    age: "age.stone",
-    resources: { "resource.tool": 10 },
-    buildings: { "building.wood_cutter": 3 }
-  }
-}
+// Technologies
+"tech.id": { researchCost, requires?: ["tech.id"], effects: { productionBonus?, harvestSpeedBonus?, npcSpeedBonus?, storageBonus? } }
 ```
 
 ---
 
-## 5. Game State
+## 5. Game State (`window.GameState`)
 
 ```js
 {
-  // === Core ===
-  resources: { "resource.wood": 10, "resource.stone": 5, ... },
-  buildings: { "building.wood_cutter": 2, ... },   // Tổng count mỗi loại
-  unlocked: ["age.stone", "resource.wood", ...],    // Danh sách entity ID đã unlock
+  resources: {},          // "resource.wood": 10
+  buildings: {},          // "building.wood_cutter": 2  (total count)
+  unlocked: [],           // Entity IDs unlocked
+  researched: [],         // Tech IDs researched
   age: "age.stone",
-  version: "1.0.0",
-
-  // === Player ===
-  player: {
-    hp: 100, maxHp: 100,
-    attack: 1, defense: 0,          // Base stats (trước equipment)
-    x: 8, z: 8,                     // World position
-    speed: 3,                        // Tiles/giây
-    equipped: {
-      weapon: null,                  // "equipment.wooden_sword" hoặc null
-      offhand: null,
-      armor: null,
-      boots: null
-    }
-  },
-
-  // === Inventory ===
-  inventory: { "equipment.wooden_sword": 1, ... },
-
-  // === Building Instances (đã đặt trong world) ===
-  instances: {
-    "inst_1": { entityId: "building.wood_cutter", level: 1, x: 5, z: 3, uid: "inst_1" }
-  },
-
-  // === World ===
-  chunks: { "0,0": { objects: [...], ... } },
-  worldSeed: 42                      // Persistent seed cho procedural gen
+  version: "2.0.0",
+  player: { hp, maxHp, attack, defense, x, z, speed, equipped: { weapon, offhand, armor, boots } },
+  inventory: {},          // "equipment.id": count
+  instances: {},          // "uid": { entityId, level, x, z, uid }
+  buildingStorage: {},    // "uid": { "resource.id": amt }
+  chunks: {},
+  worldSeed: 42,
+  fractionalAccumulator: {},
+  gameSpeed: 1.0,
+  isPaused: false,
+  techState: { currentResearch: null, progress: 0 }
 }
 ```
 
-### Public API: `window.GameState`
+### Key API
 
-| Hàm | Mô tả |
-|-----|--------|
-| `init()` | Reset state, load starter resources từ balance |
-| **Resources** | `addResource(id, amt)`, `removeResource(id, amt)` → bool, `getResource(id)`, `hasResource(id, amt)`, `getAllResources()` |
-| **Buildings** | `addBuilding(id)`, `getBuildingCount(id)`, `getAllBuildings()` |
-| **Unlock** | `unlock(id)` → bool isNew, `isUnlocked(id)`, `getUnlocked()` |
+| Category | Functions |
+|----------|-----------|
+| **Resources** | `addResource(id, amt)`, `removeResource(id, amt)`, `getResource(id)`, `hasResource(id, amt)` |
+| **Buildings** | `addBuilding(id)`, `getBuildingCount(id)`, `removeBuilding(id)` |
+| **Unlock** | `unlock(id)`, `isUnlocked(id)`, `getUnlocked()` |
 | **Age** | `setAge(id)`, `getAge()` |
-| **Player** | `getPlayer()`, `setPlayerHP(hp)`, `getPlayerMaxHp()`, `getPlayerAttack()`, `getPlayerDefense()`, `equipItem(eqId)`, `unequipSlot(slot)` |
-| **Inventory** | `addToInventory(id, count)`, `removeFromInventory(id, count)`, `getInventory()`, `getInventoryCount(id)` |
+| **Player** | `getPlayer()`, `setPlayerHP()`, `getPlayerMaxHp/Attack/Defense/Speed()`, `equipItem()`, `unequipSlot()` |
+| **Inventory** | `addToInventory(id, count)`, `removeFromInventory()`, `getInventory()` |
 | **Instances** | `addInstance(uid, data)`, `getInstance(uid)`, `getAllInstances()`, `removeInstance(uid)` |
-| **Chunks** | `saveChunkData(key, data)`, `getChunkData(key)` |
-| **Serialize** | `exportState()` → deep copy, `importState(data)` → bool |
-
-### Stat Calculation
-
-```
-PlayerMaxHp    = 100 + armor.stats.maxHp
-PlayerAttack   = player.baseAttack + weapon.stats.attack
-PlayerDefense  = player.baseDefense + offhand.stats.defense + armor.stats.defense
-PlayerSpeed    = player.baseSpeed + boots.stats.speed
-```
+| **Research** | `markResearched(techId)`, `isResearched(techId)`, `getResearched()` |
+| **Storage** | `addBuildingStorage()`, `getBuildingStorage()`, `collectFromBuilding()`, `tryDepositToBuilding()` |
+| **Serialize** | `exportState()`, `importState(data)` |
 
 ---
 
 ## 6. Engine Systems
 
 ### 6.1 Registry (`window.GameRegistry`)
-
-| Hàm | Mô tả |
-|-----|--------|
-| `init()` | Load packs từ manifest, merge content + balance |
-| `getEntity(id)` | Runtime entity (content + balance merged) |
-| `getEntitiesByType(type)` | Array of entities matching type |
-| `getBalance(id)` | Raw balance data |
-| `getAllEntities()` | Full entity map |
-
-**Merge logic:** Content fields first → balance fills gaps → balance also stored as `_balance` property.
+`init()` loads packs from manifest, merges content fields + balance data into runtime entities.
+`getEntity(id)` returns merged entity, `getBalance(id)` returns raw balance, `getEntitiesByType(type)` for filtered queries.
 
 ### 6.2 Tick System (`window.TickSystem`)
-
-Được gọi mỗi 1 giây từ render loop (tick accumulator trong `scene.js`).
-
-```
-tick():
-  1. applyProduction() — loop tất cả building instances
-     - Check consumesPerTick → deduct if sufficient
-     - Apply produces * UpgradeSystem.getProductionMultiplier(buildingId)
-  2. UnlockSystem.checkAll() — check unlock conditions
-  3. GameHUD.renderAll() — update UI
-  4. Auto-save mỗi 10 ticks
-```
+Runs every ~1 second from render loop. Production from NPC harvesting -> building storage. Consumption for smelters. Warehouse transfer (buildings within `transferRange`). UnlockSystem check. Auto-save every 5 ticks. Game speed multiplier support (0.25x-5x).
 
 ### 6.3 Craft System (`window.CraftSystem`)
-
-```
-craft(recipeId):
-  1. Check isUnlocked(recipeId)
-  2. Check đủ tất cả input resources
-  3. Deduct inputs
-  4. Add outputs
-  5. Return success
-```
-
-**Lưu ý:** Equipment output được thêm vào `resources` trước, rồi `GameActions.craft()` chuyển sang `inventory`.
+Validates: unlock, input resources, no duplicate equipment. Deducts inputs, adds outputs to inventory (equipment) or resources.
 
 ### 6.4 Unlock System (`window.UnlockSystem`)
-
-```
-checkAll():
-  Loop mọi entity (skip type "age", skip đã unlock):
-    checkConditions(entity.unlock):
-      1. age match?
-      2. resources >= threshold? (nếu có)
-      3. buildings >= count? (nếu có)
-      → Nếu pass: GameState.unlock(id)
-```
-
-**Chạy 2 lần** lúc init để unlock chain dependencies (vd: wood_cutter unlock → stone_quarry cần wood_cutter).
+Multi-pass (up to 10) unlock checking: age match, resource threshold, building count, technology prerequisites. Provides progress tracking.
 
 ### 6.5 Upgrade System (`window.UpgradeSystem`)
+Per-instance building upgrade: checks next level cost, deducts resources, updates instance level, recreates 3D mesh, respawns NPCs.
 
-```
-upgrade(buildingId, instanceUid):
-  1. Check next level tồn tại trong balance.upgrades
-  2. Check đủ resources cho upgrade cost
-  3. Deduct cost
-  4. Update instance level
+### 6.6 Research System (`window.ResearchSystem`)
+Checks: unlock status, already researched, prerequisites (`requires` array), resource cost. Deducts cost, marks researched. Provides `getGlobalBonuses()` accumulating all tech effects (productionBonus, harvestSpeedBonus, npcSpeedBonus, storageBonus).
 
-getProductionMultiplier(buildingId):
-  → balance.upgrades[currentLevel].productionMultiplier || 1.0
-```
+### 6.7 Synergy System (`window.SynergySystem`)
+Checks `balance.synergyFrom` for nearby buildings within 1.5 tiles. Diminishing returns after 3 buildings (10%/extra), hard cap 50%. **Note: currently no buildings have non-empty synergyFrom -- system is wired but inactive.**
 
 ---
 
 ## 7. World Systems
 
-### 7.1 Scene (`window.GameScene`)
+### 7.1 Scene
+Orthographic camera at (player+20, 20, player+20). Zoom: 6-12. Fog 40-80. Sky 0x87CEEB. Ambient + directional + hemisphere lights. Render loop via requestAnimationFrame.
 
-```
-Camera: Orthographic, position (playerX+20, 20, playerZ+20)
-Look at: (playerX, 0, playerZ)
-Zoom: 6-25, mặc định 12
-Background: 0x87CEEB (sky blue)
-Fog: 40-80 range
-Lights: Ambient (0.6) + Directional sun + Hemisphere
-Render loop: requestAnimationFrame
-```
+### 7.2 Terrain
+16x16 tile chunks, render distance 2. Seeded procedural generation. Objects spawn based on distance from home + current age (iron/coal deposits, bandits/sabertooths only in Iron Age).
 
-### 7.2 Terrain (`window.GameTerrain`) — Infinite World
+### 7.3 Player
+WASD isometric movement (45 degree conversion). Collision: slide-along-wall. E key interaction. HP regen: 1 HP/2s after 3s out of combat.
 
-```
-Chunk size: 16x16 tiles
-Render distance: 2 chunks
-Seed: Deterministic (cx * 73856093 ^ cz * 19349663)
-```
+### 7.4 Combat
+Click animal -> walk to -> auto-combat at 0.5s interval. `damage = max(1, ATK - DEF)` for player, `max(0, ATK - DEF)` for animal. Animal death: loot + respawn. Player death: respawn (8,8), full HP, lose 30% resources.
 
-**Generation Rules:**
+### 7.5 Building System
+Build mode: preview mesh (green/red), grid snap, validation (walkable, no overlap). Upgrade: level-based visual changes (foundation, windows, chimney, stars). Destruction: NPC despawn, tile release, 50% refund.
 
-| Distance | Trees | Rocks | Bushes | Animals | Flint |
-|----------|-------|-------|--------|---------|-------|
-| Home (0,0) | 8-12 | 2-3 | 1-3 | 0 | 0% |
-| Near (d<2) | 5-10 | 3-6 | 1-3 | 1-2 (wolf) | 0% |
-| Mid (d<4) | 2-5 | 4-8 | 0 | 2-3 (wolf/boar) | 50% |
-| Far (d≥4) | 2-5 | 4-8 | 0 | 3 (boar/bear) | 50% |
-
-**HP đọc từ `GAME_BALANCE`**, không hardcode.
-
-### 7.3 Movement (`window.GamePlayer`)
-
-**Controls:**
-| Key | Action |
-|-----|--------|
-| W/↑ | Di chuyển lên màn hình |
-| S/↓ | Di chuyển xuống màn hình |
-| A/← | Di chuyển trái màn hình |
-| D/→ | Di chuyển phải màn hình |
-| E | Tương tác object gần nhất |
-| B | Mở Build tab |
-| C | Mở Craft tab |
-| I | Mở Inventory tab |
-| Scroll | Zoom in/out |
-| Click object | Walk to + tương tác |
-
-**Screen-to-World Conversion (Isometric 45°):**
-```
-Camera at (20,20,20) → screen right = world(+1,-1), screen up = world(-1,-1)
-
-screenDy: W=+1, S=-1
-screenDx: A=-1, D=+1
-
-worldDx = screenDx - screenDy
-worldDz = -screenDx - screenDy
-```
-
-**Collision:** Slide-along-wall (thử full move → thử X-only → thử Z-only).
-
-### 7.4 Combat (`window.GameCombat`)
-
-```
-Start: Click animal → walk to → arrive → auto-combat
-Interval: 1 hit/giây
-
-Player damage = max(1, playerAttack - animalDefense)
-Animal damage = max(0, animalAttack - playerDefense)
-
-Animal dies → loot rewards, hide mesh, schedule respawn
-Player dies → respawn (8,8), full HP, mất 30% resources
-```
-
-### 7.5 Building System (`window.BuildingSystem`)
-
-```
-Build mode flow:
-1. User click "Build" trong HUD panel
-2. enterBuildMode(buildingId) → tạo preview mesh
-3. Mouse move → updatePreview() → snap to grid, color green/red
-4. Click → placeBuilding() → validate + deduct cost + create instance + create 3D mesh
-5. exitBuildMode()
-```
-
-**Placement rules:**
-- Snap to integer grid
-- Must be walkable terrain
-- Không overlap existing buildings (0.7 unit buffer)
-
-### 7.6 NPC System (`window.NPCSystem`)
-
-Worker NPCs tự động thu thập tài nguyên cho buildings.
-
-```
-Init flow:
-1. NPCSystem.init() - Reset NPC array
-2. SpawnWorkersForBuilding(uid) - Tạo workers cho mỗi building
-   - Số lượng từ balance.workerCount[level]
-   - Tạo 3D mesh (GameEntities.createNPCMesh)
-   - Init tại vị trí building
-
-Update loop (mỗi frame):
-  NPCSystem.update(deltaTime) - Update tất cả NPCs
-  
-NPC State Machine:
-  IDLE → FIND_NODE → WALK_TO_NODE → HARVEST → WALK_HOME → DEPOSIT → IDLE
-  
-States:
-  - IDLE: Chờ, chuyển sang tìm node
-  - FIND_NODE: Tìm resource node gần nhất (searchRadius từ balance)
-  - WALK_TO_NODE: Di chuyển đến node (pathfinding)
-  - HARVEST: Đập node (1 hit/giây), lấy rewards khi node bị phá
-  - WALK_HOME: Quay về building với tài nguyên
-  - DEPOSIT: Gửi tài nguyên vào building storage (buildingStorage)
-  
-Building types:
-  - Wood Cutter → harvests node.tree
-  - Stone Quarry → harvests node.rock
-  - Berry Gatherer → harvests node.berry_bush
-  - Flint Mine → harvests node.flint_deposit
-  - Copper Mine → harvests node.copper_deposit
-  - Tin Mine → harvests node.tin_deposit
-  - Smelter → no harvesting (processes resources from storage)
-```
-
-**Balance data required:**
-```js
-"building.wood_cutter": {
-  searchRadius: { 1: 5, 2: 8, 3: 12 },  // Radius per level
-  workerCount: { 1: 1, 2: 2, 3: 3 }     // Workers per level
-}
-```
-
-**API:**
-- `init()` - Reset system
-- `spawnWorkersForBuilding(uid)` - Tạo workers cho building
-- `despawnWorkersForBuilding(uid)` - Xóa workers khi building bị phá
-- `update(deltaTime)` - Update tất cả NPCs (called từ scene.js)
+### 7.6 NPC System
+State machine: IDLE -> FIND_NODE -> WALK_TO_NODE -> HARVEST -> WALK_HOME -> DEPOSIT. Building-to-node mapping (8 types): wood_cutter->tree, stone_quarry->rock, berry_gatherer->berry_bush, flint_mine->flint, copper_mine->copper, tin_mine->tin, iron_mine->iron, coal_mine->coal. Processing buildings (smelter, blast_furnace, blacksmith, warehouse, barracks) have workerCount=0 or searchRadius=0.
 
 ---
 
-## 8. 3D Models (Programmatic)
+## 8. Content Entities
 
-Tất cả models tạo từ Three.js primitives, không cần external files:
+### Stone Age (30 entities)
+| Category | IDs |
+|----------|-----|
+| Age | `age.stone` |
+| Resources | wood, stone, food, flint, tool, leather |
+| Nodes | tree, rock, berry_bush, flint_deposit |
+| Animals | wolf, boar, bear |
+| Buildings | wood_cutter, stone_quarry, berry_gatherer, flint_mine, warehouse, barracks |
+| Equipment | wooden_sword (+3 ATK), stone_spear (+6 ATK), stone_shield (+3 DEF), leather_armor (+5 DEF, +10 HP), leather_boots (+2 SPD) |
+| Recipes | stone_tool, wooden_sword, stone_spear, stone_shield, leather_armor, leather_boots |
+| Techs | advanced_tools, efficient_gathering, expanded_storage, swift_workers |
 
-| Object | Geometry | Colors |
-|--------|----------|--------|
-| **Tree** | Cylinder trunk + 2 Cone layers leaves | Trunk: `0x8B4513`, Leaves: `0x2d5a27` |
-| **Rock** | Dodecahedron + small dodecahedron | `0x808080` |
-| **Berry Bush** | Sphere + 5 red berry spheres | `0x3a7a2e`, Berries: `0xcc3333` |
-| **Flint Deposit** | Box + Cone on top | `0x4a4a4a` |
-| **Copper Deposit** | Dodecahedron (reuses rock shape) | `0xB87333` |
-| **Tin Deposit** | Dodecahedron | `0xC0C0C0` |
-| **Wolf** | Box body + head + red eyes + 4 legs | `0x808080` |
-| **Boar** | Same + white cone tusks | `0x8B6914` |
-| **Bear** | Larger version | `0x5C4033` |
-| **Lion** | Same as bear | `0xC4A24E` |
-| **Buildings** | Box base + pyramid roof + door plane | Color/roofColor từ entity.visual |
-| **Player** | Box body + sphere head + 4 limb boxes | Body: `0x4488cc`, Head: `0xDEB887`, Legs: `0x3a3a5c` |
-| **NPC** | Smaller player-like mesh (0.6x scale) | Body: `0x88cc44`, Head: `0xDEB887` |
-| **Terrain** | Plane per chunk + GridHelper | `0x7ec850` |
+### Bronze Age (17 entities)
+| Category | IDs |
+|----------|-----|
+| Age | `age.bronze` (advance: 10 tools + 50 food + 3 wood_cutter + 2 stone_quarry) |
+| Resources | copper, tin, bronze |
+| Nodes | copper_deposit, tin_deposit |
+| Animals | lion |
+| Buildings | copper_mine, tin_mine, smelter (consumes: 2 copper + 1 tin/tick) |
+| Equipment | bronze_sword (+10 ATK), bronze_shield (+6 DEF), bronze_armor (+10 DEF, +20 HP) |
+| Recipes | bronze_sword, bronze_shield, bronze_armor |
 
-Tất cả có circular shadow (transparent black CircleGeometry).
-
----
-
-## 9. Content Entities — Full List
-
-### Stone Age (base_stone_age.js)
-
-| ID | Type | Name | Unlock |
-|----|------|------|--------|
-| `age.stone` | age | Stone Age | — |
-| `resource.wood` | resource | Wood | `age.stone` |
-| `resource.stone` | resource | Stone | `age.stone` |
-| `resource.food` | resource | Food | `age.stone` |
-| `resource.flint` | resource | Flint | `age.stone` |
-| `resource.tool` | resource | Tool | `age.stone` |
-| `resource.leather` | resource | Leather | `age.stone` |
-| `node.tree` | resource_node | Tree | `age.stone` |
-| `node.rock` | resource_node | Rock | `age.stone` |
-| `node.berry_bush` | resource_node | Berry Bush | `age.stone` |
-| `node.flint_deposit` | resource_node | Flint Deposit | `age.stone` |
-| `animal.wolf` | animal | Wolf | `age.stone` |
-| `animal.boar` | animal | Boar | `age.stone` |
-| `animal.bear` | animal | Bear | `age.stone` |
-| `building.wood_cutter` | building | Wood Cutter | `age.stone` |
-| `building.stone_quarry` | building | Stone Quarry | `age.stone` + 1 wood_cutter |
-| `building.berry_gatherer` | building | Berry Gatherer | `age.stone` |
-| `building.flint_mine` | building | Flint Mine | `age.stone` + 1 stone_quarry |
-| `equipment.wooden_sword` | equipment | Wooden Sword (+3 ATK) | `age.stone` |
-| `equipment.stone_spear` | equipment | Stone Spear (+6 ATK) | `age.stone` + 3 tools |
-| `equipment.stone_shield` | equipment | Stone Shield (+3 DEF) | `age.stone` + 1 stone_quarry |
-| `equipment.leather_armor` | equipment | Leather Armor (+5 DEF, +10 HP) | `age.stone` + 3 leather |
-| `equipment.leather_boots` | equipment | Leather Boots (+2 Speed) | `age.stone` |
-| `recipe.stone_tool` | recipe | Stone Tool | `age.stone` |
-| `recipe.wooden_sword` | recipe | Wooden Sword | `age.stone` |
-| `recipe.stone_spear` | recipe | Stone Spear | `age.stone` + 1 flint_mine |
-| `recipe.stone_shield` | recipe | Stone Shield | `age.stone` + 1 stone_quarry |
-| `recipe.leather_armor` | recipe | Leather Armor | `age.stone` + 3 leather |
-| `recipe.leather_boots` | recipe | Leather Boots | `age.stone` |
-
-### Bronze Age (expansion_bronze_age.js)
-
-| ID | Type | Name | Unlock |
-|----|------|------|--------|
-| `age.bronze` | age | Bronze Age | advance: 10 tools + 50 food + 3 wood_cutter + 2 stone_quarry |
-| `resource.copper` | resource | Copper | `age.bronze` |
-| `resource.tin` | resource | Tin | `age.bronze` |
-| `resource.bronze` | resource | Bronze | `age.bronze` |
-| `node.copper_deposit` | resource_node | Copper Deposit | `age.bronze` |
-| `node.tin_deposit` | resource_node | Tin Deposit | `age.bronze` |
-| `animal.lion` | animal | Lion | `age.bronze` |
-| `building.copper_mine` | building | Copper Mine | `age.bronze` |
-| `building.tin_mine` | building | Tin Mine | `age.bronze` + 1 copper_mine |
-| `building.smelter` | building | Bronze Smelter | `age.bronze` + 2 copper_mine |
-| `equipment.bronze_sword` | equipment | Bronze Sword (+10 ATK) | `age.bronze` |
-| `equipment.bronze_shield` | equipment | Bronze Shield (+6 DEF) | `age.bronze` + 1 smelter |
-| `equipment.bronze_armor` | equipment | Bronze Armor (+10 DEF, +20 HP) | `age.bronze` + 2 smelter |
-| `recipe.bronze_sword` | recipe | Bronze Sword | `age.bronze` + 1 smelter |
-| `recipe.bronze_shield` | recipe | Bronze Shield | `age.bronze` + 1 smelter |
-| `recipe.bronze_armor` | recipe | Bronze Armor | `age.bronze` + 2 smelter |
+### Iron Age (20 entities)
+| Category | IDs |
+|----------|-----|
+| Age | `age.iron` (advance: 20 bronze + 100 food + 20 tools + 2 smelter + 2 copper_mine + 1 tin_mine) |
+| Resources | iron, coal |
+| Nodes | iron_deposit, coal_deposit |
+| Animals | bandit, sabertooth |
+| Buildings | iron_mine, coal_mine, blast_furnace (refines iron), blacksmith (unlock condition for iron equipment) |
+| Equipment | iron_sword (+15 ATK), iron_shield (+10 DEF), iron_armor (+15 DEF, +30 HP), iron_boots (+3 SPD, +3 DEF) |
+| Recipes | iron_sword, iron_shield, iron_armor, iron_boots |
+| Techs | iron_working, coal_power, fortification |
 
 ---
 
-## 10. Balance — Full Data
+## 9. Balance Quick Reference
 
-### Starter Resources
-```
-Wood: 10, Stone: 5, Food: 10, Flint: 3, Tool: 0, Leather: 0
-```
+### Buildings Summary
 
-### Resource Nodes
+| Building | Cost | Produces | Workers |
+|----------|------|----------|---------|
+| Wood Cutter | 10W | +2 Wood | 1-3 |
+| Stone Quarry | 15W, 5S | +1 Stone | 1-3 |
+| Berry Gatherer | 8W | +2 Food | 1-3 |
+| Flint Mine | 20W, 10S | +1 Flint | 1-3 |
+| Warehouse | 40W, 30S | -- | 0 (transfer hub) |
+| Barracks | 50W, 40S, 5T | -- | 0 (guards) |
+| Copper Mine | 30W, 20S | +1 Copper | 1-2 |
+| Tin Mine | 35W, 25S, 5Cu | +1 Tin | 1-2 |
+| Smelter | 40S, 10Cu, 5Sn | +1 Bronze | 1-2 (consumes 2Cu+1Sn) |
+| Iron Mine | 50W, 40S, 5Bz | +2 Iron | 2-4 |
+| Coal Mine | 45W, 50S, 5Ir | +2 Coal | 2-4 |
+| Blast Furnace | 80S, 20Bz, 10Ir | +3 Iron | 2-4 (smelter) |
+| Blacksmith | 60W, 50S, 15Ir | -- | 0 (unlock condition) |
 
-| Node | HP | Rewards | Respawn |
-|------|----|---------|---------|
-| Tree | 3 | +3 Wood | 30s |
-| Rock | 5 | +2 Stone, +1 Flint | 45s |
-| Berry Bush | 1 | +2 Food | 20s |
-| Flint Deposit | 4 | +3 Flint | 60s |
-| Copper Deposit | 6 | +3 Copper | 50s |
-| Tin Deposit | 5 | +2 Tin | 55s |
-
-### Animals
+### Animals Summary
 
 | Animal | HP | ATK | DEF | Rewards | Respawn |
 |--------|----|-----|-----|---------|---------|
@@ -597,182 +328,113 @@ Wood: 10, Stone: 5, Food: 10, Flint: 3, Tool: 0, Leather: 0
 | Boar | 20 | 5 | 2 | +8 Food, +2 Leather | 90s |
 | Bear | 40 | 8 | 3 | +15 Food, +5 Leather | 120s |
 | Lion | 60 | 12 | 5 | +25 Food, +8 Leather | 150s |
+| Bandit | 80 | 15 | 8 | +30 Food, +10 Leather, +3 Bronze | 180s |
+| Sabertooth | 120 | 20 | 10 | +50 Food, +20 Leather | 240s |
 
-### Buildings
+### Technologies
 
-| Building | Cost | Produces/s | Upgrades |
-|----------|------|------------|----------|
-| Wood Cutter | 10 Wood | +2 Wood | Lv2: x1.5 / Lv3: x2.0 |
-| Stone Quarry | 15 Wood, 5 Stone | +1 Stone | Lv2: x1.5 / Lv3: x2.0 |
-| Berry Gatherer | 8 Wood | +2 Food | Lv2: x1.5 / Lv3: x2.0 |
-| Flint Mine | 20 Wood, 10 Stone | +1 Flint | Lv2: x1.5 / Lv3: x2.0 |
-| Copper Mine | 30 Wood, 20 Stone | +1 Copper | Lv2: x1.5 |
-| Tin Mine | 35 Wood, 25 Stone, 5 Copper | +1 Tin | Lv2: x1.5 |
-| Smelter | 40 Stone, 10 Copper, 5 Tin | +1 Bronze | consumes: 2 Copper + 1 Tin/tick, Lv2: x1.5 |
+| Tech | Cost | Requires | Effect |
+|------|------|----------|--------|
+| Advanced Tools | 10 Tools, 20 Wood | -- | Harvest speed +20% |
+| Efficient Gathering | 30 Food, 15 Stone | Advanced Tools | Production +15% |
+| Expanded Storage | 40 Wood, 30 Stone | -- | Storage +30% |
+| Swift Workers | 25 Food, 10 Leather | -- | NPC speed +25% |
+| Iron Working | 20 Iron, 15 Coal | Efficient Gathering | Production +10% |
+| Coal Power | 30 Coal, 15 Iron | Swift Workers | Harvest speed +30% |
+| Fortification | 100 Stone, 30 Iron, 20 Bronze | Expanded Storage | Storage +50% |
 
-### Recipes
+---
 
-| Recipe | Input | Output |
-|--------|-------|--------|
-| Stone Tool | 3 Flint + 2 Wood | +1 Tool |
-| Wooden Sword | 5 Wood + 2 Flint | +1 Wooden Sword |
-| Stone Spear | 8 Wood + 4 Flint + 3 Stone | +1 Stone Spear |
-| Stone Shield | 8 Stone + 4 Wood + 2 Flint | +1 Stone Shield |
-| Leather Armor | 5 Leather + 3 Flint | +1 Leather Armor |
-| Leather Boots | 3 Leather + 2 Wood | +1 Leather Boots |
-| Bronze Sword | 5 Bronze + 3 Wood | +1 Bronze Sword |
-| Bronze Shield | 5 Bronze + 4 Wood | +1 Bronze Shield |
-| Bronze Armor | 8 Bronze + 3 Leather | +1 Bronze Armor |
+## 10. Key Formulas
 
-### Equipment Stats
+```
+// Combat
+playerAttack = base(1) + weapon.stats.attack
+playerDefense = base(0) + offhand.stats.defense + armor.stats.defense
+playerMaxHp = base(100) + armor.stats.maxHp
+damageDealt = max(1, ATK - DEF)
+damageTaken = max(0, ATK - DEF)
+combatInterval = 0.5s
 
-| Equipment | Slot | Stats |
-|-----------|------|-------|
-| Wooden Sword | weapon | +3 ATK |
-| Stone Spear | weapon | +6 ATK |
-| Bronze Sword | weapon | +10 ATK |
-| Stone Shield | offhand | +3 DEF |
-| Bronze Shield | offhand | +6 DEF |
-| Leather Armor | armor | +5 DEF, +10 Max HP |
-| Bronze Armor | armor | +10 DEF, +20 Max HP |
-| Leather Boots | boots | +2 Speed |
+// Production (per tick)
+production = floor(baseAmount * upgradeMultiplier * (1 + productionBonus)) * buildingCount
+consumption = consumeAmount * buildingCount (all-or-nothing)
+
+// Movement
+screenDy: W=+1, S=-1 | screenDx: A=-1, D=+1
+worldDx = screenDx + screenDy
+worldDz = -screenDx + screenDy
+normalize, then * speed * dt
+
+// Death Penalty
+lose 30% of each resource, respawn at (8,8), full HP
+
+// HP Regen
+1 HP per 2 seconds, after 3 seconds out of combat
+```
 
 ---
 
 ## 11. Init Flow (main.js)
 
 ```
-1. GameRegistry.init()              ← Load content packs, merge balance
-2. GameStorage.checkVersion()       ← Clear old saves if version mismatch
-3. GameState.init() OR load()       ← Fresh start or restore save
-4. GameScene.init()                 ← Three.js scene, camera, renderer, render loop starts
-5. GameTerrain.init(worldSeed)      ← Chunk system with persistent seed
-6. NPCSystem.init()                 ← Initialize NPC worker system
-7. GamePlayer.init(x, z)            ← Create 3D player, register input handlers
-8. GameTerrain.update(x, z)         ← Generate initial chunks around player
-9. GameEntities.createObjectForChunk() × N  ← Create 3D meshes for all chunk objects
-10. Restore building instances      ← Re-create 3D meshes for saved buildings
-11. NPCSystem.spawnWorkersForBuilding() × N ← Spawn workers for each building
-12. UnlockSystem.checkAll() × 2     ← Unlock entities (2 passes for chain deps)
-13. GameHUD.renderAll()             ← Initial UI render
-14. Register mousemove handler      ← For build mode preview
+1. GameRegistry.init()
+2. Version check -> load save or fresh init
+3. GameScene.init()
+4. GameTerrain.init(worldSeed)
+5. NPCSystem.init()
+6. GamePlayer.init(x, z)
+7. GameTerrain.update(x, z) -> generate initial chunks
+8. Restore building instances -> create 3D meshes
+9. NPCSystem.spawnWorkersForBuilding() x N
+10. BuildingSystem.restoreReservations()
+11. UnlockSystem.checkAll() x2 (chain deps)
+12. GameHUD.init() + renderAll()
+13. Mouse/keyboard event handlers
+14. Auto-save on beforeunload
 ```
 
 ---
 
 ## 12. Expansion Flow
 
-### Thêm content mới (ví dụ: Iron Age)
+To add new content (e.g., Medieval Age):
 
-**1. Tạo file content mới:** `/content/expansion_iron_age.js`
+1. **Create** `/content/expansion_medieval_age.js` with entities
+2. **Add balance entries** to `balance.js` (nodes, animals, buildings, recipes, equipment, age, tech)
+3. **Update manifest.js**: add pack name + increment version
+4. **Add `<script>`** to index.html after last expansion
+5. **Add NPC mapping** in `npcSystem.js:getHarvestNodeType()` if new harvest buildings
+6. **Add terrain rules** in `terrain.js` for new nodes/animals if needed
+7. **Run validator**: `GameValidator.printReport()` in console
 
-```js
-window.GAME_CONTENT["expansion_iron_age"] = {
-  packId: "expansion_iron_age",
-  name: "Iron Age Expansion",
-  entities: [
-    { id: "age.iron", type: "age", name: "Iron Age", ... },
-    { id: "resource.iron", type: "resource", ... },
-    { id: "node.iron_deposit", type: "resource_node", visual: { shape: "rock", color: 0xAAAAAA }, ... },
-    { id: "building.iron_forge", type: "building", visual: { shape: "building", color: 0x555555 }, ... },
-    // ... thêm entities
-  ]
-};
-```
-
-**2. Thêm balance entries** vào `balance.js`:
-
-```js
-"node.iron_deposit": { hp: 8, rewards: { "resource.iron": 3 }, respawnTime: 70 },
-"building.iron_forge": { cost: { ... }, produces: { "resource.iron": 1 } },
-// ...
-```
-
-**3. Cập nhật manifest.js:**
-
-```js
-window.GAME_MANIFEST = {
-  version: "2.0.0",  // Increment from current 1.0.0
-  packs: ["base_stone_age", "expansion_bronze_age", "expansion_iron_age"]
-};
-```
-
-**4. Thêm `<script>` vào index.html** (sau expansion_bronze_age.js).
-
-**5. Chạy validate:** `GameValidator.printReport()` trong console.
-
-### Rules
-- KHÔNG sửa/xóa entities cũ
-- KHÔNG sửa content packs cũ
-- CHỈ thêm pack mới + balance entries
-- Tăng version trong manifest
+Rules: NEVER edit old packs. ONLY append new ones + balance entries.
 
 ---
 
-## 13. Key Formulas Reference
-
-### Combat
-```
-damageDealt = max(1, playerAttack - targetDefense)
-damageTaken = max(0, targetAttack - playerDefense)
-playerAttack = base(1) + weapon.stats.attack
-playerDefense = base(0) + offhand.stats.defense + armor.stats.defense
-playerMaxHp = base(100) + armor.stats.maxHp
-```
-
-### Production
-```
-production/tick = floor(baseAmount × upgradeMultiplier) × buildingCount
-consumption/tick = consumeAmount × buildingCount  (all-or-nothing: skip if insufficient)
-```
-
-### Harvest
-```
-toolBonus = floor(weapon.stats.attack / 2)  // extra hits per harvest action
-totalDamage = 1 + toolBonus
-node dies when hp <= 0 → rewards given, respawn scheduled
-```
-
-### Death Penalty
-```
-loseResources = floor(current × 0.3)  // 30% of each resource
-respawn at (8, 8) with full HP
-```
-
-### Movement
-```
-speed = 3 tiles/second
-screenDy: W=+1, S=-1  |  screenDx: A=-1, D=+1
-worldDx = screenDx - screenDy
-worldDz = -screenDx - screenDy
-normalize, then apply × speed × dt
-```
-
----
-
-## 14. Dev Tools API
-
-### Validator (`window.GameValidator`)
+## 13. Dev Tools API
 
 ```js
-GameValidator.printReport()   // Console: full validation report
+// Validator
+GameValidator.printReport()    // Full validation report in console
 GameValidator.validateAll()    // Returns { valid, errors[], warnings[] }
-// Checks: duplicate IDs, missing balance, broken dependencies, resource loops, unlock deadlocks
+
+// Generator
+GameGenerator.generateNewContent("description")  // Returns { newPack, balancePatch, summary }
+GameGenerator.applyGeneratedContent(pack, balancePatch)
+GameGenerator.exportPack(pack, balancePatch)
+
+// Preview
+GamePreview.preview(packData, balancePatch)
+GamePreview.applyPreview()
+GamePreview.closePreview()
 ```
 
-### Generator (`window.GameGenerator`)
+---
 
-```js
-GameGenerator.generateNewContent("Add iron age with iron tools")
-// Returns { newPack, balancePatch, summary }
-GameGenerator.applyGeneratedContent(pack, balancePatch)  // Temporary apply to game
-GameGenerator.exportPack(pack, balancePatch)             // Export as JS strings
-```
+## 14. Known Limitations
 
-### Preview (`window.GamePreview`)
-
-```js
-GamePreview.preview(packData, balancePatch)  // Show preview panel
-GamePreview.applyPreview()                   // Apply temporarily
-GamePreview.closePreview()                   // Close panel
-```
+- **Synergy system**: Wired but no buildings have non-empty `synergyFrom` data. Warehouse description mentions bonus but it's non-functional.
+- **NPC pathfinding**: Direct-line only, no obstacle avoidance.
+- **Barracks guards**: `guardCount` and `guardRadius` defined in balance but guard spawning/behavior not yet implemented.
+- **Game speed**: Supports 0.25x-5x but no UI controls (console only: `GameState.setGameSpeed(n)`).

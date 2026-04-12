@@ -52,7 +52,7 @@ window.UnlockSystem = (function () {
 
     if (conditions.technologies) {
       for (var i = 0; i < conditions.technologies.length; i++) {
-        if (!GameState.hasResearched(conditions.technologies[i])) {
+        if (!GameState.isResearched(conditions.technologies[i])) {
           return false;
         }
       }

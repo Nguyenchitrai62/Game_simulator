@@ -58,7 +58,7 @@ window.GamePreview = (function () {
     }
 
     closePreview();
-    GameUI.showNotification("Content applied (temporary)!");
+    GameHUD.showNotification("Content applied (temporary)!");
   }
 
   function closePreview() {

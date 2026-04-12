@@ -123,18 +123,27 @@ window.GameTerrain = (function () {
     else if (distFromHome < 3) treeCount = 5 + Math.floor(rng(10) * 6);
     else treeCount = 2 + Math.floor(rng(10) * 4);
 
+    // Get player position to avoid spawning on player
+    var playerPos = (typeof GamePlayer !== 'undefined' && GamePlayer.getPosition) ? GamePlayer.getPosition() : { x: 8, z: 8 };
+
     for (var i = 0; i < treeCount; i++) {
       var tx = Math.floor(rng(100 + i * 2) * CHUNK_SIZE);
       var tz = Math.floor(rng(101 + i * 2) * CHUNK_SIZE);
+      var worldTreeX = cx * CHUNK_SIZE + tx;
+      var worldTreeZ = cz * CHUNK_SIZE + tz;
+      
+      // Skip if: 1) In home spawn zone, or 2) Within 2 units of player
       if (cx === 0 && cz === 0 && tx > 6 && tx < 10 && tz > 6 && tz < 10) continue;
+      if (Math.abs(worldTreeX - playerPos.x) < 2 && Math.abs(worldTreeZ - playerPos.z) < 2) continue;
+      
       var treeHp = (window.GAME_BALANCE["node.tree"] || {}).hp || 3;
       chunkData.objects.push({
         id: "obj_" + key + "_" + i,
         type: "node.tree",
         x: tx, z: tz,
         hp: treeHp, maxHp: treeHp,
-        worldX: cx * CHUNK_SIZE + tx,
-        worldZ: cz * CHUNK_SIZE + tz
+        worldX: worldTreeX,
+        worldZ: worldTreeZ
       });
     }
 
@@ -148,13 +157,20 @@ window.GameTerrain = (function () {
     for (var i = 0; i < rockCount; i++) {
       var rx = Math.floor(rng(200 + i * 2) * CHUNK_SIZE);
       var rz = Math.floor(rng(201 + i * 2) * CHUNK_SIZE);
+      var worldRockX = cx * CHUNK_SIZE + rx;
+      var worldRockZ = cz * CHUNK_SIZE + rz;
+      
+      // Skip if: 1) In home spawn zone, or 2) Within 2 units of player
+      if (cx === 0 && cz === 0 && rx > 6 && rx < 10 && rz > 6 && rz < 10) continue;
+      if (Math.abs(worldRockX - playerPos.x) < 2 && Math.abs(worldRockZ - playerPos.z) < 2) continue;
+      
       chunkData.objects.push({
         id: "obj_" + key + "_r" + i,
         type: "node.rock",
         x: rx, z: rz,
         hp: rockHp, maxHp: rockHp,
-        worldX: cx * CHUNK_SIZE + rx,
-        worldZ: cz * CHUNK_SIZE + rz
+        worldX: worldRockX,
+        worldZ: worldRockZ
       });
     }
 
@@ -166,15 +182,20 @@ window.GameTerrain = (function () {
       for (var i = 0; i < bushCount; i++) {
         var bx = Math.floor(rng(300 + i * 2) * CHUNK_SIZE);
         var bz = Math.floor(rng(301 + i * 2) * CHUNK_SIZE);
-        // Avoid spawn zone
+        var worldBushX = cx * CHUNK_SIZE + bx;
+        var worldBushZ = cz * CHUNK_SIZE + bz;
+        
+        // Skip if: 1) In home spawn zone, or 2) Within 2 units of player
         if (cx === 0 && cz === 0 && bx > 6 && bx < 10 && bz > 6 && bz < 10) continue;
+        if (Math.abs(worldBushX - playerPos.x) < 2 && Math.abs(worldBushZ - playerPos.z) < 2) continue;
+        
         chunkData.objects.push({
           id: "obj_" + key + "_b" + i,
           type: "node.berry_bush",
           x: bx, z: bz,
           hp: bushHp, maxHp: bushHp,
-          worldX: cx * CHUNK_SIZE + bx,
-          worldZ: cz * CHUNK_SIZE + bz
+          worldX: worldBushX,
+          worldZ: worldBushZ
         });
       }
     } else if (distFromHome < 3) {
@@ -184,13 +205,19 @@ window.GameTerrain = (function () {
       for (var i = 0; i < bushCount; i++) {
         var bx = Math.floor(rng(300 + i * 2) * CHUNK_SIZE);
         var bz = Math.floor(rng(301 + i * 2) * CHUNK_SIZE);
+        var worldBushX = cx * CHUNK_SIZE + bx;
+        var worldBushZ = cz * CHUNK_SIZE + bz;
+        
+        // Skip if within 2 units of player
+        if (Math.abs(worldBushX - playerPos.x) < 2 && Math.abs(worldBushZ - playerPos.z) < 2) continue;
+        
         chunkData.objects.push({
           id: "obj_" + key + "_b" + i,
           type: "node.berry_bush",
           x: bx, z: bz,
           hp: bushHp, maxHp: bushHp,
-          worldX: cx * CHUNK_SIZE + bx,
-          worldZ: cz * CHUNK_SIZE + bz
+          worldX: worldBushX,
+          worldZ: worldBushZ
         });
       }
     }
@@ -201,9 +228,33 @@ window.GameTerrain = (function () {
       for (var i = 0; i < animalCount; i++) {
         var ax = Math.floor(rng(400 + i * 2) * CHUNK_SIZE);
         var az = Math.floor(rng(401 + i * 2) * CHUNK_SIZE);
-        var animalType = distFromHome >= 6 ? "animal.lion" :
-                         distFromHome >= 4 ? "animal.bear" :
-                         distFromHome >= 2 ? "animal.boar" : "animal.wolf";
+        var worldAnimalX = cx * CHUNK_SIZE + ax;
+        var worldAnimalZ = cz * CHUNK_SIZE + az;
+
+        // Skip if player is standing at this position
+        var playerPos = GamePlayer.getPosition();
+        if (Math.abs(worldAnimalX - playerPos.x) < 2 && Math.abs(worldAnimalZ - playerPos.z) < 2) continue;
+
+        // Animal types based on distance (Iron Age adds bandit, sabertooth)
+        var currentAge = GameState.getAge();
+        var animalType;
+        
+        if (currentAge === "age.iron" && distFromHome >= 8) {
+          // Iron Age: Very far = Sabertooth (apex predator)
+          animalType = rng(410 + i) > 0.5 ? "animal.sabertooth" : "animal.bandit";
+        } else if (currentAge === "age.iron" && distFromHome >= 6) {
+          // Iron Age: Far = Bandits or Lions
+          animalType = rng(410 + i) > 0.5 ? "animal.bandit" : "animal.lion";
+        } else if (distFromHome >= 6) {
+          animalType = "animal.lion";
+        } else if (distFromHome >= 4) {
+          animalType = "animal.bear";
+        } else if (distFromHome >= 2) {
+          animalType = "animal.boar";
+        } else {
+          animalType = "animal.wolf";
+        }
+        
         var animalBalance = window.GAME_BALANCE[animalType] || {};
         var animalHp = animalBalance.hp || 15;
         chunkData.objects.push({

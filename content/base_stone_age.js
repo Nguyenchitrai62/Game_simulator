@@ -245,6 +245,54 @@ window.GAME_CONTENT["base_stone_age"] = {
       name: "Leather Boots",
       description: "Craft leather boots. +2 Speed.",
       unlock: { age: "age.stone", resources: { "resource.leather": 3 } }
+    },
+    
+    // === UTILITY BUILDINGS ===
+    {
+      id: "building.warehouse",
+      type: "building",
+      name: "Warehouse",
+      description: "Large storage. Boosts nearby production +15%.",
+      visual: { shape: "building", color: 0x8B7355, roofColor: 0x654321 },
+      unlock: { age: "age.stone", resources: { "resource.wood": 40, "resource.stone": 30 } }
+    },
+    {
+      id: "building.barracks",
+      type: "building",
+      name: "Barracks",
+      description: "Spawns guards to defend the area.",
+      visual: { shape: "building", color: 0x5C4033, roofColor: 0x2d1f1a },
+      unlock: { age: "age.stone", resources: { "resource.tool": 5 }, buildings: { "building.wood_cutter": 2, "building.stone_quarry": 1 } }
+    },
+
+    // === TECHNOLOGIES (TIER 1) ===
+    {
+      id: "tech.advanced_tools",
+      type: "technology",
+      name: "Advanced Tools",
+      description: "Workers harvest 20% faster.",
+      unlock: { age: "age.stone", resources: { "resource.tool": 5 } }
+    },
+    {
+      id: "tech.efficient_gathering",
+      type: "technology",
+      name: "Efficient Gathering",
+      description: "All production +15%.",
+      unlock: { age: "age.stone", buildings: { "building.wood_cutter": 2, "building.stone_quarry": 1 } }
+    },
+    {
+      id: "tech.expanded_storage",
+      type: "technology",
+      name: "Expanded Storage",
+      description: "Building storage +30%.",
+      unlock: { age: "age.stone", buildings: { "building.warehouse": 1 } }
+    },
+    {
+      id: "tech.swift_workers",
+      type: "technology",
+      name: "Swift Workers",
+      description: "NPCs move 25% faster.",
+      unlock: { age: "age.stone", resources: { "resource.leather": 5 } }
     }
   ]
 };

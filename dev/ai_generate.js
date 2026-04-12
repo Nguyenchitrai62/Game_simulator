@@ -97,8 +97,8 @@ window.GameGenerator = (function () {
 
     GameRegistry.init();
     UnlockSystem.checkAll();
-    if (typeof GameUI !== "undefined") {
-      GameUI.renderAll();
+    if (typeof GameHUD !== "undefined") {
+      GameHUD.renderAll();
     }
 
     console.log("[Generator] Applied pack: " + packData.packId);

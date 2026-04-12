@@ -90,6 +90,9 @@
             <button class="modal-tab" data-tab="stats" onclick="GameHUD.switchModalTab('stats')">
               <span class="tab-icon">📊</span> Stats
             </button>
+            <button class="modal-tab" data-tab="research" onclick="GameHUD.switchModalTab('research')">
+              <span class="tab-icon">🔬</span> Research
+            </button>
           </div>
           <button class="modal-close" onclick="GameHUD.closeModal()">✕</button>
         </div>
@@ -99,6 +102,7 @@
           <div class="modal-panel" id="modal-panel-build"></div>
           <div class="modal-panel" id="modal-panel-craft"></div>
           <div class="modal-panel" id="modal-panel-stats"></div>
+          <div class="modal-panel" id="modal-panel-research"></div>
         </div>
       </div>
     </div>
@@ -113,16 +117,23 @@
   <!-- Building Inspector HUD -->
   <div id="building-inspector" class="hud-inspector"></div>
 
-  <!-- Save info -->
-  <div class="save-info" id="save-info"></div>
-
-  <!-- Three.js from CDN -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- Three.js (LOCAL - CDN fallback if needed) -->
+  <script src="three.min.js"></script>
+  <script>
+    // Verify THREE.js loaded
+    if (typeof THREE === 'undefined') {
+      console.error('❌ THREE.js failed to load!');
+      document.body.innerHTML = '<div style="color:white; padding:20px; font-size:18px;">ERROR: THREE.js failed to load. Check console.</div>';
+    } else {
+      console.log('✅ THREE.js loaded successfully (r' + THREE.REVISION + ')');
+    }
+  </script>
 
   <!-- Data Layer -->
   <script src="content/manifest.js"></script>
   <script src="content/base_stone_age.js"></script>
   <script src="content/expansion_bronze_age.js"></script>
+  <script src="content/expansion_iron_age.js"></script>
   <script src="balance/balance.js"></script>
 
   <!-- Engine Core -->
@@ -137,6 +148,8 @@
   <script src="engine/craftSystem.js"></script>
   <script src="engine/unlockSystem.js"></script>
   <script src="engine/upgradeSystem.js"></script>
+  <script src="engine/synergy.js"></script>
+  <script src="engine/researchSystem.js"></script>
 
   <!-- World -->
   <script src="world/scene.js"></script>
@@ -147,7 +160,7 @@
   <script src="world/buildingSystem.js"></script>
   <script src="world/npcSystem.js"></script>
 
-  <!-- UI -->
+  <!-- UI (MUST load BEFORE main.js!) -->
   <script src="ui/hud.js"></script>
 
   <!-- Entry Point -->

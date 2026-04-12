@@ -3,7 +3,6 @@ window.GameState = (function () {
     resources: {},
     buildings: {},
     unlocked: [],
-    researchedTechs: [],
     techState: { currentResearch: null, progress: 0 },
     age: "age.stone",
     version: "",
@@ -30,7 +29,8 @@ window.GameState = (function () {
     worldSeed: 42,
     fractionalAccumulator: {},
     gameSpeed: 1.0,
-    isPaused: false
+    isPaused: false,
+    researched: []  // Researched technologies
   };
 
   function init() {
@@ -55,6 +55,7 @@ window.GameState = (function () {
     _state.chunks = {};
     _state.worldSeed = Math.floor(Math.random() * 100000);
     _state.fractionalAccumulator = {};
+    _state.researched = [];
   }
 
   // === Resources ===
@@ -228,7 +229,7 @@ window.GameState = (function () {
     }
     
     // Fire UI update event
-    if (window.GameUI) GameUI.showNotification(`Đã trang bị ${entity.name}`, "success");
+    if (window.GameHUD) GameHUD.showNotification(`Đã trang bị ${entity.name}`, "success");
 
     return true;
   }
@@ -240,7 +241,7 @@ window.GameState = (function () {
     _state.player.equipped[slot] = null;
     _state.player.maxHp = getPlayerMaxHp();
     _state.player.hp = Math.min(_state.player.hp, _state.player.maxHp);
-    if (window.GameUI) GameUI.showNotification(`Đã gỡ bỏ ${entity.name}`, "info");
+    if (window.GameHUD) GameHUD.showNotification(`Đã gỡ bỏ ${entity.name}`, "info");
     return true;
   }
 
@@ -273,13 +274,30 @@ window.GameState = (function () {
     var entity = GameRegistry.getEntity(instance.entityId);
     if (!entity) return false;
 
-    // Refund 50% cost from balance data
+    // Refund 50% cost from balance data (including upgrade costs)
     var balance = GameRegistry.getBalance(instance.entityId);
     if (balance && balance.cost) {
+      // Refund base building cost
       for (var resId in balance.cost) {
         var refundAmount = Math.floor(balance.cost[resId] * 0.5);
         if (refundAmount > 0) {
           addResource(resId, refundAmount);
+        }
+      }
+      
+      // Refund upgrade costs if building was upgraded
+      var currentLevel = instance.level || 1;
+      if (balance.upgrades && currentLevel > 1) {
+        for (var lvl = 2; lvl <= currentLevel; lvl++) {
+          var upgrade = balance.upgrades[lvl];
+          if (upgrade && upgrade.cost) {
+            for (var resId in upgrade.cost) {
+              var refundAmount = Math.floor(upgrade.cost[resId] * 0.5);
+              if (refundAmount > 0) {
+                addResource(resId, refundAmount);
+              }
+            }
+          }
         }
       }
     }
@@ -316,6 +334,10 @@ window.GameState = (function () {
       _state.buildingStorage[instanceUid][resourceId] = 0;
     }
     _state.buildingStorage[instanceUid][resourceId] += amount;
+    // Clamp to 0 minimum (prevent negative values)
+    if (_state.buildingStorage[instanceUid][resourceId] <= 0) {
+      delete _state.buildingStorage[instanceUid][resourceId];
+    }
   }
 
   function getBuildingStorage(instanceUid) {
@@ -344,6 +366,38 @@ window.GameState = (function () {
     delete _state.buildingStorage[instanceUid];
   }
 
+  function getStorageUsed(instanceUid) {
+    var storage = _state.buildingStorage[instanceUid] || {};
+    var total = 0;
+    for (var resId in storage) {
+      total += storage[resId] || 0;
+    }
+    return total;
+  }
+
+  function getStorageCapacity(instanceUid) {
+    var instance = getInstance(instanceUid);
+    if (!instance) return 0;
+    
+    var balance = GameRegistry.getBalance(instance.entityId);
+    if (!balance || !balance.storageCapacity) return Infinity; // No limit if not defined
+    
+    var level = instance.level || 1;
+    return balance.storageCapacity[level] || balance.storageCapacity[1] || 100;
+  }
+
+  function canDeposit(instanceUid, resourceId, amount) {
+    var used = getStorageUsed(instanceUid);
+    var capacity = getStorageCapacity(instanceUid);
+    return (used + amount) <= capacity;
+  }
+
+  function tryDepositToBuilding(instanceUid, resourceId, amount) {
+    if (!canDeposit(instanceUid, resourceId, amount)) return false;
+    addBuildingStorage(instanceUid, resourceId, amount);
+    return true;
+  }
+
   // === Chunks ===
   function saveChunkData(key, data) { _state.chunks[key] = data; }
   function getChunkData(key) { return _state.chunks[key] || null; }
@@ -351,20 +405,6 @@ window.GameState = (function () {
   function getChunks() { return _state.chunks; }
 
   // === Technologies ===
-  function addResearchedTech(techId) {
-    if (_state.researchedTechs.indexOf(techId) === -1) {
-      _state.researchedTechs.push(techId);
-    }
-  }
-
-  function hasResearched(techId) {
-    return _state.researchedTechs.indexOf(techId) !== -1;
-  }
-
-  function getResearchedTechs() {
-    return _state.researchedTechs.slice();
-  }
-
   function getTechState() {
     return JSON.parse(JSON.stringify(_state.techState));
   }
@@ -381,7 +421,7 @@ window.GameState = (function () {
     _state.resources = data.resources || {};
     _state.buildings = data.buildings || {};
     _state.unlocked = data.unlocked || ["age.stone"];
-    _state.researchedTechs = data.researchedTechs || [];
+    _state.researched = data.researched || data.researchedTechs || [];
     _state.techState = data.techState || { currentResearch: null, progress: 0 };
     _state.age = data.age || "age.stone";
     _state.version = data.version || "";
@@ -413,6 +453,21 @@ window.GameState = (function () {
   function getShowLockedItems() { return _state.showLockedItems; }
   function setShowLockedItems(value) { _state.showLockedItems = !!value; }
 
+  // === Research ===
+  function markResearched(techId) {
+    if (_state.researched.indexOf(techId) === -1) {
+      _state.researched.push(techId);
+    }
+  }
+
+  function isResearched(techId) {
+    return _state.researched.indexOf(techId) !== -1;
+  }
+
+  function getResearched() {
+    return _state.researched.slice();  // Return copy
+  }
+
   return {
     init: init,
     addResource: addResource, addFractionalResource: addFractionalResource, removeResource: removeResource,
@@ -432,14 +487,18 @@ window.GameState = (function () {
     destroyInstance: destroyInstance,
     addBuildingStorage: addBuildingStorage, getBuildingStorage: getBuildingStorage,
     collectFromBuilding: collectFromBuilding, clearBuildingStorage: clearBuildingStorage,
+    getStorageUsed: getStorageUsed, getStorageCapacity: getStorageCapacity,
+    canDeposit: canDeposit, tryDepositToBuilding: tryDepositToBuilding,
     saveChunkData: saveChunkData, getChunkData: getChunkData, getAllChunkData: getAllChunkData,
     getChunks: getChunks,
-    addResearchedTech: addResearchedTech, hasResearched: hasResearched,
-    getResearchedTechs: getResearchedTechs, getTechState: getTechState, setTechState: setTechState,
+    getTechState: getTechState, setTechState: setTechState,
     exportState: exportState, importState: importState,
     setGameSpeed: setGameSpeed, getGameSpeed: getGameSpeed,
     setGamePaused: setGamePaused, getGamePaused: getGamePaused,
     getShowLockedItems: getShowLockedItems,
-    setShowLockedItems: setShowLockedItems
+    setShowLockedItems: setShowLockedItems,
+    markResearched: markResearched,
+    isResearched: isResearched,
+    getResearched: getResearched
   };
 })();

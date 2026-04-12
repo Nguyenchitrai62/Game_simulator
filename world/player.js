@@ -1,9 +1,7 @@
 window.GamePlayer = (function () {
   var mesh;
   var _x = 8, _z = 8;
-  var _targetX = null, _targetZ = null;
   var _moving = false;
-  var _interactTarget = null;
   var _direction = { x: 0, z: 1 };
   var _keys = {};
   var _animTime = 0;
@@ -100,25 +98,13 @@ window.GamePlayer = (function () {
     });
   }
 
-  function raycastGround(event) {
-    var mouse = new THREE.Vector2(
-      (event.clientX / window.innerWidth) * 2 - 1,
-      -(event.clientY / window.innerHeight) * 2 + 1
-    );
-    var raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouse, GameScene.getCamera());
-
-    // Use a proper ground plane for raycasting
-    var groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-    var target = new THREE.Vector3();
-    raycaster.ray.intersectPlane(groundPlane, target);
-    return target;
-  }
-
   function onCanvasClick(event) {
     if (event.target.id !== 'game-canvas') return;
 
-    // Click objects to interact (walk to + chop/mine/fight)
+    // Build mode - let main.js handle it
+    if (window.BuildingSystem && BuildingSystem.isBuildMode()) return;
+
+    // Click objects to view info only (no movement/interaction)
     var mouse = new THREE.Vector2(
       (event.clientX / window.innerWidth) * 2 - 1,
       -(event.clientY / window.innerHeight) * 2 + 1
@@ -126,14 +112,22 @@ window.GamePlayer = (function () {
     var raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(mouse, GameScene.getCamera());
 
+    // Check resource/animal meshes only (buildings handled by main.js)
     var objectMeshes = GameEntities.getAllMeshes();
     var intersects = raycaster.intersectObjects(objectMeshes, true);
     if (intersects.length > 0) {
       var objData = GameEntities.getDataFromMesh(intersects[0].object);
       if (objData) {
-        _interactTarget = objData;
-        _targetX = objData.worldX;
-        _targetZ = objData.worldZ;
+        var entity = GameRegistry.getEntity(objData.type);
+        var name = entity ? entity.name : objData.type;
+        if (objData.type.startsWith('animal.')) {
+          var balance = GameRegistry.getBalance(objData.type);
+          var info = name + ' | HP: ' + objData.hp + '/' + objData.maxHp;
+          if (balance) info += ' | ATK: ' + (balance.attack || 0) + ' DEF: ' + (balance.defense || 0);
+          GameHUD.showNotification(info);
+        } else if (objData.type.startsWith('node.')) {
+          GameHUD.showNotification(name + ' | HP: ' + objData.hp + '/' + objData.maxHp);
+        }
       }
     }
   }
@@ -185,11 +179,6 @@ window.GamePlayer = (function () {
     var dz = -screenDx + screenDy;
 
     if (moved) {
-      // Keyboard overrides target
-      _targetX = null;
-      _targetZ = null;
-      _interactTarget = null;
-
       var len = Math.sqrt(dx * dx + dz * dz);
       if (len > 0) { dx /= len; dz /= len; }
       _direction.x = dx;
@@ -205,41 +194,6 @@ window.GamePlayer = (function () {
         _x = newX;
       } else if (GameTerrain.isWalkable(_x, newZ)) {
         _z = newZ;
-      }
-    }
-
-    // Target movement (click-to-move)
-    if (!moved && _targetX !== null && _targetZ !== null) {
-      var tdx = _targetX - _x;
-      var tdz = _targetZ - _z;
-      var dist = Math.sqrt(tdx * tdx + tdz * tdz);
-
-      if (dist > 0.5) {
-        dx = tdx / dist;
-        dz = tdz / dist;
-        _direction.x = dx;
-        _direction.z = dz;
-
-        var newX = _x + dx * _speed * dt;
-        var newZ = _z + dz * _speed * dt;
-
-        if (GameTerrain.isWalkable(newX, newZ)) {
-          _x = newX;
-          _z = newZ;
-          moved = true;
-        } else {
-          _targetX = null;
-          _targetZ = null;
-        }
-      } else {
-        // Arrived at target
-        _targetX = null;
-        _targetZ = null;
-
-        if (_interactTarget) {
-          interactWith(_interactTarget);
-          _interactTarget = null;
-        }
       }
     }
 
@@ -324,10 +278,10 @@ window.GamePlayer = (function () {
       var action = nearObj.type.startsWith("animal.") ? "Fight" : nearObj.type === "node.berry_bush" ? "Gather" : nearObj.type.startsWith("node.") ? "Harvest" : "Interact";
       textEl.textContent = action + " " + name + " (" + nearObj.hp + "/" + nearObj.maxHp + ")";
       el.classList.add('show');
-      GameHUD.showObjectHpBar(nearObj);
+      if (typeof GameHUD !== 'undefined' && GameHUD.showObjectHpBar) GameHUD.showObjectHpBar(nearObj);
     } else {
       el.classList.remove('show');
-      GameHUD.hideObjectHpBar();
+      if (typeof GameHUD !== 'undefined' && GameHUD.hideObjectHpBar) GameHUD.hideObjectHpBar();
     }
   }
 

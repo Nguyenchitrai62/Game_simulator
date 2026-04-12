@@ -1,7 +1,16 @@
-window.GameHUD = (function () {
-  var _activeTab = null;
-  var _notificationTimer = null;
-  var _damageNumbers = [];
+console.log('[HUD] Loading hud.js...');
+
+try {
+  window.GameHUD = (function () {
+    console.log('[HUD] IIFE started');
+    var _activeTab = null;
+    var _notificationTimer = null;
+    var _damageNumbers = [];
+  
+  function init() {
+    // Initialize HUD - placeholder for future initialization
+    console.log('[GameHUD] Initialized');
+  }
 
   function renderAll() {
     renderResources();
@@ -244,7 +253,7 @@ window.GameHUD = (function () {
       }
 
       html += '</div>';
-      html += '<button class="btn btn-primary" onclick="GameActions.startBuild(\'' + building.id + '\')"' + (canBuy ? '' : ' disabled') + '>Build</button>';
+      html += '<button class="btn btn-primary" onclick="BuildingSystem.enterBuildMode(\'' + building.id + '\'); GameHUD.closeModal();"' + (canBuy ? '' : ' disabled') + '>Build</button>';
       html += '</div>';
     });
 
@@ -305,7 +314,38 @@ window.GameHUD = (function () {
       }
 
       html += '</div>';
-      html += '<button class="btn btn-primary" onclick="GameActions.craft(\'' + recipe.id + '\')"' + (info.canCraft ? '' : ' disabled') + '>Craft</button>';
+
+      // Check if output is equipment and already owned
+      var hasInInventory = false;
+      var outputEquipmentId = null;
+      var isEquipped = false;
+      if (balance && balance.output) {
+        for (var resId in balance.output) {
+          var entity = GameRegistry.getEntity(resId);
+          if (entity && entity.type === 'equipment') {
+            outputEquipmentId = resId;
+            var invCount = GameState.getInventoryCount(resId);
+            if (invCount > 0) {
+              hasInInventory = true;
+            }
+            // Check if already equipped
+            var player = GameState.getPlayer();
+            if (player.equipped[entity.slot] === resId) {
+              isEquipped = true;
+            }
+            break;
+          }
+        }
+      }
+
+      if (isEquipped) {
+        html += '<button class="btn btn-secondary" disabled style="opacity:0.6;">Equipped</button>';
+      } else if (hasInInventory && outputEquipmentId) {
+        html += '<button class="btn btn-success" onclick="GameActions.equip(\'' + outputEquipmentId + '\'); GameHUD.renderAll();">Use</button>';
+      } else {
+        html += '<button class="btn btn-primary" onclick="GameActions.craft(\'' + recipe.id + '\')"' + (info.canCraft ? '' : ' disabled') + '>Craft</button>';
+      }
+
       html += '</div>';
     });
 
@@ -530,41 +570,183 @@ window.GameHUD = (function () {
   function showBuildingInspector(uid) {
     var instance = GameState.getInstance(uid);
     if (!instance) return;
-    
+
     var entity = GameRegistry.getEntity(instance.entityId);
     if (!entity) return;
-    
+
     var inspector = document.getElementById("building-inspector");
     if (!inspector) return;
-    
+
     var balance = GameRegistry.getBalance(instance.entityId);
-    var refundText = "";
-    
-    if (balance && balance.cost) {
-      var refundParts = [];
-      for (var resId in balance.cost) {
-        var amount = Math.floor(balance.cost[resId] * 0.5);
-        if (amount > 0) {
+    var currentLevel = instance.level || 1;
+    var levelText = "Lv." + currentLevel;
+
+    // --- Upgrade section ---
+    var upgradeHtml = "";
+    var upgradeCheck = UpgradeSystem.canUpgrade(instance.entityId, uid);
+
+    if (upgradeCheck.can && upgradeCheck.upgrade) {
+      var nextLevel = upgradeCheck.level;
+      var upgrade = upgradeCheck.upgrade;
+      var costParts = [];
+      var canAfford = true;
+      if (upgrade.cost) {
+        for (var resId in upgrade.cost) {
+          var needed = upgrade.cost[resId];
+          var have = GameState.getResource(resId) || 0;
           var res = GameRegistry.getEntity(resId);
-          refundParts.push(amount + " " + (res ? res.name : resId));
+          var resName = res ? res.name : resId;
+          var color = have >= needed ? "#4ecca3" : "#e63946";
+          if (have < needed) canAfford = false;
+          costParts.push('<span style="color:' + color + '">' + needed + ' ' + escapeHtml(resName) + '</span>');
+        }
+      }
+      var benefits = [];
+      if (upgrade.productionMultiplier) benefits.push("x" + upgrade.productionMultiplier + " prod");
+      if (balance.workerCount && balance.workerCount[nextLevel]) benefits.push(balance.workerCount[nextLevel] + " workers");
+      if (balance.searchRadius && balance.searchRadius[nextLevel]) benefits.push(balance.searchRadius[nextLevel] + " range");
+
+      upgradeHtml = '<div class="inspector-section">' +
+        '<div style="color:#4ecca3; font-size:11px; font-weight:bold;">⬆ Lv.' + nextLevel + ': ' + costParts.join(", ") + '</div>' +
+        (benefits.length > 0 ? '<div style="color:#ffb74d; font-size:10px;">→ ' + benefits.join(", ") + '</div>' : '') +
+        '<button class="btn btn-primary" style="margin-top:4px; font-size:11px; padding:3px 10px;" onclick="GameActions.upgrade(\'' + instance.entityId + '\', \'' + uid + '\')" ' +
+        (canAfford ? '' : 'disabled style="opacity:0.5; cursor:not-allowed;"') + '>Upgrade</button>' +
+        '</div>';
+    } else if (upgradeCheck.reason === "Not enough resources" && balance.upgrades) {
+      var nextLevelKey = (instance.level || 1) + 1;
+      if (balance.upgrades[nextLevelKey]) {
+        var upgrade = balance.upgrades[nextLevelKey];
+        var costParts = [];
+        if (upgrade.cost) {
+          for (var resId in upgrade.cost) {
+            var needed = upgrade.cost[resId];
+            var have = GameState.getResource(resId) || 0;
+            var res = GameRegistry.getEntity(resId);
+            var resName = res ? res.name : resId;
+            var color = have >= needed ? "#4ecca3" : "#e63946";
+            costParts.push('<span style="color:' + color + '">' + needed + ' ' + escapeHtml(resName) + ' <small>(' + Math.floor(have) + ')</small></span>');
+          }
+        }
+        var benefits = [];
+        if (upgrade.productionMultiplier) benefits.push("x" + upgrade.productionMultiplier + " prod");
+        if (balance.workerCount && balance.workerCount[nextLevelKey]) benefits.push(balance.workerCount[nextLevelKey] + " workers");
+        if (balance.searchRadius && balance.searchRadius[nextLevelKey]) benefits.push(balance.searchRadius[nextLevelKey] + " range");
+
+        upgradeHtml = '<div class="inspector-section">' +
+          '<div style="color:#4ecca3; font-size:11px; font-weight:bold;">⬆ Lv.' + nextLevelKey + ': ' + costParts.join(", ") + '</div>' +
+          (benefits.length > 0 ? '<div style="color:#ffb74d; font-size:10px;">→ ' + benefits.join(", ") + '</div>' : '') +
+          '<button class="btn btn-primary" disabled style="margin-top:4px; font-size:11px; padding:3px 10px; opacity:0.5;">Need Resources</button>' +
+          '</div>';
+      }
+    } else if (upgradeCheck.reason === "Max level reached") {
+      upgradeHtml = '<div class="inspector-section" style="color:#4ecca3; font-size:11px;">⭐ Max Level</div>';
+    }
+
+    // --- Storage section ---
+    var storageHtml = "";
+    if (balance && balance.storageCapacity) {
+      var storageUsed = GameState.getStorageUsed(uid);
+      var storageCapacity = GameState.getStorageCapacity(uid);
+      var storagePct = storageCapacity > 0 ? Math.floor((storageUsed / storageCapacity) * 100) : 0;
+      var storageColor = storagePct >= 90 ? "#e63946" : (storagePct >= 70 ? "#f0a500" : "#4ecca3");
+
+      var storage = GameState.getBuildingStorage(uid);
+      var storageParts = [];
+      var hasResources = false;
+      for (var resId in storage) {
+        if (storage[resId] > 0) {
+          hasResources = true;
+          var res = GameRegistry.getEntity(resId);
+          storageParts.push(storage[resId] + " " + (res ? res.name : resId));
+        }
+      }
+
+      storageHtml = '<div class="inspector-section">' +
+        '<div style="font-size:11px;">Storage: <span style="color:' + storageColor + '; font-weight:bold;">' + storageUsed + '/' + storageCapacity + '</span>';
+
+      if (hasResources) {
+        storageHtml += ' <span style="color:#ffb74d;">(' + storageParts.join(", ") + ')</span>' +
+          '</div>' +
+          '<button class="btn btn-success" style="margin-top:4px; font-size:11px; padding:3px 10px;" onclick="GameActions.collectFromBuilding(\'' + uid + '\')">Collect</button>';
+      } else {
+        storageHtml += '</div><div style="color:#555; font-size:10px;">Empty</div>';
+      }
+      storageHtml += '</div>';
+    }
+
+    // --- Synergy section ---
+    var synergyHtml = "";
+    if (window.SynergySystem) {
+      var synergyBonus = SynergySystem.getSynergyBonus(uid);
+      if (synergyBonus.productionBonus > 0 || synergyBonus.speedBonus > 0) {
+        var bonusParts = [];
+        if (synergyBonus.productionBonus > 0) bonusParts.push("+" + Math.round(synergyBonus.productionBonus * 100) + "% prod");
+        if (synergyBonus.speedBonus > 0) bonusParts.push("+" + Math.round(synergyBonus.speedBonus * 100) + "% speed");
+        synergyHtml = '<div class="inspector-section">' +
+          '<div style="color:#4ecca3; font-size:11px;">⚡ ' + bonusParts.join(", ") + '</div>' +
+          '<div style="color:#666; font-size:9px;">From ' + synergyBonus.nearbyCount + ' nearby</div>' +
+          '</div>';
+      }
+    }
+
+    // --- Worker section ---
+    var workerHtml = "";
+    if (window.NPCSystem && balance && balance.workerCount) {
+      var workers = NPCSystem.getNPCsForBuilding(uid);
+      if (workers && workers.length > 0) {
+        workerHtml = '<div class="inspector-section">' +
+          '<div style="color:#aaa; font-size:11px;">👷 Workers: ' + workers.length + '/' + (balance.workerCount[currentLevel] || workers.length) + '</div>' +
+          '</div>';
+      }
+    }
+
+    // --- Refund info ---
+    var refundText = "";
+    if (balance && balance.cost) {
+      var totalRefund = {};
+      for (var resId in balance.cost) {
+        totalRefund[resId] = Math.floor(balance.cost[resId] * 0.5);
+      }
+      if (balance.upgrades && currentLevel > 1) {
+        for (var lvl = 2; lvl <= currentLevel; lvl++) {
+          var upg = balance.upgrades[lvl];
+          if (upg && upg.cost) {
+            for (var resId in upg.cost) {
+              totalRefund[resId] = (totalRefund[resId] || 0) + Math.floor(upg.cost[resId] * 0.5);
+            }
+          }
+        }
+      }
+      var refundParts = [];
+      for (var resId in totalRefund) {
+        if (totalRefund[resId] > 0) {
+          var res = GameRegistry.getEntity(resId);
+          refundParts.push(totalRefund[resId] + " " + (res ? res.name : resId));
         }
       }
       if (refundParts.length > 0) {
-        refundText = "Hoàn trả: " + refundParts.join(", ");
+        refundText = "Refund 50%: " + refundParts.join(", ");
       }
     }
-    
-    inspector.innerHTML = '' +
-      '<div class="card">' +
-      '  <div class="card-name">' + escapeHtml(entity.name) + '</div>' +
-      '  <div class="card-info">' + escapeHtml(entity.description || '') + '</div>' +
-      '  <div class="card-info" style="color:#ffb74d">' + refundText + '</div>' +
-      '  <div style="margin-top:8px;">' +
-      '    <button class="btn btn-danger" onclick="GameHUD.confirmDestroy(\'' + uid + '\')" title="Xóa building - hoàn trả 50% chi phí">Xóa</button> ' +
-      '    <button class="btn btn-secondary" onclick="GameHUD.closeInspector()">Đóng</button>' +
-      '  </div>' +
+
+    inspector.innerHTML =
+      '<div style="padding:10px 12px;">' +
+      '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
+        '<div style="font-weight:bold; font-size:14px; color:#e0e0e0;">' + escapeHtml(entity.name) + '</div>' +
+        '<span style="color:#4ecca3; font-size:11px; background:rgba(78,204,163,0.15); padding:2px 8px; border-radius:4px;">' + levelText + '</span>' +
+      '</div>' +
+      '<div style="color:#888; font-size:11px; margin-bottom:6px;">' + escapeHtml(entity.description || '') + '</div>' +
+      storageHtml +
+      synergyHtml +
+      workerHtml +
+      upgradeHtml +
+      (refundText ? '<div style="color:#ffb74d; font-size:10px; margin-top:6px; padding-top:6px; border-top:1px solid rgba(255,255,255,0.06);">' + refundText + '</div>' : '') +
+      '<div style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.08); display:flex; gap:6px;">' +
+        '<button class="btn btn-danger" style="font-size:11px; padding:4px 12px;" onclick="GameHUD.confirmDestroy(\'' + uid + '\')">Delete</button>' +
+        '<button class="btn btn-secondary" style="font-size:11px; padding:4px 12px;" onclick="GameHUD.closeInspector()">Close</button>' +
+      '</div>' +
       '</div>';
-      
+
     inspector.classList.add("active");
   }
   
@@ -582,6 +764,10 @@ window.GameHUD = (function () {
     var inspector = document.getElementById("building-inspector");
     if (inspector) inspector.classList.remove("active");
   }
+
+  /**
+   * Show worker training modal
+   */
   
   // Handle Delete key
   document.addEventListener('keydown', function(e) {
@@ -679,10 +865,10 @@ window.GameHUD = (function () {
 
   function updateBuildingStorageLabels() {
     if (!window.GameScene || !GameScene.getCamera || !window.GameState) return;
-    
+
     var container = document.getElementById('building-storage-labels');
     if (!container) return;
-    
+
     var instances = GameState.getAllInstances();
     var camera = GameScene.getCamera();
     var canvas = document.getElementById('game-canvas');
@@ -690,42 +876,48 @@ window.GameHUD = (function () {
       container.innerHTML = '';
       return;
     }
-    
+
     var html = '';
     var canvasRect = canvas.getBoundingClientRect();
-    
+
     for (var uid in instances) {
       var inst = instances[uid];
-      var storage = GameState.getBuildingStorage(uid);
-      
-      if (!storage || Object.keys(storage).length === 0) continue;
-      
+      var balance = GameRegistry.getBalance(inst.entityId);
+      if (!balance || !balance.storageCapacity) continue;
+
+      var storageCapacity = GameState.getStorageCapacity(uid);
+      if (storageCapacity <= 0) continue;
+
+      var storageUsed = GameState.getStorageUsed(uid);
+      var pct = storageCapacity > 0 ? Math.floor((storageUsed / storageCapacity) * 100) : 0;
+      var barColor = pct >= 90 ? '#e94560' : pct >= 70 ? '#f0a500' : '#4ecca3';
+
       // Calculate screen position
-      var worldPos = new THREE.Vector3(inst.x, 1.2, inst.z); // Above building
+      var worldPos = new THREE.Vector3(inst.x, 1.3, inst.z);
       var screenPos = worldPos.clone().project(camera);
-      
-      // Convert to screen coordinates
+
+      if (screenPos.z > 1) continue;
+
       var x = (screenPos.x * 0.5 + 0.5) * canvasRect.width + canvasRect.left;
       var y = (-screenPos.y * 0.5 + 0.5) * canvasRect.height + canvasRect.top;
-      
-      // Check if in front of camera
-      if (screenPos.z > 1) continue;
-      
-      // Build storage text
-      var storageText = '';
-      for (var resId in storage) {
-        if (storage[resId] > 0) {
-          var resEntity = GameRegistry.getEntity(resId);
-          var resName = resEntity ? resEntity.name.substring(0, 4) : resId.replace('resource.', '').substring(0, 4);
-          storageText += resName + ':' + Math.floor(storage[resId]) + ' ';
-        }
+
+      html += '<div style="position:fixed; left:' + x + 'px; top:' + y + 'px; transform:translate(-50%, -50%); pointer-events:none; z-index:15; text-align:center;">';
+
+      // Storage bar - larger and more visible
+      html += '<div style="width:56px; height:8px; background:rgba(15,52,96,0.9); border-radius:4px; overflow:hidden; border:1px solid rgba(78,204,163,0.4); margin:0 auto; box-shadow:0 1px 4px rgba(0,0,0,0.3);">';
+      html += '<div style="width:' + pct + '%; height:100%; background:' + barColor + '; border-radius:3px; transition:width 0.3s;"></div>';
+      html += '</div>';
+
+      // Text - bigger and bolder
+      if (pct >= 100) {
+        html += '<div style="font-size:9px; color:#e94560; text-shadow:0 1px 3px #000; margin-top:2px; font-weight:bold;">FULL</div>';
+      } else if (pct > 0) {
+        html += '<div style="font-size:9px; color:#ddd; text-shadow:0 1px 3px #000; margin-top:2px; font-weight:bold;">' + storageUsed + '/' + storageCapacity + '</div>';
+      } else {
+        html += '<div style="font-size:8px; color:#888; text-shadow:0 1px 3px #000; margin-top:2px;">0/' + storageCapacity + '</div>';
       }
-      
-      if (storageText) {
-        html += '<div class="building-storage-label" style="position:fixed; left:' + x + 'px; top:' + y + 'px; transform:translate(-50%, -50%);">';
-        html += storageText.trim();
-        html += '</div>';
-      }
+
+      html += '</div>';
     }
     
     container.innerHTML = html;
@@ -942,6 +1134,9 @@ window.GameHUD = (function () {
       case 'stats':
         renderModalStats();
         break;
+      case 'research':
+        renderModalResearch();
+        break;
     }
   }
 
@@ -1143,7 +1338,7 @@ window.GameHUD = (function () {
       }
 
       html += '</div>';
-      html += '<button class="btn btn-primary" onclick="GameActions.startBuild(\'' + building.id + '\'); GameHUD.closeModal();"' + (canBuy ? '' : ' disabled') + '>Build</button>';
+      html += '<button class="btn btn-primary" onclick="BuildingSystem.enterBuildMode(\'' + building.id + '\'); GameHUD.closeModal();"' + (canBuy ? '' : ' disabled') + '>Build</button>';
       html += '</div>';
     });
 
@@ -1209,6 +1404,7 @@ window.GameHUD = (function () {
       // Check if output is equipment and already in inventory
       var hasInInventory = false;
       var outputEquipmentId = null;
+      var isEquipped = false;
       if (balance && balance.output) {
         for (var resId in balance.output) {
           var entity = GameRegistry.getEntity(resId);
@@ -1218,14 +1414,22 @@ window.GameHUD = (function () {
             if (invCount > 0) {
               hasInInventory = true;
             }
+            // Check if already equipped in the right slot
+            var player = GameState.getPlayer();
+            if (player.equipped[entity.slot] === resId) {
+              isEquipped = true;
+            }
             break;
           }
         }
       }
-      
-      if (hasInInventory && outputEquipmentId) {
+
+      if (isEquipped) {
+        // Already equipped - show disabled button
+        html += '<button class="btn btn-secondary" disabled style="opacity:0.6;">Equipped</button>';
+      } else if (hasInInventory && outputEquipmentId) {
         // Show "Use" button instead of "Craft"
-        html += '<button class="btn btn-primary" onclick="GameActions.equip(\'' + outputEquipmentId + '\')">Use</button>';
+        html += '<button class="btn btn-success" onclick="GameActions.equip(\'' + outputEquipmentId + '\'); GameHUD.updateModal();">Use</button>';
       } else {
         // Show "Craft" button
         html += '<button class="btn btn-primary" onclick="GameActions.craft(\'' + recipe.id + '\')"' + (canCraft ? '' : ' disabled') + '>Craft</button>';
@@ -1320,24 +1524,138 @@ window.GameHUD = (function () {
     panel.innerHTML = html;
   }
 
+  function renderModalResearch() {
+    var panel = document.getElementById('modal-panel-research');
+    if (!panel) return;
+
+    var allTechs = GameRegistry.getEntitiesByType('technology');
+    if (!allTechs || allTechs.length === 0) {
+      panel.innerHTML = '<div class="card">No technologies available.</div>';
+      return;
+    }
+
+    var html = '<div style="margin-bottom:8px; color:#aaa; font-size:11px;">Nghiên cứu công nghệ để nâng cấp toàn bộ.</div>';
+
+    allTechs.forEach(function(tech) {
+      var balance = GameRegistry.getBalance(tech.id);
+      var isResearched = window.ResearchSystem && ResearchSystem.isResearched(tech.id);
+      var isUnlocked = GameState.isUnlocked(tech.id);
+      var canResearch = window.ResearchSystem && ResearchSystem.canResearch(tech.id);
+
+      // Check prerequisites
+      var prereqsMet = true;
+      var prereqNames = [];
+      if (balance && balance.requires) {
+        balance.requires.forEach(function(reqId) {
+          var reqEntity = GameRegistry.getEntity(reqId);
+          prereqNames.push(reqEntity ? reqEntity.name : reqId);
+          if (!ResearchSystem.isResearched(reqId)) prereqsMet = false;
+        });
+      }
+
+      // Cost display
+      var costHtml = '';
+      if (balance && balance.researchCost) {
+        var costParts = [];
+        for (var resId in balance.researchCost) {
+          var needed = balance.researchCost[resId];
+          var have = GameState.getResource(resId) || 0;
+          var res = GameRegistry.getEntity(resId);
+          var resName = res ? res.name : resId;
+          var color = have >= needed ? '#4ecca3' : '#e63946';
+          costParts.push('<span style="color:' + color + '">' + needed + ' ' + escapeHtml(resName) + '</span>');
+        }
+        costHtml = costParts.join(', ');
+      }
+
+      // Effects display
+      var effectsHtml = '';
+      if (balance && balance.effects) {
+        var effectParts = [];
+        if (balance.effects.harvestSpeedBonus) effectParts.push('+' + Math.round(balance.effects.harvestSpeedBonus * 100) + '% harvest speed');
+        if (balance.effects.productionBonus) effectParts.push('+' + Math.round(balance.effects.productionBonus * 100) + '% production');
+        if (balance.effects.storageBonus) effectParts.push('+' + Math.round(balance.effects.storageBonus * 100) + '% storage');
+        if (balance.effects.npcSpeedBonus) effectParts.push('+' + Math.round(balance.effects.npcSpeedBonus * 100) + '% NPC speed');
+        effectsHtml = effectParts.join(', ');
+      }
+
+      // Card styling based on state
+      var borderColor, opacity;
+      if (isResearched) {
+        borderColor = '#4ecca3';
+        opacity = '1';
+      } else if (canResearch) {
+        borderColor = '#f0a500';
+        opacity = '1';
+      } else if (isUnlocked && prereqsMet) {
+        borderColor = '#888';
+        opacity = '0.9';
+      } else {
+        borderColor = '#444';
+        opacity = '0.5';
+      }
+
+      html += '<div class="card" style="border-left:3px solid ' + borderColor + '; opacity:' + opacity + '; margin-bottom:6px;">';
+
+      // Title row
+      html += '<div style="display:flex; justify-content:space-between; align-items:center;">';
+      html += '<div class="card-name" style="font-size:12px;">';
+      if (isResearched) html += '✅ ';
+      html += escapeHtml(tech.name) + '</div>';
+
+      // Status badge
+      if (isResearched) {
+        html += '<span style="color:#4ecca3; font-size:10px; background:#1a3a2a; padding:2px 6px; border-radius:3px;">Done</span>';
+      } else if (canResearch) {
+        html += '<button class="btn btn-primary" style="font-size:10px; padding:3px 10px;" onclick="GameActions.researchTech(\'' + tech.id + '\')">Research</button>';
+      } else if (!isUnlocked) {
+        html += '<span style="color:#666; font-size:10px;">Locked</span>';
+      } else if (!prereqsMet) {
+        html += '<span style="color:#e63946; font-size:10px;">Need: ' + prereqNames.join(', ') + '</span>';
+      } else {
+        html += '<span style="color:#888; font-size:10px;">Need resources</span>';
+      }
+      html += '</div>';
+
+      // Description
+      html += '<div class="card-info" style="margin-top:4px;">' + escapeHtml(tech.description || '') + '</div>';
+
+      // Effects
+      if (effectsHtml) {
+        html += '<div style="color:#ffb74d; font-size:10px; margin-top:4px;">⚡ ' + effectsHtml + '</div>';
+      }
+
+      // Cost
+      if (costHtml && !isResearched) {
+        html += '<div style="color:#aaa; font-size:10px; margin-top:4px;">Cost: ' + costHtml + '</div>';
+      }
+
+      html += '</div>';
+    });
+
+    panel.innerHTML = html;
+  }
+
   return {
+    init: init,
     renderAll: renderAll,
     switchTab: switchTab,
     closePanels: closePanels,
+    renderActivePanel: renderActivePanel,
     showNotification: showNotification,
-    showError: showError,
     showSuccess: showSuccess,
+    showError: showError,
     showFloatingText: showFloatingText,
     showDamageNumber: showDamageNumber,
     selectInstance: selectInstance,
     setHoveredInstance: setHoveredInstance,
     confirmDestroy: confirmDestroy,
     closeInspector: closeInspector,
-    toggleProductionPanel: toggleProductionPanel,
     showObjectHpBar: showObjectHpBar,
     hideObjectHpBar: hideObjectHpBar,
     updateNodeHpBars: updateNodeHpBars,
     updateBuildingStorageLabels: updateBuildingStorageLabels,
+    toggleProductionPanel: toggleProductionPanel,
     // Modal functions
     toggleModal: toggleModal,
     openModal: openModal,
@@ -1346,4 +1664,14 @@ window.GameHUD = (function () {
     switchModalTab: switchModalTab,
     updateModal: updateModal
   };
-})();
+  })();
+  
+  console.log('[HUD] GameHUD defined. Type:', typeof window.GameHUD);
+  if (window.GameHUD) {
+    console.log('[HUD] ✅ GameHUD exported successfully with methods:', Object.keys(window.GameHUD).join(', '));
+  }
+} catch (error) {
+  console.error('[HUD] ❌ CRITICAL ERROR loading hud.js:', error);
+  console.error('[HUD] Stack:', error.stack);
+  alert('CRITICAL: HUD.js failed to load!\n\n' + error.message + '\n\nCheck console (F12) for details.');
+}

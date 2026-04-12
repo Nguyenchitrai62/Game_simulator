@@ -221,14 +221,42 @@ body { overflow: hidden; background: #1a1a2e; font-family: 'Segoe UI', sans-seri
 /* Building Inspector */
 .hud-inspector {
   position: fixed;
-  top: 100px;
+  top: 80px;
   right: 15px;
-  width: 280px;
+  width: 300px;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
   display: none;
   z-index: 25;
+  background: rgba(22,33,62,0.97);
+  border: 2px solid #e94560;
+  border-radius: 10px;
+  padding: 0;
+  box-shadow: 0 6px 30px rgba(0,0,0,0.5);
 }
+.hud-inspector::-webkit-scrollbar { width: 5px; }
+.hud-inspector::-webkit-scrollbar-track { background: rgba(15,15,30,0.8); border-radius: 3px; }
+.hud-inspector::-webkit-scrollbar-thumb { background: #e94560; border-radius: 3px; }
 .hud-inspector.active {
   display: block;
+}
+.hud-inspector .card {
+  border: none;
+  border-radius: 8px;
+  margin: 0;
+  padding: 10px 12px;
+}
+.hud-inspector .card-info {
+  font-size: 11px;
+  line-height: 1.4;
+}
+.inspector-section {
+  padding: 6px 0;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+.inspector-section:first-child {
+  border-top: none;
+  padding-top: 0;
 }
 
 /* Notification */
@@ -263,6 +291,8 @@ body { overflow: hidden; background: #1a1a2e; font-family: 'Segoe UI', sans-seri
   animation: floatUp 1s ease-out forwards;
 }
 .damage-number.damage { color: #e94560; }
+.damage-number.enemy-damage { color: #ff6600; font-size: 16px; }
+.damage-number.blocked { color: #888; font-size: 13px; }
 .damage-number.heal { color: #4ecca3; }
 .damage-number.loot { color: #f0a500; font-size: 14px; }
 
@@ -284,15 +314,6 @@ body { overflow: hidden; background: #1a1a2e; font-family: 'Segoe UI', sans-seri
 .inv-slot:hover { border-color: #e94560; }
 .inv-slot.equipped { border-color: #4ecca3; background: rgba(78,204,163,0.2); }
 
-/* Save info */
-.save-info {
-  position: fixed; bottom: 50px; left: 15px;
-  font-size: 11px; color: #ccc; z-index: 10;
-  background: rgba(22,33,62,0.6);
-  padding: 4px 10px;
-  border-radius: 8px;
-}
-
 /* Minimap */
 #minimap {
   position: fixed; bottom: 160px; right: 15px;
@@ -306,17 +327,18 @@ body { overflow: hidden; background: #1a1a2e; font-family: 'Segoe UI', sans-seri
 /* === BACKPACK ICON === */
 /* === BUILDING STORAGE LABELS === */
 .building-storage-label {
-  background: rgba(15, 52, 96, 0.9);
-  border: 1px solid #4ecca3;
-  border-radius: 4px;
-  padding: 3px 6px;
+  background: rgba(15, 52, 96, 0.95);
+  border: 1px solid rgba(78,204,163,0.6);
+  border-radius: 6px;
+  padding: 4px 8px;
   font-size: 10px;
   color: #4ecca3;
   font-weight: bold;
   white-space: nowrap;
   pointer-events: none;
   z-index: 50;
-  text-shadow: 0 0 2px rgba(0,0,0,0.8);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
 }
 
 /* === BACKPACK ICON === */

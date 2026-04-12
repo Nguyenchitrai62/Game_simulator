@@ -5,11 +5,24 @@ window.CraftSystem = (function () {
       GameHUD.showError("Công thức này chưa được mở khóa");
       return false;
     }
-    
+
     var balance = GameRegistry.getBalance(recipeId);
     if (!balance || !balance.input || !balance.output) {
       GameHUD.showError("Công thức không hợp lệ");
       return false;
+    }
+
+    // Prevent crafting duplicate equipment
+    for (var resId in balance.output) {
+      var item = GameRegistry.getEntity(resId);
+      if (item && item.type === 'equipment') {
+        var invCount = GameState.getInventoryCount(resId);
+        var player = GameState.getPlayer();
+        if (invCount > 0 || player.equipped[item.slot] === resId) {
+          GameHUD.showError("You already have this equipment!");
+          return false;
+        }
+      }
     }
 
     for (var resourceId in balance.input) {

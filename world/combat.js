@@ -78,7 +78,7 @@ window.GameCombat = (function () {
     if (damageToPlayer > 0) {
       GameState.setPlayerHP(GameState.getPlayer().hp - damageToPlayer);
       var pos = GamePlayer.getPosition();
-      GameHUD.showDamageNumber(pos.x, 1.5, pos.z, "-" + damageToPlayer, "damage");
+      GameHUD.showDamageNumber(pos.x, 1.5, pos.z, "-" + damageToPlayer, "enemy-damage");
 
       // Check player death
       if (GameState.getPlayer().hp <= 0) {
@@ -86,6 +86,10 @@ window.GameCombat = (function () {
         endCombat(false);
         return;
       }
+    } else if (targetAtk > 0) {
+      // Show blocked when enemy attacks but deals 0 damage
+      var pos = GamePlayer.getPosition();
+      GameHUD.showDamageNumber(pos.x, 1.5, pos.z, "BLOCKED", "blocked");
     }
 
     // Update HUD
@@ -133,15 +137,25 @@ window.GameCombat = (function () {
       UnlockSystem.checkAll();
       GameHUD.renderAll();
 
-      // Respawn
+      // Respawn with player collision check
       var respawnTime = balance ? (balance.respawnTime || 60) : 60;
-      setTimeout(function () {
-        if (target && target._destroyed) {
-          target.hp = target.maxHp;
-          target._destroyed = false;
-          GameEntities.showObject(target);
+      function tryAnimalRespawn() {
+        if (!target || !target._destroyed) return;
+        // Check if player is too close
+        if (window.GamePlayer) {
+          var playerPos = GamePlayer.getPosition();
+          var dx = Math.abs(target.worldX - playerPos.x);
+          var dz = Math.abs(target.worldZ - playerPos.z);
+          if (dx < 2 && dz < 2) {
+            setTimeout(tryAnimalRespawn, 5000);
+            return;
+          }
         }
-      }, respawnTime * 1000);
+        target.hp = target.maxHp;
+        target._destroyed = false;
+        GameEntities.showObject(target);
+      }
+      setTimeout(tryAnimalRespawn, respawnTime * 1000);
 
       GameHUD.showNotification("Victory! Loot collected.");
     }

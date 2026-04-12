@@ -48,8 +48,29 @@ window.UpgradeSystem = (function () {
         instance.level = check.level;
         GameState.addInstance(instanceUid, instance);
         
+        // Re-create 3D mesh with new level visual
+        var scene = GameScene.getScene();
+        for (var i = scene.children.length - 1; i >= 0; i--) {
+          var child = scene.children[i];
+          if (child.userData && child.userData.instanceUid === instanceUid) {
+            scene.remove(child);
+            break;
+          }
+        }
+        
+        var entity = GameRegistry.getEntity(buildingId);
+        if (entity && window.BuildingSystem && BuildingSystem.createBuildingMesh) {
+          var newMesh = BuildingSystem.createBuildingMesh(entity, check.level, false);
+          if (newMesh) {
+            newMesh.position.set(instance.x, 0, instance.z);
+            newMesh.userData.instanceUid = instanceUid;
+            scene.add(newMesh);
+          }
+        }
+        
         // Spawn additional NPCs for upgraded building
         if (window.NPCSystem && NPCSystem.spawnWorkersForBuilding) {
+          NPCSystem.despawnWorkersForBuilding(instanceUid);
           NPCSystem.spawnWorkersForBuilding(instanceUid);
         }
       }
