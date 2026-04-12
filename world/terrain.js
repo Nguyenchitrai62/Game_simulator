@@ -158,9 +158,28 @@ window.GameTerrain = (function () {
       });
     }
 
-    // Berry bushes (near home)
-    if (distFromHome < 3) {
-      var bushCount = 1 + Math.floor(rng(30) * 3);
+    // Berry bushes (near home - more frequent for Berry Gatherer building)
+    if (distFromHome < 1) {
+      // Home area: many bushes (6-10)
+      var bushCount = 6 + Math.floor(rng(30) * 5);
+      var bushHp = (window.GAME_BALANCE["node.berry_bush"] || {}).hp || 1;
+      for (var i = 0; i < bushCount; i++) {
+        var bx = Math.floor(rng(300 + i * 2) * CHUNK_SIZE);
+        var bz = Math.floor(rng(301 + i * 2) * CHUNK_SIZE);
+        // Avoid spawn zone
+        if (cx === 0 && cz === 0 && bx > 6 && bx < 10 && bz > 6 && bz < 10) continue;
+        chunkData.objects.push({
+          id: "obj_" + key + "_b" + i,
+          type: "node.berry_bush",
+          x: bx, z: bz,
+          hp: bushHp, maxHp: bushHp,
+          worldX: cx * CHUNK_SIZE + bx,
+          worldZ: cz * CHUNK_SIZE + bz
+        });
+      }
+    } else if (distFromHome < 3) {
+      // Near home: moderate bushes (3-6)
+      var bushCount = 3 + Math.floor(rng(30) * 4);
       var bushHp = (window.GAME_BALANCE["node.berry_bush"] || {}).hp || 1;
       for (var i = 0; i < bushCount; i++) {
         var bx = Math.floor(rng(300 + i * 2) * CHUNK_SIZE);
@@ -182,7 +201,8 @@ window.GameTerrain = (function () {
       for (var i = 0; i < animalCount; i++) {
         var ax = Math.floor(rng(400 + i * 2) * CHUNK_SIZE);
         var az = Math.floor(rng(401 + i * 2) * CHUNK_SIZE);
-        var animalType = distFromHome >= 4 ? "animal.bear" :
+        var animalType = distFromHome >= 6 ? "animal.lion" :
+                         distFromHome >= 4 ? "animal.bear" :
                          distFromHome >= 2 ? "animal.boar" : "animal.wolf";
         var animalBalance = window.GAME_BALANCE[animalType] || {};
         var animalHp = animalBalance.hp || 15;
@@ -209,6 +229,36 @@ window.GameTerrain = (function () {
         hp: flintHp, maxHp: flintHp,
         worldX: cx * CHUNK_SIZE + fx,
         worldZ: cz * CHUNK_SIZE + fz
+      });
+    }
+
+    // Copper deposits (Bronze Age - far chunks)
+    if (distFromHome >= 3 && rng(700) > 0.6) {
+      var copperX = Math.floor(rng(800) * CHUNK_SIZE);
+      var copperZ = Math.floor(rng(801) * CHUNK_SIZE);
+      var copperHp = (window.GAME_BALANCE["node.copper_deposit"] || {}).hp || 6;
+      chunkData.objects.push({
+        id: "obj_" + key + "_copper0",
+        type: "node.copper_deposit",
+        x: copperX, z: copperZ,
+        hp: copperHp, maxHp: copperHp,
+        worldX: cx * CHUNK_SIZE + copperX,
+        worldZ: cz * CHUNK_SIZE + copperZ
+      });
+    }
+
+    // Tin deposits (Bronze Age - further chunks)
+    if (distFromHome >= 4 && rng(900) > 0.65) {
+      var tinX = Math.floor(rng(1000) * CHUNK_SIZE);
+      var tinZ = Math.floor(rng(1001) * CHUNK_SIZE);
+      var tinHp = (window.GAME_BALANCE["node.tin_deposit"] || {}).hp || 5;
+      chunkData.objects.push({
+        id: "obj_" + key + "_tin0",
+        type: "node.tin_deposit",
+        x: tinX, z: tinZ,
+        hp: tinHp, maxHp: tinHp,
+        worldX: cx * CHUNK_SIZE + tinX,
+        worldZ: cz * CHUNK_SIZE + tinZ
       });
     }
 

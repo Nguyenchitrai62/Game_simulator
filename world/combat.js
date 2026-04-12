@@ -1,7 +1,7 @@
 window.GameCombat = (function () {
   var _activeCombat = null;
   var _attackTimer = 0;
-  var ATTACK_INTERVAL = 1.0;
+  var ATTACK_INTERVAL = 0.5;  // Faster combat - was 1.0
 
   function startCombat(objData) {
     if (_activeCombat) return;

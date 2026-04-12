@@ -67,20 +67,20 @@ window.GameEntities = (function () {
       leaves2.castShadow = true;
       group.add(leaves2);
 
-    } else if (type === "node.rock") {
+    } else if (type === "node.rock" || type === "node.copper_deposit" || type === "node.tin_deposit") {
       var rockColor = mainColor || 0x808080;
-      var rockGeo = new THREE.DodecahedronGeometry(0.35, 0);
+      var rockGeo = new THREE.DodecahedronGeometry(0.35 * scale, 0);
       var rockMat = new THREE.MeshLambertMaterial({ color: rockColor });
       var rock = new THREE.Mesh(rockGeo, rockMat);
-      rock.position.y = 0.25;
+      rock.position.y = 0.25 * scale;
       rock.rotation.set(0.3, 0.5, 0.1);
       rock.castShadow = true;
       group.add(rock);
 
       // Small rock next to it
-      var smallGeo = new THREE.DodecahedronGeometry(0.15, 0);
+      var smallGeo = new THREE.DodecahedronGeometry(0.15 * scale, 0);
       var small = new THREE.Mesh(smallGeo, rockMat);
-      small.position.set(0.25, 0.1, 0.15);
+      small.position.set(0.25 * scale, 0.1 * scale, 0.15 * scale);
       small.rotation.set(0.8, 0.2, 0);
       group.add(small);
 
@@ -123,12 +123,14 @@ window.GameEntities = (function () {
       sharp.castShadow = true;
       group.add(sharp);
 
-    } else if (type === "animal.wolf" || type === "animal.boar" || type === "animal.bear") {
-      var animalColor = mainColor || (type === "animal.wolf" ? 0x808080 : type === "animal.boar" ? 0x8B6914 : 0x5C4033);
-      var animalScale = scale || (type === "animal.bear" ? 0.8 : 0.6);
+    } else if (type === "animal.wolf" || type === "animal.boar" || type === "animal.bear" || type === "animal.lion") {
+      var animalColor = mainColor || (type === "animal.wolf" ? 0x808080 : 
+                                        type === "animal.boar" ? 0x8B6914 : 
+                                        type === "animal.lion" ? 0xC4A24E : 0x5C4033);
+      var animalScale = scale || (type === "animal.bear" || type === "animal.lion" ? 0.8 : 0.6);
 
       // Body
-      var bodyLen = type === "animal.bear" ? 0.7 : 0.5;
+      var bodyLen = type === "animal.bear" || type === "animal.lion" ? 0.7 : 0.5;
       var bodyGeo = new THREE.BoxGeometry(bodyLen, 0.25 * animalScale / 0.6, 0.3 * animalScale / 0.6);
       var bodyMat = new THREE.MeshLambertMaterial({ color: animalColor });
       var body = new THREE.Mesh(bodyGeo, bodyMat);
@@ -214,24 +216,69 @@ window.GameEntities = (function () {
       mesh.visible = true;
       mesh.traverse(function(child) {
         if (child.isMesh && child.material) {
-          child.material.opacity = 1;
-          child.material.transparent = false;
+          // Skip shadow mesh (positioned at y=0.02 with low opacity)
+          if (Math.abs(child.position.y - 0.02) < 0.01) {
+            // This is a shadow, keep it transparent
+            child.material.opacity = 0.15;
+            child.material.transparent = true;
+          } else {
+            // Regular mesh, make fully visible
+            child.material.opacity = 1;
+            child.material.transparent = false;
+          }
         }
       });
     }
   }
 
   function update(dt) {
-    // Animate animals (idle movement)
+    // Animate animals (idle movement + actual wandering)
     _meshMap.forEach(function (mesh, id) {
       var objData = _dataMap.get(mesh.id);
       if (!objData) return;
 
-      if (objData.type && objData.type.startsWith("animal.") && objData.hp > 0) {
-        // Idle wandering animation
+      if (objData.type && objData.type.startsWith("animal.") && objData.hp > 0 && !objData._destroyed) {
         var time = performance.now() / 1000;
+        
+        // Slow wandering movement (not during combat)
+        var isInCombat = window.GameCombat && GameCombat.isActive && GameCombat.isActive();
+        if (!isInCombat) {
+          // Initialize wander state if needed
+          if (!mesh.userData._wanderTime) {
+            mesh.userData._wanderTime = time;
+            mesh.userData._wanderDir = Math.random() * Math.PI * 2;
+          }
+          
+          // Change direction every 3-5 seconds
+          if (time - mesh.userData._wanderTime > 3 + Math.random() * 2) {
+            mesh.userData._wanderTime = time;
+            mesh.userData._wanderDir = Math.random() * Math.PI * 2;
+          }
+          
+          // Move slowly in wander direction (0.3 tiles/sec)
+          var wanderSpeed = 0.3 * dt;
+          var newX = mesh.position.x + Math.sin(mesh.userData._wanderDir) * wanderSpeed;
+          var newZ = mesh.position.z + Math.cos(mesh.userData._wanderDir) * wanderSpeed;
+          
+          // Check if walkable and within reasonable range of spawn point
+          var distFromSpawn = Math.sqrt(
+            Math.pow(newX - objData.worldX, 2) + 
+            Math.pow(newZ - objData.worldZ, 2)
+          );
+          
+          if (distFromSpawn < 3 && window.GameTerrain && GameTerrain.isWalkable(newX, newZ)) {
+            mesh.position.x = newX;
+            mesh.position.z = newZ;
+            // Face movement direction
+            mesh.rotation.y = mesh.userData._wanderDir;
+          } else {
+            // Hit obstacle or too far, pick new direction
+            mesh.userData._wanderDir = Math.random() * Math.PI * 2;
+          }
+        }
+        
+        // Bobbing animation
         mesh.position.y = Math.sin(time * 2 + mesh.id) * 0.02;
-        mesh.rotation.y = Math.sin(time * 0.5 + mesh.id * 0.3) * 0.3;
 
         // Animate legs
         mesh.children.forEach(function (child) {

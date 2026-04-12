@@ -71,7 +71,8 @@ window.GameScene = (function () {
   }
 
   function setZoom(delta) {
-    _zoom = Math.max(6, Math.min(25, _zoom + delta));
+    // Limit zoom to default (12) - prevent exploring by zooming out
+    _zoom = Math.max(6, Math.min(12, _zoom + delta));
     onResize();
   }
 

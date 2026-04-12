@@ -7,6 +7,8 @@ window.GamePlayer = (function () {
   var _direction = { x: 0, z: 1 };
   var _keys = {};
   var _animTime = 0;
+  var _lastCombatTime = 0;  // Track last time in combat for health regen
+  var _regenAccumulator = 0;
 
   function init(startX, startZ) {
     _x = startX || 8;
@@ -78,23 +80,11 @@ window.GamePlayer = (function () {
     document.addEventListener('keydown', function (e) {
       _keys[e.key.toLowerCase()] = true;
       if (e.key.toLowerCase() === 'e') interactNearby();
-      if (e.key.toLowerCase() === 'b') { 
-        GameHUD.switchModalTab('build'); 
-        if (!document.getElementById('modal-overlay').classList.contains('active')) {
-          GameHUD.toggleModal(); 
-        }
-      }
-      if (e.key.toLowerCase() === 'c') { 
-        GameHUD.switchModalTab('craft'); 
-        if (!document.getElementById('modal-overlay').classList.contains('active')) {
-          GameHUD.toggleModal(); 
-        }
-      }
-      if (e.key.toLowerCase() === 'i') { 
-        // Open modal to stats (inventory now always visible)
-        GameHUD.switchModalTab('stats'); 
-        if (!document.getElementById('modal-overlay').classList.contains('active')) {
-          GameHUD.toggleModal(); 
+      if (e.key.toLowerCase() === 'b') {
+        if (GameHUD.isModalActive()) {
+          GameHUD.closeModal();
+        } else {
+          GameHUD.openModal();
         }
       }
       if (e.key === 'Escape') GameHUD.closeModal();
@@ -154,6 +144,29 @@ window.GamePlayer = (function () {
 
     // Get current speed from GameState (includes boots bonus)
     var _speed = GameState.getPlayerSpeed ? GameState.getPlayerSpeed() : 3;
+
+    // Health regeneration (when not in combat)
+    var isInCombat = (window.GameCombat && GameCombat.isActive && GameCombat.isActive());
+    if (isInCombat) {
+      _lastCombatTime = _animTime;
+      _regenAccumulator = 0;
+    } else {
+      // Regen after 3 seconds out of combat
+      var timeSinceCombat = _animTime - _lastCombatTime;
+      if (timeSinceCombat > 3) {
+        _regenAccumulator += dt;
+        // Regenerate 1 HP every 2 seconds
+        if (_regenAccumulator >= 2.0) {
+          _regenAccumulator = 0;
+          var player = GameState.getPlayer();
+          var maxHp = GameState.getPlayerMaxHp();
+          if (player.hp < maxHp) {
+            GameState.setPlayerHP(Math.min(maxHp, player.hp + 1));
+            GameHUD.renderAll();
+          }
+        }
+      }
+    }
 
     // Screen-space input: W=up, S=down, A=left, D=right
     var screenDx = 0, screenDy = 0;

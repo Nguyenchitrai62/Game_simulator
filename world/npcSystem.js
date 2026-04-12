@@ -242,6 +242,8 @@ window.NPCSystem = (function() {
       // Apply damage to node
       node.hp -= 1;
       
+      // HP bar is automatically updated by updateNodeHpBars() in render loop
+      
       // Play swing animation on mesh
       if (npc.mesh && npc.mesh.children[0]) {
         const bodyMesh = npc.mesh.children[0];

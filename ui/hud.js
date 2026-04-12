@@ -112,11 +112,7 @@ window.GameHUD = (function () {
       }
     }
 
-    // Save info
-    var saveEl = document.getElementById("save-info");
-    if (saveEl) {
-      saveEl.textContent = "v" + window.GAME_MANIFEST.version + " | WASD move | E interact | B backpack";
-    }
+    // Save info removed - cleaner UI
   }
 
   function switchTab(tabName) {
@@ -587,9 +583,30 @@ window.GameHUD = (function () {
       return;
     }
     
-    // Create/update HP bars
+    // Get camera and canvas for world-to-screen conversion
+    var camera = GameScene.getCamera();
+    var canvas = document.getElementById('game-canvas');
+    if (!camera || !canvas) {
+      container.innerHTML = '';
+      return;
+    }
+    
+    var canvasRect = canvas.getBoundingClientRect();
+    
+    // Create/update HP bars positioned on each node
     var html = '';
     activeNodes.forEach(function(nodeData, index) {
+      // Convert world position to screen position
+      var worldPos = new THREE.Vector3(nodeData.worldX, 1.2, nodeData.worldZ); // Above node
+      var screenPos = worldPos.clone().project(camera);
+      
+      // Check if in front of camera
+      if (screenPos.z > 1) return;
+      
+      // Convert to screen coordinates
+      var x = (screenPos.x * 0.5 + 0.5) * canvasRect.width + canvasRect.left;
+      var y = (-screenPos.y * 0.5 + 0.5) * canvasRect.height + canvasRect.top;
+      
       var percent = (nodeData.currentHp / nodeData.maxHp) * 100;
       var healthClass = percent > 60 ? 'healthy' : percent > 30 ? 'damaged' : 'critical';
       
@@ -597,9 +614,10 @@ window.GameHUD = (function () {
       var nodeName = nodeType.replace('node.', '').replace('_', ' ');
       nodeName = nodeName.charAt(0).toUpperCase() + nodeName.slice(1);
       
-      html += '<div class="node-hp-bar" style="position:fixed; top:' + (120 + index * 50) + 'px; right:20px; z-index:10;">';
-      html += '<div class="hp-bar-label">' + nodeName + ' - ' + Math.ceil(nodeData.currentHp) + '/' + nodeData.maxHp + '</div>';
-      html += '<div class="hp-bar"><div class="hp-bar-fill ' + healthClass + '" style="width:' + percent + '%"></div></div>';
+      // HP bar positioned directly on the node
+      html += '<div class="node-hp-bar" style="position:fixed; left:' + (x - 30) + 'px; top:' + (y - 10) + 'px; width:60px; text-align:center; pointer-events:none; z-index:15;">';
+      html += '<div style="font-size:9px; color:#fff; text-shadow: 1px 1px 2px #000; margin-bottom:2px;">' + Math.ceil(nodeData.currentHp) + '/' + nodeData.maxHp + '</div>';
+      html += '<div style="height:4px; background:#0f3460; border-radius:2px; overflow:hidden; border:1px solid rgba(0,0,0,0.3);"><div class="hp-bar-fill ' + healthClass + '" style="width:' + percent + '%; height:100%; transition:width 0.2s;"></div></div>';
       html += '</div>';
     });
     
@@ -1269,7 +1287,9 @@ window.GameHUD = (function () {
     updateBuildingStorageLabels: updateBuildingStorageLabels,
     // Modal functions
     toggleModal: toggleModal,
+    openModal: openModal,
     closeModal: closeModal,
+    isModalActive: function() { return _modalActive; },
     switchModalTab: switchModalTab,
     updateModal: updateModal
   };
