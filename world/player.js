@@ -425,18 +425,8 @@ window.GamePlayer = (function () {
       }
     }
 
+    // Always deal exactly 1 damage per hit
     objData.hp--;
-
-    // Tool bonus
-    var playerState = GameState.getPlayer();
-    if (playerState.equipped.weapon) {
-      var weaponBalance = GameRegistry.getBalance(playerState.equipped.weapon);
-      if (weaponBalance && weaponBalance.stats && weaponBalance.stats.attack) {
-        // Each 2 attack bonus = 1 extra hit
-        var bonusHits = Math.floor(weaponBalance.stats.attack / 2);
-        objData.hp -= bonusHits;
-      }
-    }
 
     // Show damage
     GameHUD.showDamageNumber(objData.worldX, 0.5, objData.worldZ, "HIT (" + Math.max(0, objData.hp) + "/" + objData.maxHp + ")", "damage");
