@@ -1,10 +1,26 @@
 window.CraftSystem = (function () {
 
   function craft(recipeId) {
-    if (!canCraft(recipeId)) return false;
-
+    if (!GameState.isUnlocked(recipeId)) {
+      GameHUD.showError("Công thức này chưa được mở khóa");
+      return false;
+    }
+    
     var balance = GameRegistry.getBalance(recipeId);
-    if (!balance || !balance.input || !balance.output) return false;
+    if (!balance || !balance.input || !balance.output) {
+      GameHUD.showError("Công thức không hợp lệ");
+      return false;
+    }
+
+    for (var resourceId in balance.input) {
+      var needed = balance.input[resourceId];
+      if (!GameState.hasResource(resourceId, needed)) {
+        var resEntity = GameRegistry.getEntity(resourceId);
+        var missing = needed - GameState.getResource(resourceId);
+        GameHUD.showError(`Không đủ tài nguyên: Cần thêm ${missing} ${resEntity ? resEntity.name : resourceId}`);
+        return false;
+      }
+    }
 
     for (var resourceId in balance.input) {
       var needed = balance.input[resourceId];
@@ -45,6 +61,10 @@ window.CraftSystem = (function () {
     });
   }
 
+  function getAllRecipes() {
+    return GameRegistry.getEntitiesByType("recipe");
+  }
+
   function getRecipeInfo(recipeId) {
     var entity = GameRegistry.getEntity(recipeId);
     var balance = GameRegistry.getBalance(recipeId);
@@ -59,6 +79,7 @@ window.CraftSystem = (function () {
     craft: craft,
     canCraft: canCraft,
     getAvailableRecipes: getAvailableRecipes,
+    getAllRecipes: getAllRecipes,
     getRecipeInfo: getRecipeInfo
   };
 })();

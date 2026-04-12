@@ -106,12 +106,12 @@ window.GameCombat = (function () {
     if (!_activeCombat) return;
 
     var target = _activeCombat.target;
+    var balance = GameRegistry.getBalance(target.type);
 
     if (playerWon && target.hp <= 0 && !target._destroyed) {
       target._destroyed = true;
-      
+
       // Give rewards
-      var balance = GameRegistry.getBalance(target.type);
       if (balance && balance.rewards) {
         for (var resId in balance.rewards) {
           var amount = balance.rewards[resId];
@@ -126,27 +126,11 @@ window.GameCombat = (function () {
       GameEntities.hideObject(target);
 
       // Respawn
-      var respawnTime = balance.respawnTime || 60;
+      var respawnTime = balance ? (balance.respawnTime || 60) : 60;
       setTimeout(function () {
         if (target && target._destroyed) {
           target.hp = target.maxHp;
           target._destroyed = false;
-          GameEntities.showObject(target);
-        }
-      }, respawnTime * 1000);
-
-      GameHUD.showNotification("Victory! Loot collected.");
-    }
-      }
-
-      // Hide the animal
-      GameEntities.hideObject(target);
-
-      // Respawn
-      var respawnTime = balance.respawnTime || 60;
-      setTimeout(function () {
-        if (target) {
-          target.hp = target.maxHp;
           GameEntities.showObject(target);
         }
       }, respawnTime * 1000);

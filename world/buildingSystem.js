@@ -1,72 +1,31 @@
 window.BuildingSystem = (function () {
-  var _buildMode = false;
-  var _selectedBuilding = null;
-  var _previewMesh = null;
   var _nextId = 1;
+  var _reservedTiles = {};
 
-  function enterBuildMode(buildingId) {
-    if (_buildMode) exitBuildMode();
-
-    _buildMode = true;
-    _selectedBuilding = buildingId;
-
-    var entity = GameRegistry.getEntity(buildingId);
-    if (entity && entity.visual) {
-      _previewMesh = createBuildingMesh(entity, true);
-      if (_previewMesh) {
-        _previewMesh.visible = false;
-        GameScene.getScene().add(_previewMesh);
-      }
+  function restoreReservations() {
+    _reservedTiles = {};
+    var instances = GameState.getAllInstances();
+    var maxId = 0;
+    for (var uid in instances) {
+      var inst = instances[uid];
+      var key = Math.round(inst.x) + "," + Math.round(inst.z);
+      _reservedTiles[key] = true;
+      var num = parseInt(uid.replace("inst_", ""), 10);
+      if (!isNaN(num) && num > maxId) maxId = num;
     }
-
-    document.getElementById('game-canvas').style.cursor = 'crosshair';
-    GameHUD.showNotification("Click to place " + (entity ? entity.name : buildingId));
-  }
-
-  function exitBuildMode() {
-    _buildMode = false;
-    _selectedBuilding = null;
-
-    if (_previewMesh) {
-      GameScene.getScene().remove(_previewMesh);
-      _previewMesh = null;
-    }
-
-    document.getElementById('game-canvas').style.cursor = 'default';
-  }
-
-  function updatePreview(worldX, worldZ) {
-    if (!_buildMode || !_previewMesh) return;
-
-    var snapX = Math.round(worldX);
-    var snapZ = Math.round(worldZ);
-    _previewMesh.position.set(snapX, 0, snapZ);
-    _previewMesh.visible = true;
-
-    var valid = canPlaceAt(snapX, snapZ);
-    _previewMesh.traverse(function (child) {
-      if (child.isMesh && child.material) {
-        child.material.opacity = 0.6;
-        child.material.transparent = true;
-        child.material.color.setHex(valid ? 0x4ecca3 : 0xe94560);
-      }
-    });
+    _nextId = maxId + 1;
   }
 
   function canPlaceAt(worldX, worldZ) {
-    console.log(`[BUILD] Checking placement at ${worldX}, ${worldZ}`);
-    
-    // Must be on walkable ground
+    // Must be on walkable ground (no trees/rocks blocking)
     if (!GameTerrain.isWalkable(worldX, worldZ)) {
-      console.log(`[BUILD] ❌ Failed: Terrain not walkable`);
-      return false;
+      return { valid: false, reason: "Vị trí này không thể xây dựng" };
     }
 
     // Check tile reservation
     var key = Math.round(worldX) + "," + Math.round(worldZ);
-    if (GameTerrain._reservedTiles && GameTerrain._reservedTiles[key]) {
-      console.log(`[BUILD] ❌ Failed: Tile is reserved`);
-      return false;
+    if (_reservedTiles[key]) {
+      return { valid: false, reason: "Vị trí này đã có building khác" };
     }
 
     // Must not overlap existing instances with 0.8 buffer
@@ -76,34 +35,48 @@ window.BuildingSystem = (function () {
       var dx = Math.abs(inst.x - worldX);
       var dz = Math.abs(inst.z - worldZ);
       if (dx < 0.8 && dz < 0.8) {
-        console.log(`[BUILD] ❌ Failed: Overlap with instance ${uid} at ${inst.x},${inst.z} (dx:${dx.toFixed(2)}, dz:${dz.toFixed(2)})`);
-        return false;
+        return { valid: false, reason: "Vị trí này đã có building khác" };
       }
     }
 
-    console.log(`[BUILD] ✅ Valid placement`);
-    return true;
+    return { valid: true };
   }
 
-  function placeBuilding(worldX, worldZ) {
-    if (!_buildMode || !_selectedBuilding) return false;
+  function placeAtPlayer(buildingId) {
+    var balance = GameRegistry.getBalance(buildingId);
+    if (!balance || !balance.cost) return false;
 
-    var snapX = Math.round(worldX);
-    var snapZ = Math.round(worldZ);
+    // Get player position, snap to grid
+    var pos = GamePlayer.getPosition();
+    var snapX = Math.round(pos.x);
+    var snapZ = Math.round(pos.z);
 
-    if (!canPlaceAt(snapX, snapZ)) {
-      GameHUD.showNotification("Cannot build here!");
+    // Try player position first, then adjacent offsets
+    var offsets = [[0,0],[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
+    var foundPos = null;
+    for (var i = 0; i < offsets.length; i++) {
+      var tryX = snapX + offsets[i][0];
+      var tryZ = snapZ + offsets[i][1];
+      if (canPlaceAt(tryX, tryZ).valid) {
+        foundPos = { x: tryX, z: tryZ };
+        break;
+      }
+    }
+
+    if (!foundPos) {
+      GameHUD.showError("Không tìm được vị trí hợp lệ gần bạn!");
       return false;
     }
 
-    var buildingId = _selectedBuilding;
-    var balance = GameRegistry.getBalance(buildingId);
-    if (!balance || !balance.cost) return false;
+    snapX = foundPos.x;
+    snapZ = foundPos.z;
 
     // Check cost
     for (var resId in balance.cost) {
       if (!GameState.hasResource(resId, balance.cost[resId])) {
-        GameHUD.showNotification("Not enough resources!");
+        var resEntity = GameRegistry.getEntity(resId);
+        var needed = balance.cost[resId] - GameState.getResource(resId);
+        GameHUD.showError("Không đủ " + (resEntity ? resEntity.name : resId) + ": cần thêm " + needed);
         return false;
       }
     }
@@ -111,6 +84,14 @@ window.BuildingSystem = (function () {
     // Deduct cost
     for (var resId in balance.cost) {
       GameState.removeResource(resId, balance.cost[resId]);
+    }
+
+    // Ensure _nextId is above existing
+    var instances = GameState.getAllInstances();
+    var maxId = 0;
+    for (var uid in instances) {
+      var num = parseInt(uid.replace("inst_", ""), 10);
+      if (!isNaN(num) && num >= _nextId) _nextId = num + 1;
     }
 
     // Create instance
@@ -122,8 +103,10 @@ window.BuildingSystem = (function () {
       z: snapZ,
       uid: uid
     };
-    // Reserve tile FIRST before adding state to prevent race conditions
-    GameTerrain.reserveTile(snapX, snapZ);
+
+    // Reserve tile and save to state
+    var tileKey = snapX + "," + snapZ;
+    _reservedTiles[tileKey] = true;
     GameState.addInstance(uid, instanceData);
     GameState.addBuilding(buildingId);
 
@@ -136,10 +119,35 @@ window.BuildingSystem = (function () {
       GameScene.getScene().add(mesh);
     }
 
-    exitBuildMode();
+    // Push player out if they're inside the building collision area
+    var playerPos = GamePlayer.getPosition();
+    var pdx = Math.abs(playerPos.x - snapX);
+    var pdz = Math.abs(playerPos.z - snapZ);
+    if (pdx < 0.8 && pdz < 0.8) {
+      var safePos = null;
+      var safeDist = Infinity;
+      for (var j = 0; j < offsets.length; j++) {
+        if (offsets[j][0] === 0 && offsets[j][1] === 0) continue;
+        var sx = snapX + offsets[j][0];
+        var sz = snapZ + offsets[j][1];
+        if (GameTerrain.isWalkable(sx, sz)) {
+          var sdx = sx - playerPos.x;
+          var sdz = sz - playerPos.z;
+          var sd = Math.sqrt(sdx * sdx + sdz * sdz);
+          if (sd < safeDist) {
+            safeDist = sd;
+            safePos = { x: sx, z: sz };
+          }
+        }
+      }
+      if (safePos) {
+        GamePlayer.setPosition(safePos.x, safePos.z);
+      }
+    }
+
     GameHUD.renderAll();
     GameStorage.save();
-    GameHUD.showNotification((entity ? entity.name : buildingId) + " built!");
+    GameHUD.showSuccess("Đã xây: " + (entity ? entity.name : buildingId));
     return true;
   }
 
@@ -187,15 +195,12 @@ window.BuildingSystem = (function () {
     return group;
   }
 
-  function isBuildMode() { return _buildMode; }
-  function getSelectedBuilding() { return _selectedBuilding; }
-  
+  function isBuildMode() { return false; }
+
   function destroyBuilding(uid) {
-    if (_buildMode) return false;
-    
     var instance = GameState.getInstance(uid);
     if (!instance) return false;
-    
+
     // Remove mesh from scene
     var scene = GameScene.getScene();
     for (var i = scene.children.length - 1; i >= 0; i--) {
@@ -205,24 +210,25 @@ window.BuildingSystem = (function () {
         break;
       }
     }
-    
-    GameTerrain.releaseTile(instance.x, instance.z);
+
+    // Release tile reservation
+    var tileKey = Math.round(instance.x) + "," + Math.round(instance.z);
+    delete _reservedTiles[tileKey];
+
     GameState.destroyInstance(uid);
     GameHUD.renderAll();
     GameStorage.save();
-    
+
     return true;
   }
 
   return {
-    enterBuildMode: enterBuildMode,
-    exitBuildMode: exitBuildMode,
-    updatePreview: updatePreview,
-    placeBuilding: placeBuilding,
+    placeAtPlayer: placeAtPlayer,
     canPlaceAt: canPlaceAt,
     createBuildingMesh: createBuildingMesh,
     isBuildMode: isBuildMode,
-    getSelectedBuilding: getSelectedBuilding,
-    destroyBuilding: destroyBuilding
+    destroyBuilding: destroyBuilding,
+    restoreReservations: restoreReservations,
+    _reservedTiles: _reservedTiles
   };
 })();

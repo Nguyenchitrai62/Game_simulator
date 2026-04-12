@@ -131,13 +131,28 @@ body { overflow: hidden; background: #1a1a2e; font-family: 'Segoe UI', sans-seri
 
 /* Notification */
 #notification {
-  position: fixed; top: 80px; right: 15px;
-  background: #e94560; color: white; padding: 8px 16px;
-  border-radius: 8px; font-size: 13px; font-weight: bold;
-  opacity: 0; transform: translateX(20px);
-  transition: all 0.3s; z-index: 100; pointer-events: none;
+  position: fixed; bottom: 100px; left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  padding: 10px 20px;
+  border-radius: 10px; font-size: 14px; font-weight: bold;
+  opacity: 0; z-index: 100; pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  transition: all 0.3s;
 }
-#notification.show { opacity: 1; transform: translateX(0); }
+#notification.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+#notification.error { background: #e94560; color: white; }
+#notification.success { background: #4ecca3; color: #1a1a2e; }
+#notification.warning { background: #f0a500; color: #1a1a2e; }
+#notification.default { background: rgba(22,33,62,0.95); color: white; }
+
+/* Floating popup text */
+.floating-text {
+  position: fixed; font-weight: bold; font-size: 16px;
+  pointer-events: none; z-index: 50;
+  animation: floatUp 1.5s ease-out forwards;
+}
+.floating-text.loot { color: #f0a500; }
+.floating-text.resource { color: #4ecca3; }
 
 /* Damage numbers */
 .damage-number {

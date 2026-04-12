@@ -1,8 +1,7 @@
 window.GameActions = (function () {
 
   function startBuild(buildingId) {
-    BuildingSystem.enterBuildMode(buildingId);
-    GameHUD.closePanels();
+    BuildingSystem.placeAtPlayer(buildingId);
   }
 
   function craft(recipeId) {
@@ -26,7 +25,7 @@ window.GameActions = (function () {
 
       GameStorage.save();
       var name = recipeEntity ? recipeEntity.name : recipeId;
-      GameHUD.showNotification("Crafted: " + name);
+      GameHUD.showSuccess(`Crafted: ${name}`);
     }
 
     GameHUD.renderAll();
@@ -59,32 +58,13 @@ window.GameActions = (function () {
     GameHUD.renderAll();
   }
 
-  // Build mode click handler
-  function handleBuildClick(event) {
-    if (!BuildingSystem.isBuildMode()) return;
-    
-    var mouse = new THREE.Vector2(
-      (event.clientX / window.innerWidth) * 2 - 1,
-      -(event.clientY / window.innerHeight) * 2 + 1
-    );
-    var raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouse, GameScene.getCamera());
-
-    var groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-    var target = new THREE.Vector3();
-    if (raycaster.ray.intersectPlane(groundPlane, target)) {
-      BuildingSystem.placeBuilding(target.x, target.z);
-    }
-  }
-
   return {
     startBuild: startBuild,
     craft: craft,
     equip: equip,
     unequip: unequip,
     saveGame: saveGame,
-    resetGame: resetGame,
-    handleBuildClick: handleBuildClick
+    resetGame: resetGame
   };
 })();
 
@@ -123,13 +103,8 @@ window.GameActions = (function () {
   GamePlayer.init(playerData.x, playerData.z);
 
   // Initial chunk generation around player
+  // (generateChunk already calls createObjectForChunk internally)
   GameTerrain.update(playerData.x, playerData.z);
-
-  // Create 3D meshes for all loaded chunk objects
-  var chunks = GameTerrain.getAllChunks();
-  for (var key in chunks) {
-    GameEntities.createObjectForChunk(chunks[key]);
-  }
 
   // Restore saved building instances (create meshes)
   var instances = GameState.getAllInstances();
@@ -146,6 +121,9 @@ window.GameActions = (function () {
     }
   }
 
+  // Restore tile reservations from saved instances
+  BuildingSystem.restoreReservations();
+
   // Check unlocks (run twice: first pass unlocks basic, second pass unlocks dependents)
   UnlockSystem.checkAll();
   UnlockSystem.checkAll();
@@ -157,62 +135,41 @@ window.GameActions = (function () {
   // Initial render
   GameHUD.renderAll();
 
-  // Mouse move handler
+  // Mouse move handler - hover detection on buildings
   document.getElementById('game-canvas').addEventListener('mousemove', function (event) {
-    if (BuildingSystem.isBuildMode()) {
-      var mouse = new THREE.Vector2(
-        (event.clientX / window.innerWidth) * 2 - 1,
-        -(event.clientY / window.innerHeight) * 2 + 1
-      );
-      var raycaster = new THREE.Raycaster();
-      raycaster.setFromCamera(mouse, GameScene.getCamera());
-
-      var groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-      var target = new THREE.Vector3();
-      if (raycaster.ray.intersectPlane(groundPlane, target)) {
-        BuildingSystem.updatePreview(target.x, target.z);
-      }
-    } else {
-      // Check hover on buildings
-      var mouse = new THREE.Vector2(
-        (event.clientX / window.innerWidth) * 2 - 1,
-        -(event.clientY / window.innerHeight) * 2 + 1
-      );
-      var raycaster = new THREE.Raycaster();
-      raycaster.setFromCamera(mouse, GameScene.getCamera());
-      
-      var intersects = raycaster.intersectObjects(GameScene.getScene().children, true);
-      var hoveredUid = null;
-      
-      for (var i = 0; i < intersects.length; i++) {
-        var obj = intersects[i].object;
-        while (obj && !obj.userData.instanceUid) obj = obj.parent;
-        if (obj && obj.userData.instanceUid) {
-          hoveredUid = obj.userData.instanceUid;
-          break;
-        }
-      }
-      
-      GameHUD.setHoveredInstance(hoveredUid);
-    }
-  });
-  
-  // Click handler
-  document.getElementById('game-canvas').addEventListener('click', function (event) {
-    if (BuildingSystem.isBuildMode()) {
-      GameActions.handleBuildClick(event);
-      return;
-    }
-    
     var mouse = new THREE.Vector2(
       (event.clientX / window.innerWidth) * 2 - 1,
       -(event.clientY / window.innerHeight) * 2 + 1
     );
     var raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(mouse, GameScene.getCamera());
-    
+
     var intersects = raycaster.intersectObjects(GameScene.getScene().children, true);
-    
+    var hoveredUid = null;
+
+    for (var i = 0; i < intersects.length; i++) {
+      var obj = intersects[i].object;
+      while (obj && !obj.userData.instanceUid) obj = obj.parent;
+      if (obj && obj.userData.instanceUid) {
+        hoveredUid = obj.userData.instanceUid;
+        break;
+      }
+    }
+
+    GameHUD.setHoveredInstance(hoveredUid);
+  });
+  
+  // Click handler - building selection
+  document.getElementById('game-canvas').addEventListener('click', function (event) {
+    var mouse = new THREE.Vector2(
+      (event.clientX / window.innerWidth) * 2 - 1,
+      -(event.clientY / window.innerHeight) * 2 + 1
+    );
+    var raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(mouse, GameScene.getCamera());
+
+    var intersects = raycaster.intersectObjects(GameScene.getScene().children, true);
+
     for (var i = 0; i < intersects.length; i++) {
       var obj = intersects[i].object;
       while (obj && !obj.userData.instanceUid) obj = obj.parent;
@@ -222,8 +179,16 @@ window.GameActions = (function () {
         return;
       }
     }
-    
+
     GameHUD.closeInspector();
+  });
+
+  // ESC key handler
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      GameHUD.closePanels();
+      GameHUD.closeInspector();
+    }
   });
 
   console.log("[Game] 3D Evolution Simulator initialized - v" + window.GAME_MANIFEST.version);
