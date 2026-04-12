@@ -94,6 +94,15 @@ window.GameScene = (function () {
         // Update entities (animations, respawns)
         if (typeof GameEntities !== 'undefined') GameEntities.update(effectiveDt);
 
+        // Update NPCs (workers)
+        if (typeof NPCSystem !== 'undefined') NPCSystem.update(effectiveDt);
+        
+        // Update node HP bars for harvesting
+        if (typeof GameHUD !== 'undefined' && GameHUD.updateNodeHpBars) GameHUD.updateNodeHpBars();
+        
+        // Update building storage labels
+        if (typeof GameHUD !== 'undefined' && GameHUD.updateBuildingStorageLabels) GameHUD.updateBuildingStorageLabels();
+
         // Update combat
         if (typeof GameCombat !== 'undefined') GameCombat.update(effectiveDt);
 
@@ -168,6 +177,14 @@ window.GameScene = (function () {
   function getCamera() { return camera; }
   function getRenderer() { return renderer; }
 
+  function addToScene(object) {
+    if (scene) scene.add(object);
+  }
+
+  function removeFromScene(object) {
+    if (scene) scene.remove(object);
+  }
+
   function worldToScreen(worldPos) {
     var vec = worldPos.clone();
     vec.project(camera);
@@ -182,6 +199,8 @@ window.GameScene = (function () {
     getScene: getScene,
     getCamera: getCamera,
     getRenderer: getRenderer,
+    addToScene: addToScene,
+    removeFromScene: removeFromScene,
     setZoom: setZoom,
     worldToScreen: worldToScreen,
     togglePause: togglePause,

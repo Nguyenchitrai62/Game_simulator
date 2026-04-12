@@ -261,10 +261,123 @@ window.GameEntities = (function () {
     return _dataMap.get(current.id) || null;
   }
 
+  /**
+   * Create NPC worker mesh
+   * Similar to player but smaller and color-coded by building type
+   */
+  function createNPCMesh(buildingEntityId) {
+    var group = new THREE.Group();
+    
+    // Color-code by building type
+    var bodyColor = 0x4488cc; // default blue
+    if (buildingEntityId === 'building.wood_cutter') {
+      bodyColor = 0x8B4513; // brown
+    } else if (buildingEntityId === 'building.stone_quarry') {
+      bodyColor = 0x808080; // gray
+    } else if (buildingEntityId === 'building.berry_gatherer') {
+      bodyColor = 0x2d5a27; // green
+    } else if (buildingEntityId === 'building.flint_mine') {
+      bodyColor = 0x4a4a4a; // dark gray
+    } else if (buildingEntityId === 'building.copper_mine') {
+      bodyColor = 0xB87333; // copper
+    } else if (buildingEntityId === 'building.tin_mine') {
+      bodyColor = 0xC0C0C0; // silver
+    }
+    
+    var scale = 0.6; // Smaller than player
+    
+    // Body (box)
+    var bodyGeo = new THREE.BoxGeometry(0.25 * scale, 0.35 * scale, 0.15 * scale);
+    var bodyMat = new THREE.MeshLambertMaterial({ color: bodyColor });
+    var body = new THREE.Mesh(bodyGeo, bodyMat);
+    body.position.y = 0.25 * scale;
+    body.castShadow = true;
+    group.add(body);
+    
+    // Head (sphere)
+    var headGeo = new THREE.SphereGeometry(0.12 * scale, 8, 8);
+    var headMat = new THREE.MeshLambertMaterial({ color: 0xDEB887 });
+    var head = new THREE.Mesh(headGeo, headMat);
+    head.position.y = 0.48 * scale;
+    head.castShadow = true;
+    group.add(head);
+    
+    // Arms (2 boxes)
+    var armGeo = new THREE.BoxGeometry(0.08 * scale, 0.25 * scale, 0.08 * scale);
+    var armMat = new THREE.MeshLambertMaterial({ color: 0xDEB887 });
+    
+    var leftArm = new THREE.Mesh(armGeo, armMat);
+    leftArm.position.set(-0.18 * scale, 0.25 * scale, 0);
+    leftArm.castShadow = true;
+    leftArm.name = "leftArm";
+    group.add(leftArm);
+    
+    var rightArm = new THREE.Mesh(armGeo, armMat);
+    rightArm.position.set(0.18 * scale, 0.25 * scale, 0);
+    rightArm.castShadow = true;
+    rightArm.name = "rightArm";
+    group.add(rightArm);
+    
+    // Legs (2 boxes)
+    var legGeo = new THREE.BoxGeometry(0.08 * scale, 0.22 * scale, 0.08 * scale);
+    var legMat = new THREE.MeshLambertMaterial({ color: 0x3a3a5c });
+    
+    var leftLeg = new THREE.Mesh(legGeo, legMat);
+    leftLeg.position.set(-0.06 * scale, 0.11 * scale, 0);
+    leftLeg.castShadow = true;
+    leftLeg.name = "leftLeg";
+    group.add(leftLeg);
+    
+    var rightLeg = new THREE.Mesh(legGeo, legMat);
+    rightLeg.position.set(0.06 * scale, 0.11 * scale, 0);
+    rightLeg.castShadow = true;
+    rightLeg.name = "rightLeg";
+    group.add(rightLeg);
+    
+    // Shadow circle
+    var shadowGeo = new THREE.CircleGeometry(0.25, 12);
+    var shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.2 });
+    var shadow = new THREE.Mesh(shadowGeo, shadowMat);
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = 0.01;
+    group.add(shadow);
+    
+    return group;
+  }
+
+  /**
+   * Destroy a node (called when NPC finishes harvesting)
+   */
+  function destroyNode(nodeData) {
+    if (!nodeData) return;
+    
+    // Mark as destroyed
+    nodeData._destroyed = true;
+    nodeData.hp = 0;
+    
+    // Hide mesh
+    hideObject(nodeData);
+    
+    // Schedule respawn
+    var balance = GameRegistry.getBalance(nodeData.type);
+    var respawnTime = (balance && balance.respawnTime) || 30;
+    
+    setTimeout(function() {
+      if (nodeData._destroyed) {
+        nodeData._destroyed = false;
+        var maxHp = nodeData.maxHp || (balance && balance.hp) || 10;
+        nodeData.hp = maxHp;
+        showObject(nodeData);
+      }
+    }, respawnTime * 1000);
+  }
+
   return {
     init: init,
     createObjectForChunk: createObjectForChunk,
     createMesh: createMesh,
+    createNPCMesh: createNPCMesh,
+    destroyNode: destroyNode,
     hideObject: hideObject,
     showObject: showObject,
     update: update,

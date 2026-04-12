@@ -6,8 +6,7 @@ window.TickSystem = (function () {
   function tick() {
     _tickCount++;
     calculateResourceStats();
-    applyProduction();
-    TechSystem.tick();
+    applyConsumption();  // Only consumption now, no passive production
     UnlockSystem.checkAll();
 
     if (typeof GameHUD !== "undefined") {
@@ -79,104 +78,57 @@ window.TickSystem = (function () {
     _lastNet = Object.assign({}, _resourceStats.net);
   }
 
-  function applyProduction() {
+  /**
+   * Apply consumption only (e.g., Smelter consumes copper + tin)
+   * Production now comes from NPCs harvesting to building storage
+   */
+  function applyConsumption() {
     var instances = GameState.getAllInstances();
     var buildingList = [];
     
-    // Bước 1: Thu thập tất cả building hợp lệ vào danh sách ổn định
+    // Collect all buildings that consume resources
     for (var uid in instances) {
       var instance = instances[uid];
       var buildingId = instance.entityId;
       var balance = GameRegistry.getBalance(buildingId);
       
-      if (balance) {
+      if (balance && balance.consumesPerTick) {
         buildingList.push({
           uid: uid,
           instance: instance,
           buildingId: buildingId,
-          balance: balance,
-          canRun: false
+          balance: balance
         });
       }
     }
     
-    // Bước 2: Sắp xếp thứ tự cố định (theo UID để đảm bảo stable order)
+    // Sort by UID for stable order
     buildingList.sort(function(a, b) {
       return a.uid.localeCompare(b.uid);
     });
     
-    // Bước 3: Tính tổng tài nguyên cần thiết
-    var totalRequired = {};
+    // Process each consuming building
     for (var i = 0; i < buildingList.length; i++) {
       var building = buildingList[i];
-      if (building.balance.consumesPerTick) {
+      var canConsume = true;
+      
+      // Check if player has enough resources
+      for (var resId in building.balance.consumesPerTick) {
+        var needed = building.balance.consumesPerTick[resId];
+        if (!GameState.hasResource(resId, needed)) {
+          canConsume = false;
+          break;
+        }
+      }
+      
+      if (canConsume) {
+        // Deduct consumption from player resources
         for (var resId in building.balance.consumesPerTick) {
-          var needed = building.balance.consumesPerTick[resId];
-          totalRequired[resId] = (totalRequired[resId] || 0) + needed;
-        }
-      }
-    }
-    
-    // Bước 4: Kiểm tra tổng tài nguyên có đủ cho tất cả không
-    var allCanRun = true;
-    for (var resId in totalRequired) {
-      if (!GameState.hasResource(resId, totalRequired[resId])) {
-        allCanRun = false;
-        break;
-      }
-    }
-    
-    if (allCanRun) {
-      // Trường hợp 1: Đủ tài nguyên cho tất cả -> chạy toàn bộ
-      for (var i = 0; i < buildingList.length; i++) {
-        var building = buildingList[i];
-        
-        // Trừ tài nguyên tiêu thụ
-        if (building.balance.consumesPerTick) {
-          for (var resId in building.balance.consumesPerTick) {
-            GameState.removeResource(resId, building.balance.consumesPerTick[resId]);
-          }
+          GameState.removeResource(resId, building.balance.consumesPerTick[resId]);
         }
         
-        // Áp dụng sản xuất
-          if (building.balance.produces) {
-            var mult = UpgradeSystem.getProductionMultiplier(building.buildingId, building.uid);
-            for (var resId in building.balance.produces) {
-              var amount = building.balance.produces[resId] * mult;
-              GameState.addFractionalResource(resId, amount);
-            }
-          }
-      }
-    } else {
-      // Trường hợp 2: Không đủ tổng -> chạy từng building theo thứ tự ưu tiên
-      // Dùng thuật toán fair distribution: mỗi building chạy nếu còn đủ tài nguyên riêng tại thời điểm đó
-      for (var i = 0; i < buildingList.length; i++) {
-        var building = buildingList[i];
-        var canProduce = true;
-        
-        if (building.balance.consumesPerTick) {
-          // Kiểm tra tài nguyên cho building cụ thể này
-          for (var resId in building.balance.consumesPerTick) {
-            var needed = building.balance.consumesPerTick[resId];
-            if (!GameState.hasResource(resId, needed)) {
-              canProduce = false;
-              break;
-            }
-          }
-          
-          if (canProduce) {
-            // Trừ tài nguyên trước khi sản xuất
-            for (var resId in building.balance.consumesPerTick) {
-              GameState.removeResource(resId, building.balance.consumesPerTick[resId]);
-            }
-          }
-        } else {
-          // Building không cần tài nguyên thì luôn chạy
-          canProduce = true;
-        }
-        
-        // Chỉ sản xuất nếu đủ tài nguyên cho chính building này
-        if (canProduce && building.balance.produces) {
+        // Apply production (e.g., Smelter produces bronze after consuming copper+tin)
+        if (building.balance.produces) {
           var mult = UpgradeSystem.getProductionMultiplier(building.buildingId, building.uid);
           for (var resId in building.balance.produces) {
             var amount = building.balance.produces[resId] * mult;

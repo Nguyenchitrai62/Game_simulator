@@ -47,6 +47,11 @@ window.UpgradeSystem = (function () {
       if (instance) {
         instance.level = check.level;
         GameState.addInstance(instanceUid, instance);
+        
+        // Spawn additional NPCs for upgraded building
+        if (window.NPCSystem && NPCSystem.spawnWorkersForBuilding) {
+          NPCSystem.spawnWorkersForBuilding(instanceUid);
+        }
       }
     }
 

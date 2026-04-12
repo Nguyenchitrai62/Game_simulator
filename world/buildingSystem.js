@@ -145,6 +145,11 @@ window.BuildingSystem = (function () {
       }
     }
 
+    // Spawn NPCs for this building
+    if (window.NPCSystem && NPCSystem.spawnWorkersForBuilding) {
+      NPCSystem.spawnWorkersForBuilding(uid);
+    }
+
     GameHUD.renderAll();
     GameStorage.save();
     GameHUD.showSuccess("Đã xây: " + (entity ? entity.name : buildingId));
@@ -200,6 +205,11 @@ window.BuildingSystem = (function () {
   function destroyBuilding(uid) {
     var instance = GameState.getInstance(uid);
     if (!instance) return false;
+
+    // Despawn NPCs for this building
+    if (window.NPCSystem && NPCSystem.despawnWorkersForBuilding) {
+      NPCSystem.despawnWorkersForBuilding(uid);
+    }
 
     // Remove mesh from scene
     var scene = GameScene.getScene();

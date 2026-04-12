@@ -245,6 +245,15 @@ window.GAME_CONTENT["base_stone_age"] = {
       slot: "armor",
       unlock: { age: "age.stone", resources: { "resource.leather": 3 } }
     },
+    {
+      id: "equipment.leather_boots",
+      type: "equipment",
+      name: "Leather Boots",
+      description: "+2 Speed.",
+      visual: { color: 0x8B4513 },
+      slot: "boots",
+      unlock: { age: "age.stone", resources: { "resource.leather": 3 } }
+    },
 
     // === RECIPES ===
     {
@@ -280,6 +289,13 @@ window.GAME_CONTENT["base_stone_age"] = {
       type: "recipe",
       name: "Leather Armor",
       description: "Craft leather armor. +5 DEF, +10 HP.",
+      unlock: { age: "age.stone", resources: { "resource.leather": 3 } }
+    },
+    {
+      id: "recipe.leather_boots",
+      type: "recipe",
+      name: "Leather Boots",
+      description: "Craft leather boots. +2 Speed.",
       unlock: { age: "age.stone", resources: { "resource.leather": 3 } }
     }
   ]

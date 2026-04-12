@@ -41,19 +41,67 @@
     <div class="hp-bar"><div class="hp-bar-fill healthy" id="combat-hp-fill" style="width:100%"></div></div>
   </div>
 
-  <!-- HUD Bottom -->
-  <div class="hud-bottom">
-    <div class="tab-bar">
-      <button class="tab-btn active" data-tab="none" onclick="GameHUD.closePanels()"><span class="tab-icon">&#10005;</span> Close</button>
-      <button class="tab-btn" data-tab="build" onclick="GameHUD.switchTab('build')"><span class="tab-icon">&#127959;</span> Build</button>
-      <button class="tab-btn" data-tab="craft" onclick="GameHUD.switchTab('craft')"><span class="tab-icon">&#9874;</span> Craft</button>
-      <button class="tab-btn" data-tab="inventory" onclick="GameHUD.switchTab('inventory')"><span class="tab-icon">&#127890;</span> Inventory</button>
-      <button class="tab-btn" data-tab="stats" onclick="GameHUD.switchTab('stats')"><span class="tab-icon">&#128202;</span> Stats</button>
+  <!-- Node HP bars (for harvesting) -->
+  <div id="node-hp-bars-container"></div>
+  
+  <!-- Building Storage Labels -->
+  <div id="building-storage-labels"></div>
+
+  <!-- Backpack Icon (Bottom Left) -->
+  <div class="backpack-icon" id="backpack-icon" onclick="GameHUD.toggleModal()">
+    <div class="backpack-icon-inner">🎒</div>
+    <div class="backpack-tooltip">Press B</div>
+  </div>
+
+  <!-- Character Modal -->
+  <div class="modal-overlay" id="modal-overlay" onclick="GameHUD.closeModal()">
+    <div class="modal-container" onclick="event.stopPropagation()">
+      <!-- Left Side: Character + Equipment + Inventory -->
+      <div class="modal-left">
+        <div class="character-preview" id="character-preview">
+          <canvas id="character-canvas" width="300" height="400"></canvas>
+        </div>
+        <div class="character-name">Player</div>
+        
+        <div class="equipment-section">
+          <h3>Equipment</h3>
+          <div class="equipment-slots" id="modal-equipment-slots"></div>
+        </div>
+        
+        <div class="inventory-section">
+          <h3>Inventory</h3>
+          <div class="inventory-grid" id="modal-inventory-grid"></div>
+        </div>
+      </div>
+
+      <!-- Right Side: Tabs & Content -->
+      <div class="modal-right">
+        <div class="modal-header">
+          <div class="modal-tabs">
+            <button class="modal-tab active" data-tab="resources" onclick="GameHUD.switchModalTab('resources')">
+              <span class="tab-icon">💰</span> Resources
+            </button>
+            <button class="modal-tab" data-tab="build" onclick="GameHUD.switchModalTab('build')">
+              <span class="tab-icon">🏗️</span> Build
+            </button>
+            <button class="modal-tab" data-tab="craft" onclick="GameHUD.switchModalTab('craft')">
+              <span class="tab-icon">⚒️</span> Craft
+            </button>
+            <button class="modal-tab" data-tab="stats" onclick="GameHUD.switchModalTab('stats')">
+              <span class="tab-icon">📊</span> Stats
+            </button>
+          </div>
+          <button class="modal-close" onclick="GameHUD.closeModal()">✕</button>
+        </div>
+
+        <div class="modal-content">
+          <div class="modal-panel active" id="modal-panel-resources"></div>
+          <div class="modal-panel" id="modal-panel-build"></div>
+          <div class="modal-panel" id="modal-panel-craft"></div>
+          <div class="modal-panel" id="modal-panel-stats"></div>
+        </div>
+      </div>
     </div>
-    <div class="panel" id="panel-build"></div>
-    <div class="panel" id="panel-craft"></div>
-    <div class="panel" id="panel-inventory"></div>
-    <div class="panel" id="panel-stats"></div>
   </div>
 
   <!-- Notification -->
@@ -97,6 +145,7 @@
   <script src="world/player.js"></script>
   <script src="world/combat.js"></script>
   <script src="world/buildingSystem.js"></script>
+  <script src="world/npcSystem.js"></script>
 
   <!-- UI -->
   <script src="ui/hud.js"></script>

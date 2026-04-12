@@ -19,11 +19,13 @@ window.GameState = (function () {
       equipped: {
         weapon: null,
         offhand: null,
-        armor: null
+        armor: null,
+        boots: null
       }
     },
     inventory: {},
     instances: {},
+    buildingStorage: {},
     chunks: {},
     worldSeed: 42,
     fractionalAccumulator: {},
@@ -45,10 +47,11 @@ window.GameState = (function () {
       hp: 100, maxHp: 100,
       attack: 1, defense: 0,
       x: 8, z: 8, speed: 3,
-      equipped: { weapon: null, offhand: null, armor: null }
+      equipped: { weapon: null, offhand: null, armor: null, boots: null }
     };
     _state.inventory = {};
     _state.instances = {};
+    _state.buildingStorage = {};
     _state.chunks = {};
     _state.worldSeed = Math.floor(Math.random() * 100000);
     _state.fractionalAccumulator = {};
@@ -165,6 +168,19 @@ window.GameState = (function () {
     return def;
   }
 
+  function getPlayerSpeed() {
+    var speed = _state.player.speed;
+    var bootsId = _state.player.equipped.boots;
+    if (bootsId) {
+      var entity = GameRegistry.getEntity(bootsId);
+      var stats = (entity && entity.stats) || (GameRegistry.getBalance(bootsId) || {}).stats;
+      if (stats && stats.speed) {
+        speed += stats.speed;
+      }
+    }
+    return speed;
+  }
+
   function equipItem(equipmentId) {
     var entity = GameRegistry.getEntity(equipmentId);
     if (!entity || entity.type !== "equipment") return false;
@@ -266,6 +282,9 @@ window.GameState = (function () {
     // Release grid tile
     GameTerrain.releaseTile(instance.x, instance.z);
 
+    // Clear building storage
+    clearBuildingStorage(uid);
+
     // Remove instance
     removeInstance(uid);
 
@@ -275,10 +294,48 @@ window.GameState = (function () {
     return true;
   }
 
+  // === Building Storage ===
+  function addBuildingStorage(instanceUid, resourceId, amount) {
+    if (!_state.buildingStorage[instanceUid]) {
+      _state.buildingStorage[instanceUid] = {};
+    }
+    if (!_state.buildingStorage[instanceUid][resourceId]) {
+      _state.buildingStorage[instanceUid][resourceId] = 0;
+    }
+    _state.buildingStorage[instanceUid][resourceId] += amount;
+  }
+
+  function getBuildingStorage(instanceUid) {
+    return _state.buildingStorage[instanceUid] || {};
+  }
+
+  function collectFromBuilding(instanceUid) {
+    var storage = _state.buildingStorage[instanceUid];
+    if (!storage) return {};
+    
+    var collected = {};
+    for (var resourceId in storage) {
+      if (storage[resourceId] > 0) {
+        addResource(resourceId, storage[resourceId]);
+        collected[resourceId] = storage[resourceId];
+      }
+    }
+    
+    // Clear building storage
+    _state.buildingStorage[instanceUid] = {};
+    
+    return collected;
+  }
+
+  function clearBuildingStorage(instanceUid) {
+    delete _state.buildingStorage[instanceUid];
+  }
+
   // === Chunks ===
   function saveChunkData(key, data) { _state.chunks[key] = data; }
   function getChunkData(key) { return _state.chunks[key] || null; }
   function getAllChunkData() { return _state.chunks; }
+  function getChunks() { return _state.chunks; }
 
   // === Technologies ===
   function addResearchedTech(techId) {
@@ -318,10 +375,15 @@ window.GameState = (function () {
     _state.player = data.player || {
       hp: 100, maxHp: 100, attack: 1, defense: 0,
       x: 8, z: 8, speed: 3,
-      equipped: { weapon: null, offhand: null, armor: null }
+      equipped: { weapon: null, offhand: null, armor: null, boots: null }
     };
+    // Backward compatibility: add boots slot if missing
+    if (_state.player.equipped && !_state.player.equipped.hasOwnProperty('boots')) {
+      _state.player.equipped.boots = null;
+    }
     _state.inventory = data.inventory || {};
     _state.instances = data.instances || {};
+    _state.buildingStorage = data.buildingStorage || {};
     _state.chunks = data.chunks || {};
     _state.worldSeed = data.worldSeed || 42;
     _state.fractionalAccumulator = data.fractionalAccumulator || {};
@@ -348,13 +410,17 @@ window.GameState = (function () {
     getVersion: getVersion, setVersion: setVersion,
     getPlayer: getPlayer, setPlayerHP: setPlayerHP,
     getPlayerMaxHp: getPlayerMaxHp, getPlayerAttack: getPlayerAttack, getPlayerDefense: getPlayerDefense,
+    getPlayerSpeed: getPlayerSpeed,
     equipItem: equipItem, unequipSlot: unequipSlot,
     addToInventory: addToInventory, removeFromInventory: removeFromInventory,
     getInventory: getInventory, getInventoryCount: getInventoryCount,
     addInstance: addInstance, getInstance: getInstance,
     getAllInstances: getAllInstances, removeInstance: removeInstance,
     destroyInstance: destroyInstance,
+    addBuildingStorage: addBuildingStorage, getBuildingStorage: getBuildingStorage,
+    collectFromBuilding: collectFromBuilding, clearBuildingStorage: clearBuildingStorage,
     saveChunkData: saveChunkData, getChunkData: getChunkData, getAllChunkData: getAllChunkData,
+    getChunks: getChunks,
     addResearchedTech: addResearchedTech, hasResearched: hasResearched,
     getResearchedTechs: getResearchedTechs, getTechState: getTechState, setTechState: setTechState,
     exportState: exportState, importState: importState,

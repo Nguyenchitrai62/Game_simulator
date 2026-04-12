@@ -115,7 +115,7 @@ window.GameHUD = (function () {
     // Save info
     var saveEl = document.getElementById("save-info");
     if (saveEl) {
-      saveEl.textContent = "v" + window.GAME_MANIFEST.version + " | WASD move | E interact | B build | C craft | I inventory";
+      saveEl.textContent = "v" + window.GAME_MANIFEST.version + " | WASD move | E interact | B backpack";
     }
   }
 
@@ -146,7 +146,8 @@ window.GameHUD = (function () {
     _activeTab = null;
     document.querySelectorAll(".panel").forEach(function (p) { p.classList.remove("active"); });
     document.querySelectorAll(".tab-btn").forEach(function (t) { t.classList.remove("active"); });
-    document.querySelector('.tab-btn[data-tab="none"]').classList.add("active");
+    var noneBtn = document.querySelector('.tab-btn[data-tab="none"]');
+    if (noneBtn) noneBtn.classList.add("active");
   }
 
   function renderActivePanel() {
@@ -573,6 +574,681 @@ window.GameHUD = (function () {
     if (el) el.style.display = "none";
   }
 
+  function updateNodeHpBars() {
+    if (!window.NPCSystem || !NPCSystem.getActiveHarvestNodes) return;
+    
+    var container = document.getElementById('node-hp-bars-container');
+    if (!container) return;
+    
+    var activeNodes = NPCSystem.getActiveHarvestNodes();
+    
+    if (activeNodes.length === 0) {
+      container.innerHTML = '';
+      return;
+    }
+    
+    // Create/update HP bars
+    var html = '';
+    activeNodes.forEach(function(nodeData, index) {
+      var percent = (nodeData.currentHp / nodeData.maxHp) * 100;
+      var healthClass = percent > 60 ? 'healthy' : percent > 30 ? 'damaged' : 'critical';
+      
+      var nodeType = nodeData.node.type || 'Unknown';
+      var nodeName = nodeType.replace('node.', '').replace('_', ' ');
+      nodeName = nodeName.charAt(0).toUpperCase() + nodeName.slice(1);
+      
+      html += '<div class="node-hp-bar" style="position:fixed; top:' + (120 + index * 50) + 'px; right:20px; z-index:10;">';
+      html += '<div class="hp-bar-label">' + nodeName + ' - ' + Math.ceil(nodeData.currentHp) + '/' + nodeData.maxHp + '</div>';
+      html += '<div class="hp-bar"><div class="hp-bar-fill ' + healthClass + '" style="width:' + percent + '%"></div></div>';
+      html += '</div>';
+    });
+    
+    container.innerHTML = html;
+  }
+
+  function updateBuildingStorageLabels() {
+    if (!window.GameScene || !GameScene.getCamera || !window.GameState) return;
+    
+    var container = document.getElementById('building-storage-labels');
+    if (!container) return;
+    
+    var instances = GameState.getAllInstances();
+    var camera = GameScene.getCamera();
+    var canvas = document.getElementById('game-canvas');
+    if (!camera || !canvas) {
+      container.innerHTML = '';
+      return;
+    }
+    
+    var html = '';
+    var canvasRect = canvas.getBoundingClientRect();
+    
+    for (var uid in instances) {
+      var inst = instances[uid];
+      var storage = GameState.getBuildingStorage(uid);
+      
+      if (!storage || Object.keys(storage).length === 0) continue;
+      
+      // Calculate screen position
+      var worldPos = new THREE.Vector3(inst.x, 1.2, inst.z); // Above building
+      var screenPos = worldPos.clone().project(camera);
+      
+      // Convert to screen coordinates
+      var x = (screenPos.x * 0.5 + 0.5) * canvasRect.width + canvasRect.left;
+      var y = (-screenPos.y * 0.5 + 0.5) * canvasRect.height + canvasRect.top;
+      
+      // Check if in front of camera
+      if (screenPos.z > 1) continue;
+      
+      // Build storage text
+      var storageText = '';
+      for (var resId in storage) {
+        if (storage[resId] > 0) {
+          var resEntity = GameRegistry.getEntity(resId);
+          var resName = resEntity ? resEntity.name.substring(0, 4) : resId.replace('resource.', '').substring(0, 4);
+          storageText += resName + ':' + Math.floor(storage[resId]) + ' ';
+        }
+      }
+      
+      if (storageText) {
+        html += '<div class="building-storage-label" style="position:fixed; left:' + x + 'px; top:' + y + 'px; transform:translate(-50%, -50%);">';
+        html += storageText.trim();
+        html += '</div>';
+      }
+    }
+    
+    container.innerHTML = html;
+  }
+
+  // === MODAL SYSTEM ===
+  var _modalActive = false;
+  var _modalTab = 'resources';
+  var _characterCanvas = null;
+
+  function toggleModal() {
+    if (_modalActive) {
+      closeModal();
+    } else {
+      openModal();
+    }
+  }
+
+  function openModal() {
+    _modalActive = true;
+    var overlay = document.getElementById('modal-overlay');
+    if (overlay) {
+      overlay.classList.add('active');
+      initCharacterCanvas();
+      updateCharacterEquipment();
+      renderModalLeftSide();
+      renderModalPanel();
+    }
+  }
+
+  function closeModal() {
+    _modalActive = false;
+    var overlay = document.getElementById('modal-overlay');
+    if (overlay) {
+      overlay.classList.remove('active');
+    }
+  }
+
+  function switchModalTab(tabName) {
+    _modalTab = tabName;
+    
+    // Update tab buttons
+    document.querySelectorAll('.modal-tab').forEach(function(tab) {
+      tab.classList.remove('active');
+      if (tab.getAttribute('data-tab') === tabName) {
+        tab.classList.add('active');
+      }
+    });
+
+    // Update panels
+    document.querySelectorAll('.modal-panel').forEach(function(panel) {
+      panel.classList.remove('active');
+    });
+    
+    var targetPanel = document.getElementById('modal-panel-' + tabName);
+    if (targetPanel) {
+      targetPanel.classList.add('active');
+    }
+
+    renderModalPanel();
+  }
+
+  function initCharacterCanvas() {
+    var canvas = document.getElementById('character-canvas');
+    if (!canvas) return;
+
+    var ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    _characterCanvas = canvas;
+    
+    // Draw initial character
+    drawCharacter2D();
+  }
+
+  function drawCharacter2D() {
+    if (!_characterCanvas) return;
+    
+    var ctx = _characterCanvas.getContext('2d');
+    if (!ctx) return;
+    
+    var player = GameState.getPlayer();
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, 300, 400);
+    
+    // Center position
+    var centerX = 150;
+    var centerY = 200;
+    
+    // Draw shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    ctx.beginPath();
+    ctx.ellipse(centerX, centerY + 80, 30, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Draw legs
+    ctx.fillStyle = '#3a3a5c';
+    ctx.fillRect(centerX - 15, centerY + 20, 12, 35); // Left leg
+    ctx.fillRect(centerX + 3, centerY + 20, 12, 35);  // Right leg
+    
+    // Draw boots if equipped
+    if (player.equipped.boots) {
+      ctx.fillStyle = '#654321';
+      ctx.fillRect(centerX - 17, centerY + 48, 16, 12); // Left boot
+      ctx.fillRect(centerX + 1, centerY + 48, 16, 12);  // Right boot
+    }
+    
+    // Draw body
+    ctx.fillStyle = '#4488cc';
+    ctx.fillRect(centerX - 20, centerY - 25, 40, 50);
+    
+    // Draw armor if equipped
+    if (player.equipped.armor) {
+      ctx.fillStyle = 'rgba(112, 128, 144, 0.8)';
+      ctx.fillRect(centerX - 22, centerY - 27, 44, 52);
+      
+      // Armor details
+      ctx.strokeStyle = '#708090';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(centerX - 22, centerY - 27, 44, 52);
+    }
+    
+    // Draw arms
+    ctx.fillStyle = '#DEB887';
+    ctx.fillRect(centerX - 31, centerY - 15, 10, 35); // Left arm
+    ctx.fillRect(centerX + 21, centerY - 15, 10, 35); // Right arm
+    
+    // Draw shield if equipped (left hand)
+    if (player.equipped.offhand) {
+      ctx.fillStyle = '#8B7355';
+      ctx.beginPath();
+      // Rounded rectangle for shield
+      var x = centerX - 40;
+      var y = centerY - 10;
+      var w = 20;
+      var h = 30;
+      var r = 5;
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+      ctx.fill();
+      
+      // Shield boss
+      ctx.fillStyle = '#FFD700';
+      ctx.beginPath();
+      ctx.arc(centerX - 30, centerY + 5, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    
+    // Draw weapon if equipped (right hand)
+    if (player.equipped.weapon) {
+      // Sword blade
+      ctx.fillStyle = '#C0C0C0';
+      ctx.fillRect(centerX + 28, centerY - 30, 6, 40);
+      
+      // Sword hilt
+      ctx.fillStyle = '#8B4513';
+      ctx.fillRect(centerX + 23, centerY + 10, 16, 5);
+      
+      // Sword tip
+      ctx.beginPath();
+      ctx.moveTo(centerX + 28, centerY - 30);
+      ctx.lineTo(centerX + 31, centerY - 40);
+      ctx.lineTo(centerX + 34, centerY - 30);
+      ctx.fill();
+    }
+    
+    // Draw head
+    ctx.fillStyle = '#DEB887';
+    ctx.beginPath();
+    ctx.arc(centerX, centerY - 45, 18, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Draw eyes
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(centerX - 6, centerY - 48, 2, 0, Math.PI * 2);
+    ctx.arc(centerX + 6, centerY - 48, 2, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Draw smile
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY - 42, 8, 0.2, Math.PI - 0.2);
+    ctx.stroke();
+  }
+
+  function updateCharacterEquipment() {
+    // Re-draw character with updated equipment
+    drawCharacter2D();
+  }
+
+  function renderModalPanel() {
+    if (!_modalActive) return;
+    switch (_modalTab) {
+      case 'resources':
+        renderModalResources();
+        break;
+      case 'build':
+        renderModalBuild();
+        break;
+      case 'craft':
+        renderModalCraft();
+        break;
+      case 'stats':
+        renderModalStats();
+        break;
+    }
+  }
+
+  function updateModal() {
+    if (_modalActive) {
+      updateCharacterEquipment();
+      renderModalLeftSide();
+      renderModalPanel();
+    }
+  }
+
+  function renderModalLeftSide() {
+    var player = GameState.getPlayer();
+    var inventory = GameState.getInventory();
+    
+    // Render equipment slots
+    var equipContainer = document.getElementById('modal-equipment-slots');
+    if (equipContainer) {
+      var html = '';
+      
+      // Weapon slot
+      var weaponId = player.equipped.weapon;
+      html += '<div class="equipment-slot ' + (weaponId ? 'has-item' : '') + '" onclick="' + (weaponId ? 'GameActions.unequip(\'weapon\')' : '') + '">';
+      html += '<div class="equipment-slot-label">⚔️ Weapon</div>';
+      if (weaponId) {
+        var weaponEntity = GameRegistry.getEntity(weaponId);
+        var weaponBalance = GameRegistry.getBalance(weaponId);
+        html += '<div class="equipment-slot-item">' + (weaponEntity ? weaponEntity.name : weaponId) + '</div>';
+        if (weaponBalance && weaponBalance.stats && weaponBalance.stats.attack) {
+          html += '<div class="equipment-slot-stats">+' + weaponBalance.stats.attack + ' ATK</div>';
+        }
+      } else {
+        html += '<div class="equipment-slot-empty">Empty</div>';
+      }
+      html += '</div>';
+
+      // Offhand slot
+      var offhandId = player.equipped.offhand;
+      html += '<div class="equipment-slot ' + (offhandId ? 'has-item' : '') + '" onclick="' + (offhandId ? 'GameActions.unequip(\'offhand\')' : '') + '">';
+      html += '<div class="equipment-slot-label">🛡️ Shield</div>';
+      if (offhandId) {
+        var offhandEntity = GameRegistry.getEntity(offhandId);
+        var offhandBalance = GameRegistry.getBalance(offhandId);
+        html += '<div class="equipment-slot-item">' + (offhandEntity ? offhandEntity.name : offhandId) + '</div>';
+        if (offhandBalance && offhandBalance.stats && offhandBalance.stats.defense) {
+          html += '<div class="equipment-slot-stats">+' + offhandBalance.stats.defense + ' DEF</div>';
+        }
+      } else {
+        html += '<div class="equipment-slot-empty">Empty</div>';
+      }
+      html += '</div>';
+
+      // Armor slot
+      var armorId = player.equipped.armor;
+      html += '<div class="equipment-slot ' + (armorId ? 'has-item' : '') + '" onclick="' + (armorId ? 'GameActions.unequip(\'armor\')' : '') + '">';
+      html += '<div class="equipment-slot-label">🦺 Armor</div>';
+      if (armorId) {
+        var armorEntity = GameRegistry.getEntity(armorId);
+        var armorBalance = GameRegistry.getBalance(armorId);
+        html += '<div class="equipment-slot-item">' + (armorEntity ? armorEntity.name : armorId) + '</div>';
+        var stats = [];
+        if (armorBalance && armorBalance.stats) {
+          if (armorBalance.stats.defense) stats.push('+' + armorBalance.stats.defense + ' DEF');
+          if (armorBalance.stats.maxHp) stats.push('+' + armorBalance.stats.maxHp + ' HP');
+        }
+        if (stats.length) html += '<div class="equipment-slot-stats">' + stats.join(', ') + '</div>';
+      } else {
+        html += '<div class="equipment-slot-empty">Empty</div>';
+      }
+      html += '</div>';
+
+      // Boots slot
+      var bootsId = player.equipped.boots;
+      html += '<div class="equipment-slot ' + (bootsId ? 'has-item' : '') + '" onclick="' + (bootsId ? 'GameActions.unequip(\'boots\')' : '') + '">';
+      html += '<div class="equipment-slot-label">👟 Boots</div>';
+      if (bootsId) {
+        var bootsEntity = GameRegistry.getEntity(bootsId);
+        var bootsBalance = GameRegistry.getBalance(bootsId);
+        html += '<div class="equipment-slot-item">' + (bootsEntity ? bootsEntity.name : bootsId) + '</div>';
+        if (bootsBalance && bootsBalance.stats && bootsBalance.stats.speed) {
+          html += '<div class="equipment-slot-stats">+' + bootsBalance.stats.speed + ' SPD</div>';
+        }
+      } else {
+        html += '<div class="equipment-slot-empty">Empty</div>';
+      }
+      html += '</div>';
+      
+      equipContainer.innerHTML = html;
+    }
+    
+    // Render inventory grid
+    var invContainer = document.getElementById('modal-inventory-grid');
+    if (invContainer) {
+      var html = '';
+      
+      for (var itemId in inventory) {
+        if (inventory[itemId] <= 0) continue;
+        var entity = GameRegistry.getEntity(itemId);
+        if (!entity || entity.type !== 'equipment') continue;
+        
+        html += '<div class="inv-slot" onclick="GameActions.equip(\'' + itemId + '\')">';
+        html += '<div>' + (entity ? entity.name : itemId) + '</div>';
+        html += '<div>x' + inventory[itemId] + '</div>';
+        html += '</div>';
+      }
+      
+      if (!html) {
+        html = '<div style="grid-column: 1/-1; text-align:center; color:#666; font-size:11px; padding:10px;">No items</div>';
+      }
+      
+      invContainer.innerHTML = html;
+    }
+  }
+
+  function renderModalResources() {
+    var panel = document.getElementById('modal-panel-resources');
+    if (!panel) return;
+
+    var resources = GameRegistry.getEntitiesByType('resource');
+    var stats = TickSystem.getResourceStats();
+    var html = '<div class="resources-grid">';
+
+    resources.forEach(function(res) {
+      if (!GameState.isUnlocked(res.id)) return;
+      
+      var amount = GameState.getResource(res.id);
+      var net = stats.net ? stats.net[res.id] : 0;
+      
+      var netStr = '';
+      var netColor = '#888';
+      if (net > 0.001) {
+        netStr = '+' + net.toFixed(1) + '/tick';
+        netColor = '#4ecca3';
+      } else if (net < -0.001) {
+        netStr = net.toFixed(1) + '/tick';
+        netColor = '#e94560';
+      }
+
+      html += '<div class="resource-card">';
+      html += '<div class="resource-card-icon">💎</div>';
+      html += '<div class="resource-card-info">';
+      html += '<div class="resource-card-name">' + escapeHtml(res.name) + '</div>';
+      html += '<div class="resource-card-amount">' + Math.floor(amount) + '</div>';
+      if (netStr) {
+        html += '<div style="font-size:11px;color:' + netColor + ';">' + netStr + '</div>';
+      }
+      html += '</div>';
+      html += '</div>';
+    });
+
+    html += '</div>';
+    panel.innerHTML = html;
+  }
+
+  function renderModalBuild() {
+    var panel = document.getElementById('modal-panel-build');
+    if (!panel) return;
+
+    var buildings = GameRegistry.getEntitiesByType('building');
+    var html = '';
+
+    buildings.forEach(function(building) {
+      var isUnlocked = GameState.isUnlocked(building.id);
+      
+      if (!isUnlocked) {
+        html += '<div class="card" style="opacity: 0.5;">';
+        html += '<span style="position:absolute; top:8px; right:12px; font-size:18px;">🔒</span>';
+        html += '<div><div class="card-name">' + escapeHtml(building.name) + '</div>';
+        html += '<div class="card-info">' + escapeHtml(building.description || '') + '</div>';
+        html += buildUnlockConditionsHtml(building);
+        html += '</div>';
+        html += '<button class="btn btn-primary" disabled>🔒 Locked</button>';
+        html += '</div>';
+        return;
+      }
+
+      var balance = GameRegistry.getBalance(building.id);
+      var count = GameState.getBuildingCount(building.id);
+      var canBuy = true;
+
+      html += '<div class="card">';
+      html += '<div><div class="card-name">' + escapeHtml(building.name);
+      if (count > 0) html += ' (x' + count + ')';
+      html += '</div>';
+      html += '<div class="card-info">' + escapeHtml(building.description || '') + '</div>';
+
+      if (balance && balance.cost) {
+        html += '<div class="card-cost">Cost: ';
+        var parts = [];
+        for (var resId in balance.cost) {
+          var resEntity = GameRegistry.getEntity(resId);
+          var name = resEntity ? resEntity.name : resId;
+          var needed = balance.cost[resId];
+          var has = GameState.hasResource(resId, needed);
+          if (!has) canBuy = false;
+          parts.push('<span class="' + (has ? 'cost-ok' : 'cost-lack') + '">' + name + ':' + needed + '</span>');
+        }
+        html += parts.join(' ') + '</div>';
+      }
+
+      html += '</div>';
+      html += '<button class="btn btn-primary" onclick="GameActions.startBuild(\'' + building.id + '\'); GameHUD.closeModal();"' + (canBuy ? '' : ' disabled') + '>Build</button>';
+      html += '</div>';
+    });
+
+    panel.innerHTML = html || '<div class="card">No buildings available.</div>';
+  }
+
+  function renderModalCraft() {
+    var panel = document.getElementById('modal-panel-craft');
+    if (!panel) return;
+
+    var recipes = CraftSystem.getAllRecipes();
+    var html = '';
+
+    recipes.forEach(function(recipe) {
+      var isUnlocked = GameState.isUnlocked(recipe.id);
+      
+      if (!isUnlocked) {
+        html += '<div class="card" style="opacity: 0.5;">';
+        html += '<span style="position:absolute; top:8px; right:12px; font-size:18px;">🔒</span>';
+        html += '<div><div class="card-name">' + escapeHtml(recipe.name) + '</div>';
+        html += '<div class="card-info">' + escapeHtml(recipe.description || '') + '</div>';
+        html += buildUnlockConditionsHtml(recipe);
+        html += '</div>';
+        html += '<button class="btn btn-primary" disabled>🔒 Locked</button>';
+        html += '</div>';
+        return;
+      }
+
+      var info = CraftSystem.getRecipeInfo(recipe.id);
+      var balance = info.balance;
+      var canCraft = info.canCraft;
+
+      html += '<div class="card">';
+      html += '<div><div class="card-name">' + escapeHtml(recipe.name) + '</div>';
+      html += '<div class="card-info">' + escapeHtml(recipe.description || '') + '</div>';
+
+      if (balance && balance.input) {
+        html += '<div class="card-cost">Input: ';
+        var parts = [];
+        for (var resId in balance.input) {
+          var entity = GameRegistry.getEntity(resId);
+          var name = entity ? entity.name : resId;
+          var needed = balance.input[resId];
+          var has = GameState.hasResource(resId, needed);
+          parts.push('<span class="' + (has ? 'cost-ok' : 'cost-lack') + '">' + name + ':' + needed + '</span>');
+        }
+        html += parts.join(' ') + '</div>';
+      }
+
+      if (balance && balance.output) {
+        html += '<div class="card-cost" style="color:#4ecca3">Output: ';
+        var parts = [];
+        for (var resId in balance.output) {
+          var entity = GameRegistry.getEntity(resId);
+          var name = entity ? entity.name : resId;
+          parts.push(name + ' x' + balance.output[resId]);
+        }
+        html += parts.join(', ') + '</div>';
+      }
+
+      html += '</div>';
+      
+      // Check if output is equipment and already in inventory
+      var hasInInventory = false;
+      var outputEquipmentId = null;
+      if (balance && balance.output) {
+        for (var resId in balance.output) {
+          var entity = GameRegistry.getEntity(resId);
+          if (entity && entity.type === 'equipment') {
+            outputEquipmentId = resId;
+            var invCount = GameState.getInventoryCount(resId);
+            if (invCount > 0) {
+              hasInInventory = true;
+            }
+            break;
+          }
+        }
+      }
+      
+      if (hasInInventory && outputEquipmentId) {
+        // Show "Use" button instead of "Craft"
+        html += '<button class="btn btn-primary" onclick="GameActions.equip(\'' + outputEquipmentId + '\')">Use</button>';
+      } else {
+        // Show "Craft" button
+        html += '<button class="btn btn-primary" onclick="GameActions.craft(\'' + recipe.id + '\')"' + (canCraft ? '' : ' disabled') + '>Craft</button>';
+      }
+      
+      html += '</div>';
+    });
+
+    panel.innerHTML = html || '<div class="card">No recipes available.</div>';
+  }
+
+  function renderModalStats() {
+    var panel = document.getElementById('modal-panel-stats');
+    if (!panel) return;
+
+    var player = GameState.getPlayer();
+    var maxHp = GameState.getPlayerMaxHp();
+    var attack = GameState.getPlayerAttack();
+    var defense = GameState.getPlayerDefense();
+    var speed = GameState.getPlayerSpeed ? GameState.getPlayerSpeed() : 3;
+
+    var html = '<div class="stats-grid">';
+    
+    // HP
+    html += '<div class="stat-card hp">';
+    html += '<div class="stat-label">❤️ Health</div>';
+    html += '<div class="stat-value">' + Math.floor(player.hp) + ' / ' + maxHp + '</div>';
+    html += '<div class="stat-breakdown">Base: 100';
+    var armorId = player.equipped.armor;
+    if (armorId) {
+      var armorBalance = GameRegistry.getBalance(armorId);
+      if (armorBalance && armorBalance.stats && armorBalance.stats.maxHp) {
+        html += '<br>Armor: +' + armorBalance.stats.maxHp;
+      }
+    }
+    html += '</div>';
+    html += '</div>';
+
+    // Attack
+    html += '<div class="stat-card attack">';
+    html += '<div class="stat-label">⚔️ Attack</div>';
+    html += '<div class="stat-value">' + attack + '</div>';
+    html += '<div class="stat-breakdown">Base: ' + player.attack;
+    var weaponId = player.equipped.weapon;
+    if (weaponId) {
+      var weaponBalance = GameRegistry.getBalance(weaponId);
+      if (weaponBalance && weaponBalance.stats && weaponBalance.stats.attack) {
+        html += '<br>Weapon: +' + weaponBalance.stats.attack;
+      }
+    }
+    html += '</div>';
+    html += '</div>';
+
+    // Defense
+    html += '<div class="stat-card defense">';
+    html += '<div class="stat-label">🛡️ Defense</div>';
+    html += '<div class="stat-value">' + defense + '</div>';
+    html += '<div class="stat-breakdown">Base: ' + player.defense;
+    var offhandId = player.equipped.offhand;
+    if (offhandId) {
+      var offhandBalance = GameRegistry.getBalance(offhandId);
+      if (offhandBalance && offhandBalance.stats && offhandBalance.stats.defense) {
+        html += '<br>Shield: +' + offhandBalance.stats.defense;
+      }
+    }
+    if (armorId) {
+      var armorBalance = GameRegistry.getBalance(armorId);
+      if (armorBalance && armorBalance.stats && armorBalance.stats.defense) {
+        html += '<br>Armor: +' + armorBalance.stats.defense;
+      }
+    }
+    html += '</div>';
+    html += '</div>';
+
+    // Speed
+    html += '<div class="stat-card speed">';
+    html += '<div class="stat-label">⚡ Speed</div>';
+    html += '<div class="stat-value">' + speed.toFixed(1) + '</div>';
+    html += '<div class="stat-breakdown">Base: ' + player.speed;
+    var bootsId = player.equipped.boots;
+    if (bootsId) {
+      var bootsBalance = GameRegistry.getBalance(bootsId);
+      if (bootsBalance && bootsBalance.stats && bootsBalance.stats.speed) {
+        html += '<br>Boots: +' + bootsBalance.stats.speed;
+      }
+    }
+    html += '</div>';
+    html += '</div>';
+
+    html += '</div>';
+
+    panel.innerHTML = html;
+  }
+
   return {
     renderAll: renderAll,
     switchTab: switchTab,
@@ -588,6 +1264,13 @@ window.GameHUD = (function () {
     closeInspector: closeInspector,
     toggleProductionPanel: toggleProductionPanel,
     showObjectHpBar: showObjectHpBar,
-    hideObjectHpBar: hideObjectHpBar
+    hideObjectHpBar: hideObjectHpBar,
+    updateNodeHpBars: updateNodeHpBars,
+    updateBuildingStorageLabels: updateBuildingStorageLabels,
+    // Modal functions
+    toggleModal: toggleModal,
+    closeModal: closeModal,
+    switchModalTab: switchModalTab,
+    updateModal: updateModal
   };
 })();

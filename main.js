@@ -29,11 +29,13 @@ window.GameActions = (function () {
     }
 
     GameHUD.renderAll();
+    GameHUD.updateModal();
   }
 
   function equip(equipmentId) {
     GameState.equipItem(equipmentId);
     GameHUD.renderAll();
+    GameHUD.updateModal();
     var entity = GameRegistry.getEntity(equipmentId);
     GameHUD.showNotification("Equipped: " + (entity ? entity.name : equipmentId));
   }
@@ -41,6 +43,7 @@ window.GameActions = (function () {
   function unequip(slot) {
     GameState.unequipSlot(slot);
     GameHUD.renderAll();
+    GameHUD.updateModal();
     GameHUD.showNotification("Unequipped " + slot);
   }
 
@@ -98,6 +101,11 @@ window.GameActions = (function () {
   var stateExport = GameState.exportState();
   GameTerrain.init(stateExport.worldSeed);
 
+  // Initialize NPC system
+  if (typeof NPCSystem !== 'undefined') {
+    NPCSystem.init();
+  }
+
   // Initialize player
   var playerData = GameState.getPlayer();
   GamePlayer.init(playerData.x, playerData.z);
@@ -117,6 +125,11 @@ window.GameActions = (function () {
         mesh.position.set(inst.x, 0, inst.z);
         mesh.userData.instanceUid = uid;
         GameScene.getScene().add(mesh);
+      }
+      
+      // Spawn NPCs for this building
+      if (typeof NPCSystem !== 'undefined' && NPCSystem.spawnWorkersForBuilding) {
+        NPCSystem.spawnWorkersForBuilding(uid);
       }
     }
   }

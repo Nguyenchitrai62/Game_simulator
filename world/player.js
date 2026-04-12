@@ -2,7 +2,6 @@ window.GamePlayer = (function () {
   var mesh;
   var _x = 8, _z = 8;
   var _targetX = null, _targetZ = null;
-  var _speed = 3;
   var _moving = false;
   var _interactTarget = null;
   var _direction = { x: 0, z: 1 };
@@ -79,9 +78,26 @@ window.GamePlayer = (function () {
     document.addEventListener('keydown', function (e) {
       _keys[e.key.toLowerCase()] = true;
       if (e.key.toLowerCase() === 'e') interactNearby();
-      if (e.key.toLowerCase() === 'b') GameHUD.switchTab('build');
-      if (e.key.toLowerCase() === 'c') GameHUD.switchTab('craft');
-      if (e.key.toLowerCase() === 'i') GameHUD.switchTab('inventory');
+      if (e.key.toLowerCase() === 'b') { 
+        GameHUD.switchModalTab('build'); 
+        if (!document.getElementById('modal-overlay').classList.contains('active')) {
+          GameHUD.toggleModal(); 
+        }
+      }
+      if (e.key.toLowerCase() === 'c') { 
+        GameHUD.switchModalTab('craft'); 
+        if (!document.getElementById('modal-overlay').classList.contains('active')) {
+          GameHUD.toggleModal(); 
+        }
+      }
+      if (e.key.toLowerCase() === 'i') { 
+        // Open modal to stats (inventory now always visible)
+        GameHUD.switchModalTab('stats'); 
+        if (!document.getElementById('modal-overlay').classList.contains('active')) {
+          GameHUD.toggleModal(); 
+        }
+      }
+      if (e.key === 'Escape') GameHUD.closeModal();
     });
     document.addEventListener('keyup', function (e) {
       _keys[e.key.toLowerCase()] = false;
@@ -135,6 +151,9 @@ window.GamePlayer = (function () {
   function update(dt) {
     _animTime += dt;
     var moved = false;
+
+    // Get current speed from GameState (includes boots bonus)
+    var _speed = GameState.getPlayerSpeed ? GameState.getPlayerSpeed() : 3;
 
     // Screen-space input: W=up, S=down, A=left, D=right
     var screenDx = 0, screenDy = 0;
@@ -257,6 +276,30 @@ window.GamePlayer = (function () {
     var el = document.getElementById('context-action');
     var textEl = document.getElementById('context-text');
 
+    // Check for nearby building first
+    var nearBuilding = findNearestBuilding(_x, _z, 2.5);
+    if (nearBuilding) {
+      var storage = GameState.getBuildingStorage(nearBuilding.uid);
+      var hasResources = false;
+      var totalAmount = 0;
+      for (var resId in storage) {
+        if (storage[resId] > 0) {
+          hasResources = true;
+          totalAmount += storage[resId];
+        }
+      }
+      
+      if (hasResources) {
+        var entity = GameRegistry.getEntity(nearBuilding.entityId);
+        var name = entity ? entity.name : nearBuilding.entityId;
+        textEl.textContent = "Collect from " + name + " (" + totalAmount + " items)";
+        el.classList.add('show');
+        GameHUD.hideObjectHpBar();
+        return;
+      }
+    }
+
+    // Otherwise check for harvestable objects
     if (nearObj && nearObj.hp > 0) {
       var entity = GameRegistry.getEntity(nearObj.type);
       var name = entity ? entity.name : nearObj.type;
@@ -271,6 +314,25 @@ window.GamePlayer = (function () {
   }
 
   function interactNearby() {
+    // Check for nearby building first
+    var nearBuilding = findNearestBuilding(_x, _z, 2.5);
+    if (nearBuilding) {
+      var storage = GameState.getBuildingStorage(nearBuilding.uid);
+      var hasResources = false;
+      for (var resId in storage) {
+        if (storage[resId] > 0) {
+          hasResources = true;
+          break;
+        }
+      }
+      
+      if (hasResources) {
+        collectFromBuilding(nearBuilding);
+        return;
+      }
+    }
+
+    // Otherwise interact with harvestable object
     var nearObj = GameTerrain.findNearestObject(_x, _z, 2.5);
     if (nearObj && nearObj.hp > 0) {
       interactWith(nearObj);
@@ -285,9 +347,70 @@ window.GamePlayer = (function () {
     }
   }
 
+  /**
+   * Find nearest building to player
+   */
+  function findNearestBuilding(px, pz, radius) {
+    var instances = GameState.getAllInstances();
+    var nearest = null;
+    var nearestDist = radius;
+    
+    for (var uid in instances) {
+      var inst = instances[uid];
+      var dx = inst.x - px;
+      var dz = inst.z - pz;
+      var dist = Math.sqrt(dx * dx + dz * dz);
+      
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearest = inst;
+      }
+    }
+    
+    return nearest;
+  }
+
+  /**
+   * Collect resources from building storage
+   */
+  function collectFromBuilding(buildingInstance) {
+    var collected = GameState.collectFromBuilding(buildingInstance.uid);
+    
+    // Show notifications for collected resources
+    var entity = GameRegistry.getEntity(buildingInstance.entityId);
+    var buildingName = entity ? entity.name : buildingInstance.entityId;
+    
+    var messages = [];
+    for (var resId in collected) {
+      if (collected[resId] > 0) {
+        var resEntity = GameRegistry.getEntity(resId);
+        var resName = resEntity ? resEntity.name : resId;
+        messages.push("+" + collected[resId] + " " + resName);
+      }
+    }
+    
+    if (messages.length > 0) {
+      GameHUD.showSuccess("Collected from " + buildingName + ": " + messages.join(", "));
+      GameHUD.renderAll();
+    }
+  }
+
   function harvestNode(objData) {
     var balance = GameRegistry.getBalance(objData.type);
     if (!balance) return;
+
+    // Check if node is being harvested by NPCs
+    if (window.NPCSystem && NPCSystem.getActiveHarvestNodes) {
+      var activeNodes = NPCSystem.getActiveHarvestNodes();
+      var isBeingHarvested = activeNodes.some(function(activeNode) {
+        return activeNode.node === objData;
+      });
+      
+      if (isBeingHarvested) {
+        GameHUD.showNotification("An NPC is already harvesting this!");
+        return;
+      }
+    }
 
     objData.hp--;
 

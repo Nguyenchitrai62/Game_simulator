@@ -47,6 +47,8 @@ window.GAME_BALANCE = {
   // === BUILDINGS ===
   "building.wood_cutter": {
     cost: { "resource.wood": 10 },
+    searchRadius: { 1: 5, 2: 8, 3: 12 },
+    workerCount: { 1: 1, 2: 2, 3: 3 },
     produces: { "resource.wood": 2 },
     upgrades: {
       2: { cost: { "resource.wood": 30, "resource.stone": 10 }, productionMultiplier: 1.5 },
@@ -55,6 +57,8 @@ window.GAME_BALANCE = {
   },
   "building.stone_quarry": {
     cost: { "resource.wood": 15, "resource.stone": 5 },
+    searchRadius: { 1: 5, 2: 8, 3: 12 },
+    workerCount: { 1: 1, 2: 2, 3: 3 },
     produces: { "resource.stone": 1 },
     upgrades: {
       2: { cost: { "resource.wood": 40, "resource.stone": 20 }, productionMultiplier: 1.5 },
@@ -63,6 +67,8 @@ window.GAME_BALANCE = {
   },
   "building.berry_gatherer": {
     cost: { "resource.wood": 8 },
+    searchRadius: { 1: 5, 2: 8, 3: 12 },
+    workerCount: { 1: 1, 2: 2, 3: 3 },
     produces: { "resource.food": 2 },
     upgrades: {
       2: { cost: { "resource.wood": 25, "resource.food": 15 }, productionMultiplier: 1.5 },
@@ -71,6 +77,8 @@ window.GAME_BALANCE = {
   },
   "building.flint_mine": {
     cost: { "resource.wood": 20, "resource.stone": 10 },
+    searchRadius: { 1: 5, 2: 8, 3: 12 },
+    workerCount: { 1: 1, 2: 2, 3: 3 },
     produces: { "resource.flint": 1 },
     upgrades: {
       2: { cost: { "resource.wood": 50, "resource.stone": 30 }, productionMultiplier: 1.5 },
@@ -135,6 +143,10 @@ window.GAME_BALANCE = {
     input: { "resource.leather": 5, "resource.flint": 3 },
     output: { "equipment.leather_armor": 1 }
   },
+  "recipe.leather_boots": {
+    input: { "resource.leather": 3, "resource.wood": 2 },
+    output: { "equipment.leather_boots": 1 }
+  },
 
   // === EQUIPMENT ===
   "equipment.wooden_sword": {
@@ -152,6 +164,10 @@ window.GAME_BALANCE = {
   "equipment.leather_armor": {
     stats: { defense: 5, maxHp: 10 },
     slot: "armor"
+  },
+  "equipment.leather_boots": {
+    stats: { speed: 2 },
+    slot: "boots"
   },
 
   // === AGE ===
@@ -208,6 +224,8 @@ window.GAME_BALANCE = {
   // === BRONZE AGE BUILDINGS ===
   "building.copper_mine": {
     cost: { "resource.wood": 30, "resource.stone": 20 },
+    searchRadius: { 1: 5, 2: 8 },
+    workerCount: { 1: 1, 2: 2 },
     produces: { "resource.copper": 1 },
     upgrades: {
       2: { cost: { "resource.wood": 60, "resource.stone": 40, "resource.copper": 10 }, productionMultiplier: 1.5 }
@@ -215,6 +233,8 @@ window.GAME_BALANCE = {
   },
   "building.tin_mine": {
     cost: { "resource.wood": 35, "resource.stone": 25, "resource.copper": 5 },
+    searchRadius: { 1: 5, 2: 8 },
+    workerCount: { 1: 1, 2: 2 },
     produces: { "resource.tin": 1 },
     upgrades: {
       2: { cost: { "resource.wood": 70, "resource.stone": 50, "resource.tin": 10 }, productionMultiplier: 1.5 }
