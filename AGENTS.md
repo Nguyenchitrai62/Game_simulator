@@ -1,9 +1,5 @@
 # Evolution Simulator 3D — Game Documentation
 
-> Version: 2.0.0 | Updated: 2026-04-13
-
----
-
 ## 1. Overview
 
 3D evolution simulator: Stone Age -> Bronze Age -> Iron Age. Runs entirely in browser via `index.html`. Three.js (local `three.min.js`) for 3D isometric rendering, vanilla JS, no framework.
@@ -43,11 +39,18 @@ d:\Source_code\Game_simulator\
 |   |-- scene.js                <- Scene, orthographic camera, render loop, lighting, game speed
 |   |-- terrain.js              <- Chunk-based infinite world, seeded procedural gen
 |   |-- entities.js             <- 3D meshes + animal wandering AI + node respawn
-|   |-- player.js               <- Player character, WASD, interaction, HP regen
+|   |-- player.js               <- Player character, WASD, interaction, HP regen, hunger system
 |   |-- combat.js               <- Click-to-attack, 0.5s interval, death penalty
 |   |-- buildingSystem.js       <- Build mode preview + placement + upgrade visuals + destruction
 |   |-- npcSystem.js            <- NPC workers: IDLE->FIND_NODE->WALK->HARVEST->WALK_HOME->DEPOSIT
-|
+|   |-- rangeIndicator.js       <- Visual range indicators for building search/transfer radius
+|   |-- dayNightSystem.js       <- 24-hour day/night cycle with dynamic lighting
+|   |-- fireSystem.js           <- Fire & li3.0.0" + pack list
+|   |-- base_stone_age.js       <- Stone Age (30 entities)
+|   |-- expansion_bronze_age.js <- Bronze Age (17 entities)
+|   |-- expansion_iron_age.js   <- Iron Age (20 entities)
+|   |-- expansion_fire_light.js <- Fire & Light (4 entities: torch, campfire, handheld_torch)
+|   |-- expansion_water.js      <- Water (2 entities: well, bridge
 |-- /content                    <- Content packs (append-only)
 |   |-- manifest.js             <- Version "2.0.0" + pack list
 |   |-- base_stone_age.js       <- Stone Age (30 entities)
@@ -71,11 +74,11 @@ d:\Source_code\Game_simulator\
 
 ### Script Load Order (index.html)
 
-```
-1. three.min.js (local)
-2. Data: manifest -> base_stone_age -> expansion_bronze_age -> expansion_iron_age -> balance
+```expansion_fire_light -> expansion_water -> balance
 3. Engine Core: registry -> gameState
 4. Persistence: localStorage
+5. Systems: tickSystem -> craftSystem -> unlockSystem -> upgradeSystem -> synergy -> researchSystem
+6. World: scene -> terrain -> entities -> player -> combat -> buildingSystem -> npcSystem -> rangeIndicator -> dayNightSystem -> fireSystem -> waterSystem -> minimap
 5. Systems: tickSystem -> craftSystem -> unlockSystem -> upgradeSystem -> synergy -> researchSystem
 6. World: scene -> terrain -> entities -> player -> combat -> buildingSystem -> npcSystem
 7. UI: hud (MUST load before main.js)
@@ -180,9 +183,7 @@ Systems  HUD  World/3D
   resources: {},          // "resource.wood": 10
   buildings: {},          // "building.wood_cutter": 2  (total count)
   unlocked: [],           // Entity IDs unlocked
-  researched: [],         // Tech IDs researched
-  age: "age.stone",
-  version: "2.0.0",
+  researched3.0.0",
   player: { hp, maxHp, attack, defense, x, z, speed, equipped: { weapon, offhand, armor, boots } },
   inventory: {},          // "equipment.id": count
   instances: {},          // "uid": { entityId, level, x, z, uid }
@@ -191,6 +192,13 @@ Systems  HUD  World/3D
   worldSeed: 42,
   fractionalAccumulator: {},
   gameSpeed: 1.0,
+  isPaused: false,
+  techState: { currentResearch: null, progress: 0 },
+  hunger: 100,            // Player hunger (0-100)
+  maxHunger: 100,         // Max hunger capacity
+  timeOfDay: 12,          // 0-24 hour system
+  fireFuel: {},           // "uid": { current, max } - fuel state for torches/campfires
+  handheldTorch: null     // { startTime, duration } or null
   isPaused: false,
   techState: { currentResearch: null, progress: 0 }
 }
@@ -204,7 +212,11 @@ Systems  HUD  World/3D
 | **Buildings** | `addBuilding(id)`, `getBuildingCount(id)`, `removeBuilding(id)` |
 | **Unlock** | `unlock(id)`, `isUnlocked(id)`, `getUnlocked()` |
 | **Age** | `setAge(id)`, `getAge()` |
-| **Player** | `getPlayer()`, `setPlayerHP()`, `getPlayerMaxHp/Attack/Defense/Speed()`, `equipItem()`, `unequipSlot()` |
+| **Player** | `getPlayer()`, `setPlayerHP()`, `getPlaye
+| **Hunger** | `getHunger()`, `setHunger(val)`, `getMaxHunger()`, `isHungry()`, `isStarving()` |
+| **Day/Night** | `getTimeOfDay()`, `setTimeOfDay(val)` |
+| **Fire** | `getFireFuel(uid)`, `setFireFuel(uid, current)`, `removeFireFuel(uid)` |
+| **Handheld Torch** | `getHandheldTorch()`, `activateHandheldTorch()`, `deactivateHandheldTorch()` |rMaxHp/Attack/Defense/Speed()`, `equipItem()`, `unequipSlot()` |
 | **Inventory** | `addToInventory(id, count)`, `removeFromInventory()`, `getInventory()` |
 | **Instances** | `addInstance(uid, data)`, `getInstance(uid)`, `getAllInstances()`, `removeInstance(uid)` |
 | **Research** | `markResearched(techId)`, `isResearched(techId)`, `getResearched()` |
@@ -250,6 +262,23 @@ Orthographic camera at (player+20, 20, player+20). Zoom: 6-12. Fog 40-80. Sky 0x
 ### 7.3 Player
 WASD isometric movement (45 degree conversion). Collision: slide-along-wall. E key interaction. HP regen: 1 HP/2s after 3s out of combat.
 
+### 7.7 Range Indicator System
+Visual feedback for building ranges. Shows two types: **searchRadius** (green, 0.18 opacity) for NPC harvesting range, **transferRange** (blue, 0.15 opacity) for warehouse resource transfer range. Displays as ground rings (RingGeometry) + edge lines. Activated on building selection, hidden on deselect.
+
+### 7.8 Day/Night System
+24-hour cycle advancing at ~0.0667 hours/tick (configurable). 14 keyframe phases from midnight to midnight, interpolating ambient light, directional light intensity/color, hemisphere light, sky color, and darkness value (0.0-1.0). **Fog remains constant** (near=35, far=75) to allow PointLights to illuminate properly at night. Uses `THREE.Color.lerp()` for smooth color transitions. Darkness affects global scene brightness; individual lights (torches, campfires) create local illumination.
+
+### 7.9 Fire System
+Manages PointLight instances for torch (`lightRadius=6`), campfire (`lightRadius=14`), and handheld torch (`lightRadius=8`). Lights flicker using sine-based animations (different patterns for campfire vs torch). Intensity driven by: darkness (max at night), fuel level, and flicker. Color oscillates between warmOrange/warmYellow/deepOrange. Handheld torch follows player position. Fuel consumption: 1 fuel/tick, refuel costs resources. Lights auto-disable when fuel=0.
+
+### 7.10 Water System
+Procedural river/lake generation using seeded randomness. Rivers: sine-wave paths with `deep` (center) and `shallow` (±1 tile) bands. Lakes: random circular regions (2-4 tile radius) far from home (distance ≥2 chunks). Water tiles block movement unless bridge is placed. Creates semi-transparent meshes (deep=0x2255aa@0.8, shallow=0x4488cc@0.6). Home chunk (0,0) always dry.
+
+### 7.11 Minimap System
+**Small minimap** (bottom-right, 160x160px): Circular, 45° rotated canvas to match isometric camera. Shows player (blue arrow), buildings (orange square), nodes (color-coded icons: tree=green circle, rock=gray rect, berry=red diamond, etc.), animals (red triangle). Updates every 4 frames for performance.
+
+**Full map** (M key toggle): Zoom 0.3x-4x (mouse wheel), pan by dragging. Hover shows entity info. Displays entire explored world. Grid-based rendering with chunk awareness.
+
 ### 7.4 Combat
 Click animal -> walk to -> auto-combat at 0.5s interval. `damage = max(1, ATK - DEF)` for player, `max(0, ATK - DEF)` for animal. Animal death: loot + respawn. Player death: respawn (8,8), full HP, lose 30% resources.
 
@@ -270,7 +299,23 @@ State machine: IDLE -> FIND_NODE -> WALK_TO_NODE -> HARVEST -> WALK_HOME -> DEPO
 | Resources | wood, stone, food, flint, tool, leather |
 | Nodes | tree, rock, berry_bush, flint_deposit |
 | Animals | wolf, boar, bear |
-| Buildings | wood_cutter, stone_quarry, berry_gatherer, flint_mine, warehouse, barracks |
+| Buildings | wood_cutter, stone_quarry, berry_gath
+
+### Fire & Light Expansion (4 entities)
+| Category | IDs |
+|----------|-----|
+| Buildings | torch (light radius 6, fuel 40), campfire (light radius 14, fuel 100) |
+| Items | handheld_torch (60s duration, light radius 8, consumable) |
+| Recipes | handheld_torch (3 wood + 1 flint -> 1 handheld torch) |
+
+**Purpose**: Illuminate night. Torches/campfires require fuel (wood), refillable. Handheld torch auto-depletes, follows player.
+
+### Water Expansion (2 entities)
+| Category | IDs |
+|----------|-----|
+| Buildings | well (produces +1 food/tick), bridge (allows crossing water tiles) |
+
+**Purpose**: Wells provide food production without NPCs. Bridges enable navigation across rivers/lakes.erer, flint_mine, warehouse, barracks |
 | Equipment | wooden_sword (+3 ATK), stone_spear (+6 ATK), stone_shield (+3 DEF), leather_armor (+5 DEF, +10 HP), leather_boots (+2 SPD) |
 | Recipes | stone_tool, wooden_sword, stone_spear, stone_shield, leather_armor, leather_boots |
 | Techs | advanced_tools, efficient_gathering, expanded_storage, swift_workers |
@@ -282,6 +327,10 @@ State machine: IDLE -> FIND_NODE -> WALK_TO_NODE -> HARVEST -> WALK_HOME -> DEPO
 | Resources | copper, tin, bronze |
 | Nodes | copper_deposit, tin_deposit |
 | Animals | lion |
+| Torch | 5W, 2Fl | Light (R=6) | 0 (fuel: 40, drain 1/tick) |
+| Campfire | 20W, 5Fl | Light (R=14) | 0 (fuel: 100, drain 1/tick) |
+| Well | 10S, 5W | +1 Food | 0 (passive) |
+| Bridge | 15W, 5S | -- | 0 (walkable over water) |
 | Buildings | copper_mine, tin_mine, smelter (consumes: 2 copper + 1 tin/tick) |
 | Equipment | bronze_sword (+10 ATK), bronze_shield (+6 DEF), bronze_armor (+10 DEF, +20 HP) |
 | Recipes | bronze_sword, bronze_shield, bronze_armor |
@@ -302,6 +351,27 @@ State machine: IDLE -> FIND_NODE -> WALK_TO_NODE -> HARVEST -> WALK_HOME -> DEPO
 
 ## 9. Balance Quick Reference
 
+### Hunger System
+
+| Config | Value |
+|--------|-------|
+| Drain per tick | 0.2 |
+| Auto-eat threshold | 30 |
+| Hungry speed mult | 0.5x (speed halved when hunger < 20) |
+| Starving HP drain | 1 HP/tick (when hunger = 0) |
+| Food restore | 5 per food consumed |
+| Eat duration | 1.0s |
+| Eat speed mult | 0.5x (slowed while eating) |
+| Regen hunger mult | 2.0x (HP regen requires hunger ≥ regen cost) |
+
+### Day/Night System
+
+| Config | Value |
+|--------|-------|
+| Tick advance | 0.0667 hours/tick (~24min real-time = 24h game-time at 1x speed) |
+| Phases | 14 keyframes (midnight, dawn, noon, dusk, etc.) |
+| Fog | Constant (near=35, far=75) - darkness via light intensity only |
+
 ### Buildings Summary
 
 | Building | Cost | Produces | Workers |
@@ -313,6 +383,22 @@ State machine: IDLE -> FIND_NODE -> WALK_TO_NODE -> HARVEST -> WALK_HOME -> DEPO
 | Warehouse | 40W, 30S | -- | 0 (transfer hub) |
 | Barracks | 50W, 40S, 5T | -- | 0 (guards) |
 | Copper Mine | 30W, 20S | +1 Copper | 1-2 |
+
+// Hunger
+hungerDrain = 0.2/tick (modified by game speed)
+when hunger < 20: speed *= 0.5 (hungry penalty)
+when hunger = 0: HP -= 1/tick (starvation)
+eating: consumes 1 food, restores 5 hunger, takes 1s, slows to 0.5x speed
+
+// Day/Night
+timeOfDay += 0.0667 * dt * gameSpeed
+darkness = interpolate between phase keyframes (0.0 at noon, 1.0 at midnight)
+lights (torches/campfires) intensity *= (1 + darkness * 5) for visibility
+
+// Fire Fuel
+fuel -= fuelPerTick (1.0) every tick if lit
+light intensity = baseIntensity * fuelRatio * (1 + darkness * multiplier) * flicker
+when fuel = 0: light disabled
 | Tin Mine | 35W, 25S, 5Cu | +1 Tin | 1-2 |
 | Smelter | 40S, 10Cu, 5Sn | +1 Bronze | 1-2 (consumes 2Cu+1Sn) |
 | Iron Mine | 50W, 40S, 5Bz | +2 Iron | 2-4 |
@@ -378,9 +464,11 @@ lose 30% of each resource, respawn at (8,8), full HP
 ## 11. Init Flow (main.js)
 
 ```
-1. GameRegistry.init()
-2. Version check -> load save or fresh init
-3. GameScene.init()
+1. GameRegistry.init() NPCs can get stuck on water tiles.
+- **Barracks guards**: `guardCount` and `guardRadius` defined in balance but guard spawning/behavior not yet implemented.
+- **Game speed**: Supports 0.25x-5x but no UI controls (console only: `GameState.setGameSpeed(n)`).
+- **Water collision**: Player collision with water works, but NPCs don't check water tiles (can walk through).
+- **Handheld torch**: Visual follows player but doesn't persist across save/load (recreated with default fuel
 4. GameTerrain.init(worldSeed)
 5. NPCSystem.init()
 6. GamePlayer.init(x, z)

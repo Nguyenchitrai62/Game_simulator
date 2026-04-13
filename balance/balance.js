@@ -418,6 +418,18 @@ window.GAME_BALANCE = {
     output: { "equipment.iron_boots": 1 }
   },
 
+  // === HANDHELD TORCH ===
+  "recipe.handheld_torch": {
+    input: { "resource.wood": 3, "resource.flint": 1 },
+    output: { "item.handheld_torch": 1 }
+  },
+  "item.handheld_torch": {
+    duration: 60,
+    lightRadius: 8,
+    lightIntensity: 25,
+    lightColor: 0xFFA500
+  },
+
   // === IRON AGE EQUIPMENT ===
   "equipment.iron_sword": {
     stats: { attack: 15 },
@@ -451,5 +463,70 @@ window.GAME_BALANCE = {
     researchCost: { "resource.stone": 100, "resource.iron": 30, "resource.bronze": 20 },
     requires: ["tech.expanded_storage"],
     effects: { storageBonus: 0.50 }
+  },
+
+  // === HUNGER SYSTEM ===
+  hunger: {
+    drainPerTick: 0.2,
+    autoEatThreshold: 30,
+    hungrySpeedMult: 0.5,
+    starvingHpDrain: 1,
+    foodRestore: {
+      "resource.food": 5
+    },
+    eatDuration: 1.0,
+    eatSpeedMult: 0.5,
+    regenHungerMult: 2.0
+  },
+
+  // === DAY/NIGHT CYCLE ===
+  dayNight: {
+    tickAdvance: 0.0667
+  },
+
+  // === FIRE & LIGHT BUILDINGS ===
+  "building.torch": {
+    cost: { "resource.wood": 5, "resource.flint": 2 },
+    searchRadius: { 1: 0 },
+    workerCount: { 1: 0 },
+    storageCapacity: { 1: 10 },
+    lightRadius: 6,
+    lightIntensity: 1.5,
+    lightColor: 0xFFA500,
+    fuelCapacity: 40,
+    fuelPerTick: 1,
+    refuelCost: { "resource.wood": 3 },
+    upgrades: {}
+  },
+  "building.campfire": {
+    cost: { "resource.wood": 20, "resource.flint": 5 },
+    searchRadius: { 1: 0 },
+    workerCount: { 1: 0 },
+    storageCapacity: { 1: 20 },
+    lightRadius: 14,
+    lightIntensity: 3.0,
+    lightColor: 0xFF6600,
+    fuelCapacity: 100,
+    fuelPerTick: 1,
+    refuelCost: { "resource.wood": 8 },
+    upgrades: {}
+  },
+
+  // === WATER BUILDINGS ===
+  "building.well": {
+    cost: { "resource.stone": 10, "resource.wood": 5 },
+    searchRadius: { 1: 0 },
+    workerCount: { 1: 0 },
+    storageCapacity: { 1: 50 },
+    produces: { "resource.food": 1 },
+    upgrades: {}
+  },
+  "building.bridge": {
+    cost: { "resource.wood": 15, "resource.stone": 5 },
+    searchRadius: { 1: 0 },
+    workerCount: { 1: 0 },
+    storageCapacity: { 1: 0 },
+    isBridge: true,
+    upgrades: {}
   }
 };

@@ -16,10 +16,31 @@ window.BuildingSystem = (function () {
     _nextId = maxId + 1;
   }
 
-  function canPlaceAt(worldX, worldZ) {
-    // Must be on walkable ground (no trees/rocks blocking)
-    if (!GameTerrain.isWalkable(worldX, worldZ)) {
+  function canPlaceAt(worldX, worldZ, buildingId) {
+    // Bridges can be placed on water
+    var isBridge = false;
+    if (buildingId) {
+      var buildingBalance = GameRegistry.getBalance(buildingId);
+      isBridge = buildingBalance && buildingBalance.isBridge;
+    }
+
+    // Check for deep water (not walkable, not bridgeable)
+    if (typeof WaterSystem !== 'undefined' && WaterSystem.isDeepWater(worldX, worldZ) && !isBridge) {
+      return { valid: false, reason: "Không thể xây trên nước sâu" };
+    }
+
+    // Must be on walkable ground (no trees/rocks blocking) unless building on water/shallow with bridge
+    var onWater = typeof WaterSystem !== 'undefined' && (WaterSystem.isDeepWater(worldX, worldZ) || WaterSystem.isShallowWater(worldX, worldZ));
+    if (!onWater && !GameTerrain.isWalkable(worldX, worldZ)) {
       return { valid: false, reason: "Vị trí này không thể xây dựng" };
+    }
+    // Bridges can be placed on water tiles
+    if (onWater && !isBridge) {
+      return { valid: false, reason: "Cần cầu để xây trên nước" };
+    }
+    // Bridges can ONLY be placed on water
+    if (isBridge && !onWater) {
+      return { valid: false, reason: "Cầu chỉ xây được trên nước" };
     }
 
     // Check tile reservation
@@ -57,7 +78,7 @@ window.BuildingSystem = (function () {
     for (var i = 0; i < offsets.length; i++) {
       var tryX = snapX + offsets[i][0];
       var tryZ = snapZ + offsets[i][1];
-      if (canPlaceAt(tryX, tryZ).valid) {
+      if (canPlaceAt(tryX, tryZ, buildingId).valid) {
         foundPos = { x: tryX, z: tryZ };
         break;
       }
@@ -112,7 +133,7 @@ window.BuildingSystem = (function () {
 
     // Create 3D mesh
     var entity = GameRegistry.getEntity(buildingId);
-    var mesh = createBuildingMesh(entity, 1, false);  // Level 1 when first built
+    var mesh = createBuildingMeshOrSpecial(entity, 1, false);  // Level 1 when first built
     if (mesh) {
       mesh.position.set(snapX, 0, snapZ);
       mesh.userData.instanceUid = uid;
@@ -150,6 +171,16 @@ window.BuildingSystem = (function () {
       NPCSystem.spawnWorkersForBuilding(uid);
     }
 
+    // Register fire light if building has lightRadius
+    if (window.FireSystem && balance && balance.lightRadius) {
+      FireSystem.addFire(uid, instanceData);
+    }
+
+    // Mark water tile as walkable if bridge
+    if (balance && balance.isBridge && typeof WaterSystem !== 'undefined') {
+      WaterSystem.setWaterTile(snapX, snapZ, 'bridge');
+    }
+
     // Check for newly unlocked content after building
     UnlockSystem.checkAll();
 
@@ -163,12 +194,180 @@ window.BuildingSystem = (function () {
     if (!entity || !entity.visual) return null;
 
     level = level || 1;
-    var levelScale = 1.0 + (level - 1) * 0.20;  // Each level: +20% size
-
+    var levelScale = 1.0 + (level - 1) * 0.20;
+    var shape = entity.visual.shape || 'building';
     var group = new THREE.Group();
     var color = entity.visual.color || 0x8B4513;
     var roofColor = entity.visual.roofColor || 0x2d5a27;
     var scale = (entity.visual.scale || 1.0) * levelScale;
+
+    // === TORCH ===
+    if (shape === 'torch') {
+      var poleGeo = new THREE.CylinderGeometry(0.03 * scale, 0.05 * scale, 0.9 * scale, 6);
+      var poleMat = new THREE.MeshLambertMaterial({ color: 0x8B4513, transparent: isPreview, opacity: isPreview ? 0.6 : 1.0 });
+      var pole = new THREE.Mesh(poleGeo, poleMat);
+      pole.position.y = 0.45 * scale;
+      pole.castShadow = !isPreview;
+      group.add(pole);
+
+      // Rope wrapping
+      var ropeGeo = new THREE.TorusGeometry(0.05 * scale, 0.01 * scale, 4, 8);
+      var ropeMat = new THREE.MeshLambertMaterial({ color: 0xC4A882, transparent: isPreview, opacity: isPreview ? 0.6 : 1.0 });
+      var rope1 = new THREE.Mesh(ropeGeo, ropeMat);
+      rope1.position.y = 0.65 * scale;
+      rope1.rotation.x = Math.PI / 2;
+      group.add(rope1);
+      var rope2 = new THREE.Mesh(ropeGeo, ropeMat);
+      rope2.position.y = 0.72 * scale;
+      rope2.rotation.x = Math.PI / 2;
+      group.add(rope2);
+
+      // Flame cup
+      var cupGeo = new THREE.CylinderGeometry(0.04 * scale, 0.03 * scale, 0.06 * scale, 6);
+      var cupMat = new THREE.MeshLambertMaterial({ color: 0x5C4033, transparent: isPreview, opacity: isPreview ? 0.6 : 1.0 });
+      var cup = new THREE.Mesh(cupGeo, cupMat);
+      cup.position.y = 0.92 * scale;
+      group.add(cup);
+
+      // Outer flame
+      var flameGeo = new THREE.ConeGeometry(0.06 * scale, 0.3 * scale, 6);
+      var flameMat = new THREE.MeshBasicMaterial({ color: 0xFF8C00, transparent: true, opacity: isPreview ? 0.4 : 0.85 });
+      var flame = new THREE.Mesh(flameGeo, flameMat);
+      flame.name = 'torchFlame';
+      flame.position.y = 1.1 * scale;
+      group.add(flame);
+
+      // Inner flame (bright yellow core)
+      var innerGeo = new THREE.ConeGeometry(0.03 * scale, 0.18 * scale, 6);
+      var innerMat = new THREE.MeshBasicMaterial({ color: 0xFFDD44, transparent: true, opacity: isPreview ? 0.3 : 0.75 });
+      var inner = new THREE.Mesh(innerGeo, innerMat);
+      inner.name = 'torchFlameInner';
+      inner.position.y = 1.05 * scale;
+      group.add(inner);
+
+      // Glow halo
+      var glowGeo = new THREE.SphereGeometry(0.25 * scale, 8, 6);
+      var glowMat = new THREE.MeshBasicMaterial({ color: 0xFFAA00, transparent: true, opacity: isPreview ? 0.05 : 0.15, side: THREE.DoubleSide, depthWrite: false });
+      var glow = new THREE.Mesh(glowGeo, glowMat);
+      glow.name = 'torchGlow';
+      glow.position.y = 1.08 * scale;
+      group.add(glow);
+
+      var shadowGeo = new THREE.CircleGeometry(0.3 * scale, 12);
+      var shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: isPreview ? 0.1 : 0.15 });
+      var shadow = new THREE.Mesh(shadowGeo, shadowMat);
+      shadow.rotation.x = -Math.PI / 2;
+      shadow.position.y = 0.02;
+      group.add(shadow);
+
+      return group;
+    }
+
+    // === CAMPFIRE ===
+    if (shape === 'campfire') {
+      // Stone ring
+      var ringGeo = new THREE.TorusGeometry(0.35 * scale, 0.06 * scale, 8, 16);
+      var ringMat = new THREE.MeshLambertMaterial({ color: 0x808080, transparent: isPreview, opacity: isPreview ? 0.6 : 1.0 });
+      var ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.04 * scale;
+      group.add(ring);
+
+      // Ash bed
+      var ashGeo = new THREE.CylinderGeometry(0.28 * scale, 0.3 * scale, 0.03 * scale, 12);
+      var ashMat = new THREE.MeshLambertMaterial({ color: 0x3a3a3a, transparent: isPreview, opacity: isPreview ? 0.6 : 1.0 });
+      var ash = new THREE.Mesh(ashGeo, ashMat);
+      ash.position.y = 0.03 * scale;
+      group.add(ash);
+
+      // Log 1
+      var logGeo1 = new THREE.CylinderGeometry(0.04 * scale, 0.05 * scale, 0.4 * scale, 6);
+      var logMat1 = new THREE.MeshLambertMaterial({ color: 0x654321, transparent: isPreview, opacity: isPreview ? 0.6 : 1.0 });
+      var log1 = new THREE.Mesh(logGeo1, logMat1);
+      log1.rotation.z = Math.PI / 2;
+      log1.rotation.y = 0.3;
+      log1.position.y = 0.08 * scale;
+      group.add(log1);
+
+      // Log 2
+      var log2 = new THREE.Mesh(logGeo1, logMat1);
+      log2.rotation.z = Math.PI / 2;
+      log2.rotation.y = -0.5;
+      log2.position.y = 0.1 * scale;
+      group.add(log2);
+
+      // Cross log
+      var crossLogGeo = new THREE.CylinderGeometry(0.035 * scale, 0.04 * scale, 0.35 * scale, 6);
+      var crossLog = new THREE.Mesh(crossLogGeo, logMat1);
+      crossLog.rotation.z = Math.PI / 2;
+      crossLog.rotation.y = Math.PI / 3;
+      crossLog.position.y = 0.13 * scale;
+      group.add(crossLog);
+
+      // Main flame (outer - orange)
+      var cfFlameGeo = new THREE.ConeGeometry(0.12 * scale, 0.45 * scale, 8);
+      var cfFlameMat = new THREE.MeshBasicMaterial({ color: 0xFF6600, transparent: true, opacity: isPreview ? 0.4 : 0.85 });
+      var cfFlame = new THREE.Mesh(cfFlameGeo, cfFlameMat);
+      cfFlame.name = 'flameOuter';
+      cfFlame.position.y = 0.4 * scale;
+      group.add(cfFlame);
+
+      // Side flame (smaller, offset for natural look)
+      var sideFlameGeo = new THREE.ConeGeometry(0.07 * scale, 0.3 * scale, 6);
+      var sideFlameMat = new THREE.MeshBasicMaterial({ color: 0xFF7722, transparent: true, opacity: isPreview ? 0.3 : 0.7 });
+      var sideFlame = new THREE.Mesh(sideFlameGeo, sideFlameMat);
+      sideFlame.name = 'flameOuter';
+      sideFlame.position.set(0.06 * scale, 0.32 * scale, 0.04 * scale);
+      group.add(sideFlame);
+
+      // Inner flame (bright yellow core)
+      var cfInnerGeo = new THREE.ConeGeometry(0.06 * scale, 0.28 * scale, 6);
+      var cfInnerMat = new THREE.MeshBasicMaterial({ color: 0xFFDD00, transparent: true, opacity: isPreview ? 0.3 : 0.8 });
+      var cfInner = new THREE.Mesh(cfInnerGeo, cfInnerMat);
+      cfInner.name = 'flameInner';
+      cfInner.position.y = 0.35 * scale;
+      group.add(cfInner);
+
+      // Bright core (white-hot center)
+      var coreGeo = new THREE.SphereGeometry(0.04 * scale, 6, 4);
+      var coreMat = new THREE.MeshBasicMaterial({ color: 0xFFFFCC, transparent: true, opacity: isPreview ? 0.2 : 0.6 });
+      var core = new THREE.Mesh(coreGeo, coreMat);
+      core.name = 'flameInner';
+      core.position.y = 0.22 * scale;
+      group.add(core);
+
+      // Glow sphere
+      var cfGlowGeo = new THREE.SphereGeometry(0.5 * scale, 8, 6);
+      var cfGlowMat = new THREE.MeshBasicMaterial({ color: 0xFF8800, transparent: true, opacity: isPreview ? 0.05 : 0.2, side: THREE.DoubleSide, depthWrite: false });
+      var cfGlow = new THREE.Mesh(cfGlowGeo, cfGlowMat);
+      cfGlow.name = 'flameGlow';
+      cfGlow.position.y = 0.5 * scale;
+      group.add(cfGlow);
+
+      // Embers (glowing particles)
+      var emberGeo = new THREE.SphereGeometry(0.02 * scale, 4, 4);
+      for (var ei = 0; ei < 5; ei++) {
+        var angle = (ei / 5) * Math.PI * 2 + 0.2;
+        var radialDist = 0.12 + (ei * 0.037 % 0.08);
+        var emberY = 0.14 + (ei * 0.047 % 0.1);
+        var emberMat = new THREE.MeshBasicMaterial({ color: ei % 2 === 0 ? 0xFF4400 : 0xFF6622, transparent: true, opacity: isPreview ? 0.2 : 0.7 });
+        var ember = new THREE.Mesh(emberGeo, emberMat);
+        ember.name = 'ember' + ei;
+        ember.position.set(Math.cos(angle) * radialDist * scale, emberY * scale, Math.sin(angle) * radialDist * scale);
+        ember.userData.baseY = ember.position.y;
+        ember.userData.emberPhase = ei * 1.7;
+        group.add(ember);
+      }
+
+      var cfShadow = new THREE.CircleGeometry(0.5 * scale, 12);
+      var cfShadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: isPreview ? 0.1 : 0.15 });
+      var cfShadowMesh = new THREE.Mesh(cfShadow, cfShadowMat);
+      cfShadowMesh.rotation.x = -Math.PI / 2;
+      cfShadowMesh.position.y = 0.02;
+      group.add(cfShadowMesh);
+
+      return group;
+    }
 
     // === LEVEL 2+ : Foundation/Platform ===
     if (!isPreview && level >= 2) {
@@ -267,6 +466,65 @@ window.BuildingSystem = (function () {
     return group;
   }
 
+  // === BRIDGE MESH ===
+  function createBridgeMesh(entity, level, isPreview) {
+    if (!entity || !entity.visual) return null;
+    level = level || 1;
+    var levelScale = 1.0 + (level - 1) * 0.20;
+    var scale = (entity.visual.scale || 1.0) * levelScale;
+    var color = entity.visual.color || 0x8B4513;
+    var group = new THREE.Group();
+
+    // Bridge planks
+    for (var pi = -2; pi <= 2; pi++) {
+      var plankGeo = new THREE.BoxGeometry(0.7 * scale, 0.05 * scale, 0.15 * scale);
+      var plankMat = new THREE.MeshLambertMaterial({ color: color, transparent: isPreview, opacity: isPreview ? 0.6 : 1.0 });
+      var plank = new THREE.Mesh(plankGeo, plankMat);
+      plank.position.set(0, 0.06 * scale, pi * 0.2 * scale);
+      plank.receiveShadow = !isPreview;
+      group.add(plank);
+    }
+
+    // Side rails
+    var railGeo = new THREE.BoxGeometry(0.7 * scale, 0.15 * scale, 0.04 * scale);
+    var railMat = new THREE.MeshLambertMaterial({ color: 0x654321, transparent: isPreview, opacity: isPreview ? 0.6 : 1.0 });
+    var rail1 = new THREE.Mesh(railGeo, railMat);
+    rail1.position.set(0, 0.12 * scale, -0.45 * scale);
+    group.add(rail1);
+    var rail2 = new THREE.Mesh(railGeo, railMat);
+    rail2.position.set(0, 0.12 * scale, 0.45 * scale);
+    group.add(rail2);
+
+    // Posts
+    var postGeo = new THREE.CylinderGeometry(0.03 * scale, 0.04 * scale, 0.2 * scale, 6);
+    var postMat = new THREE.MeshLambertMaterial({ color: 0x654321, transparent: isPreview, opacity: isPreview ? 0.6 : 1.0 });
+    var postPositions = [[-0.3, -0.4], [0.3, -0.4], [-0.3, 0.4], [0.3, 0.4]];
+    for (var pi2 = 0; pi2 < postPositions.length; pi2++) {
+      var post = new THREE.Mesh(postGeo, postMat);
+      post.position.set(postPositions[pi2][0] * scale, 0.15 * scale, postPositions[pi2][1] * scale);
+      group.add(post);
+    }
+
+    // Shadow
+    var shadowGeo = new THREE.PlaneGeometry(0.8 * scale, 1.0 * scale);
+    var shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: isPreview ? 0.1 : 0.15 });
+    var shadow = new THREE.Mesh(shadowGeo, shadowMat);
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = 0.01;
+    group.add(shadow);
+
+    return group;
+  }
+
+  function createBuildingMeshOrSpecial(entity, level, isPreview) {
+    if (!entity || !entity.visual) return null;
+    var shape = entity.visual.shape || 'building';
+    if (shape === 'bridge') {
+      return createBridgeMesh(entity, level, isPreview);
+    }
+    return createBuildingMesh(entity, level, isPreview);
+  }
+
   function isBuildMode() { return _buildMode.active; }
 
   // === BUILD PREVIEW MODE ===
@@ -292,7 +550,7 @@ window.BuildingSystem = (function () {
     }
 
     // Create preview mesh
-    var mesh = createBuildingMesh(entity, 1, true);
+    var mesh = createBuildingMeshOrSpecial(entity, 1, true);
     if (!mesh) return;
 
     _buildMode.active = true;
@@ -313,7 +571,7 @@ window.BuildingSystem = (function () {
 
   function updatePreviewColor(worldX, worldZ) {
     if (!_buildMode.previewMesh) return;
-    var result = canPlaceAt(worldX, worldZ);
+    var result = canPlaceAt(worldX, worldZ, _buildMode.buildingId);
     var validColor = result.valid ? 0x00ff00 : 0xff0000; // Green = valid, Red = invalid
     var opacity = result.valid ? 0.4 : 0.3;
 
@@ -405,7 +663,7 @@ window.BuildingSystem = (function () {
 
     // Create 3D mesh
     var entity = GameRegistry.getEntity(buildingId);
-    var mesh = createBuildingMesh(entity, 1, false);
+    var mesh = createBuildingMeshOrSpecial(entity, 1, false);
     if (mesh) {
       mesh.position.set(worldX, 0, worldZ);
       mesh.userData.instanceUid = uid;
@@ -438,6 +696,16 @@ window.BuildingSystem = (function () {
       NPCSystem.spawnWorkersForBuilding(uid);
     }
 
+    // Register fire light if building has lightRadius
+    if (window.FireSystem && balance && balance.lightRadius) {
+      FireSystem.addFire(uid, instanceData);
+    }
+
+    // Mark water tile as walkable if bridge
+    if (balance && balance.isBridge && typeof WaterSystem !== 'undefined') {
+      WaterSystem.setWaterTile(worldX, worldZ, 'bridge');
+    }
+
     UnlockSystem.checkAll();
     GameHUD.renderAll();
     GameStorage.save();
@@ -468,6 +736,17 @@ window.BuildingSystem = (function () {
     var tileKey = Math.round(instance.x) + "," + Math.round(instance.z);
     delete _reservedTiles[tileKey];
 
+    // Reset water tile if bridge was destroyed
+    var buildingBalance = GameRegistry.getBalance(instance.entityId);
+    if (buildingBalance && buildingBalance.isBridge && typeof WaterSystem !== 'undefined') {
+      WaterSystem.removeWaterTile(Math.round(instance.x), Math.round(instance.z));
+    }
+
+    // Remove fire light if present
+    if (window.FireSystem) {
+      FireSystem.removeFire(uid);
+    }
+
     GameState.destroyInstance(uid);
     GameHUD.renderAll();
     GameStorage.save();
@@ -479,7 +758,7 @@ window.BuildingSystem = (function () {
     placeAtPlayer: placeAtPlayer,
     placeBuildingAt: placeBuildingAt,
     canPlaceAt: canPlaceAt,
-    createBuildingMesh: createBuildingMesh,
+    createBuildingMesh: createBuildingMeshOrSpecial,
     isBuildMode: isBuildMode,
     enterBuildMode: enterBuildMode,
     updateBuildPreview: updateBuildPreview,

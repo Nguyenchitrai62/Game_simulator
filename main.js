@@ -61,7 +61,7 @@ window.GameActions = (function () {
       GameStorage.save();
       GameHUD.showSuccess(buildingName + " upgraded to Level " + newLevel + "!");
       GameHUD.renderAll();
-      GameHUD.closeInspector();
+      GameHUD.selectInstance(instanceUid);
     } else {
       GameHUD.showError("Upgrade failed");
     }
@@ -100,6 +100,38 @@ window.GameActions = (function () {
     } else {
       GameHUD.showNotification("Kho trống");
     }
+  }
+
+  function refuel(instanceUid) {
+    var instance = GameState.getInstance(instanceUid);
+    if (!instance) return;
+
+    var balance = GameRegistry.getBalance(instance.entityId);
+    if (!balance || !balance.refuelCost) return;
+
+    // Check if can afford refuel
+    for (var resId in balance.refuelCost) {
+      if (!GameState.hasResource(resId, balance.refuelCost[resId])) {
+        GameHUD.showError("Không đủ nhiên liệu!");
+        return;
+      }
+    }
+
+    // Deduct refuel cost
+    for (var resId in balance.refuelCost) {
+      GameState.removeResource(resId, balance.refuelCost[resId]);
+    }
+
+    // Add fuel
+    var refillAmount = balance.fuelCapacity || 999;
+    if (GameState.addFireFuel) {
+      GameState.addFireFuel(instanceUid, refillAmount);
+    }
+
+    GameStorage.save();
+    GameHUD.showSuccess("Đã nạp nhiên liệu!");
+    GameHUD.renderAll();
+    GameHUD.selectInstance(instanceUid);
   }
 
   function advanceAge(ageId) {
@@ -179,6 +211,7 @@ window.GameActions = (function () {
     advanceAge: advanceAge,
     upgrade: upgrade,
     collectFromBuilding: collectFromBuilding,
+    refuel: refuel,
     researchTech: function(techId) {
       if (!window.ResearchSystem) return;
       if (ResearchSystem.research(techId)) {
@@ -186,6 +219,7 @@ window.GameActions = (function () {
         GameStorage.save();
         GameHUD.showSuccess('Researched: ' + (techEntity ? techEntity.name : techId));
         GameHUD.renderAll();
+        GameHUD.updateModal();
       } else {
         GameHUD.showError('Cannot research this technology');
       }
@@ -267,6 +301,25 @@ window.GameActions = (function () {
 
   // Restore tile reservations from saved instances
   BuildingSystem.restoreReservations();
+
+  // Initialize day/night system
+  var savedState = GameState.exportState();
+  if (typeof DayNightSystem !== 'undefined') {
+    DayNightSystem.init();
+    if (savedState.timeOfDay !== undefined) {
+      DayNightSystem.setTimeOfDay(savedState.timeOfDay);
+    }
+  }
+
+  // Initialize fire system
+  if (typeof FireSystem !== 'undefined') {
+    FireSystem.init();
+  }
+
+  // Initialize minimap
+  if (typeof MiniMap !== 'undefined') {
+    MiniMap.init();
+  }
 
   // Check unlocks (run twice: first pass unlocks basic, second pass unlocks dependents)
   UnlockSystem.checkAll();

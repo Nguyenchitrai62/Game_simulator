@@ -5,8 +5,17 @@ window.GamePlayer = (function () {
   var _direction = { x: 0, z: 1 };
   var _keys = {};
   var _animTime = 0;
-  var _lastCombatTime = 0;  // Track last time in combat for health regen
+  var _lastCombatTime = 0;
   var _regenAccumulator = 0;
+
+  // Eating state - MANUAL only, press F to eat
+  var _isEating = false;
+  var _eatTimer = 0;
+
+  // Handheld torch state
+  var _torchActive = false;
+  var _torchFuel = 0;
+  var _torchMesh = null; // 3D torch visible on hand
 
   function init(startX, startZ) {
     _x = startX || 8;
@@ -78,6 +87,7 @@ window.GamePlayer = (function () {
     document.addEventListener('keydown', function (e) {
       _keys[e.key.toLowerCase()] = true;
       if (e.key.toLowerCase() === 'e') interactNearby();
+      if (e.key.toLowerCase() === 'f') startEat();
       if (e.key.toLowerCase() === 'b') {
         if (GameHUD.isModalActive()) {
           GameHUD.closeModal();
@@ -85,7 +95,16 @@ window.GamePlayer = (function () {
           GameHUD.openModal();
         }
       }
-      if (e.key === 'Escape') GameHUD.closeModal();
+      if (e.key.toLowerCase() === 'm') {
+        if (typeof MiniMap !== 'undefined') MiniMap.toggleMap();
+      }
+      if (e.key === 'Escape') {
+        if (typeof MiniMap !== 'undefined' && MiniMap.isMapOpen()) {
+          MiniMap.toggleMap();
+        } else {
+          GameHUD.closeModal();
+        }
+      }
     });
     document.addEventListener('keyup', function (e) {
       _keys[e.key.toLowerCase()] = false;
@@ -101,10 +120,8 @@ window.GamePlayer = (function () {
   function onCanvasClick(event) {
     if (event.target.id !== 'game-canvas') return;
 
-    // Build mode - let main.js handle it
     if (window.BuildingSystem && BuildingSystem.isBuildMode()) return;
 
-    // Click objects to view info only (no movement/interaction)
     var mouse = new THREE.Vector2(
       (event.clientX / window.innerWidth) * 2 - 1,
       -(event.clientY / window.innerHeight) * 2 + 1
@@ -112,7 +129,6 @@ window.GamePlayer = (function () {
     var raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(mouse, GameScene.getCamera());
 
-    // Check resource/animal meshes only (buildings handled by main.js)
     var objectMeshes = GameEntities.getAllMeshes();
     var intersects = raycaster.intersectObjects(objectMeshes, true);
     if (intersects.length > 0) {
@@ -132,49 +148,85 @@ window.GamePlayer = (function () {
     }
   }
 
+  // === MANUAL EAT: press F or click Eat button ===
+  function startEat() {
+    if (_isEating) return; // already eating
+
+    var foodAmount = GameState.getResource("resource.food");
+    if (foodAmount < 1) {
+      if (typeof GameHUD !== 'undefined') GameHUD.showNotification("Không có food!");
+      return;
+    }
+
+    var currentHunger = GameState.getHunger();
+    var maxHunger = GameState.getMaxHunger();
+    if (currentHunger >= maxHunger) {
+      if (typeof GameHUD !== 'undefined') GameHUD.showNotification("Đã no!");
+      return;
+    }
+
+    // Consume 1 food, start eating
+    GameState.removeResource("resource.food", 1);
+    var balance = window.GAME_BALANCE || {};
+    var hungerConfig = balance.hunger || {};
+    _isEating = true;
+    _eatTimer = hungerConfig.eatDuration || 1.0;
+
+    if (typeof GameHUD !== 'undefined') GameHUD.showNotification("Đang ăn... (1s)");
+  }
+
   function update(dt) {
     _animTime += dt;
     var moved = false;
 
-    // Get current speed from GameState (includes boots bonus)
     var _speed = GameState.getPlayerSpeed ? GameState.getPlayerSpeed() : 3;
 
-    // Health regeneration (when not in combat)
+    // Speed penalty when very hungry (hunger < 20)
+    var hunger = GameState.getHunger ? GameState.getHunger() : 100;
+    if (hunger < 20) {
+      var hungerBalance = (window.GAME_BALANCE && GAME_BALANCE.hunger) || {};
+      _speed *= (hungerBalance.hungrySpeedMult || 0.5);
+    }
+
+    // Speed penalty while eating
+    if (_isEating) {
+      var hungerBalance2 = (window.GAME_BALANCE && GAME_BALANCE.hunger) || {};
+      _speed *= (hungerBalance2.eatSpeedMult || 0.5);
+    }
+
+    // === EATING SYSTEM ===
+    updateEating(dt);
+
+    // === TORCH SYSTEM ===
+    updateTorch(dt);
+
+    // === HP REGENERATION ===
     var isInCombat = (window.GameCombat && GameCombat.isActive && GameCombat.isActive());
     if (isInCombat) {
       _lastCombatTime = _animTime;
       _regenAccumulator = 0;
     } else {
-      // Regen after 3 seconds out of combat
       var timeSinceCombat = _animTime - _lastCombatTime;
       if (timeSinceCombat > 3) {
         _regenAccumulator += dt;
-        // Regenerate 1 HP every 2 seconds
-        if (_regenAccumulator >= 2.0) {
+        if (_regenAccumulator >= 1.0 && !(GameState.isStarving && GameState.isStarving())) {
           _regenAccumulator = 0;
           var player = GameState.getPlayer();
           var maxHp = GameState.getPlayerMaxHp();
           if (player.hp < maxHp) {
             GameState.setPlayerHP(Math.min(maxHp, player.hp + 1));
-            GameHUD.renderAll();
           }
         }
       }
     }
 
-    // Screen-space input: W=up, S=down, A=left, D=right
+    // Screen-space input
     var screenDx = 0, screenDy = 0;
     if (_keys['w'] || _keys['arrowup']) { screenDy -= 1; moved = true; }
     if (_keys['s'] || _keys['arrowdown']) { screenDy += 1; moved = true; }
     if (_keys['a'] || _keys['arrowleft']) { screenDx -= 1; moved = true; }
     if (_keys['d'] || _keys['arrowright']) { screenDx += 1; moved = true; }
 
-    // Convert screen direction to world XZ
-    // Camera at (20,20,20) looking at (0,0,0):
-    //   screen right → world (+1, 0, -1)
-    //   screen up    → world (-1, 0, -1)
-    // Formula: worldDx = screenDx + screenDy*(-1), worldDz = screenDx*(-1) + screenDy*(-1)
-    // Đảo dấu để sửa hướng di chuyển và quay mặt
     var dx = screenDx + screenDy;
     var dz = -screenDx + screenDy;
 
@@ -184,8 +236,13 @@ window.GamePlayer = (function () {
       _direction.x = dx;
       _direction.z = dz;
 
-      var newX = _x + dx * _speed * dt;
-      var newZ = _z + dz * _speed * dt;
+      var speedMultiplier = 1.0;
+      if (GameTerrain.isShallowWater && GameTerrain.isShallowWater(_x, _z)) {
+        speedMultiplier = 0.5;
+      }
+
+      var newX = _x + dx * _speed * speedMultiplier * dt;
+      var newZ = _z + dz * _speed * speedMultiplier * dt;
 
       if (GameTerrain.isWalkable(newX, newZ)) {
         _x = newX;
@@ -197,25 +254,19 @@ window.GamePlayer = (function () {
       }
     }
 
-    // Sync position to GameState for saving
     if (GameState && GameState.setPlayerPosition) {
       GameState.setPlayerPosition(_x, _z);
     }
 
-    // Update mesh position
     if (mesh) {
       mesh.position.x += (_x - mesh.position.x) * 0.3;
       mesh.position.z += (_z - mesh.position.z) * 0.3;
 
-      // Face direction
       if (moved) {
         var targetAngle = Math.atan2(_direction.x, _direction.z) + Math.PI;
         var angleDiff = targetAngle - mesh.rotation.y;
-        
-        // Normalize angle difference để luôn xoay theo đường ngắn nhất
         while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
         while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-        
         mesh.rotation.y += angleDiff * 0.2;
       }
 
@@ -224,23 +275,140 @@ window.GamePlayer = (function () {
         var swing = Math.sin(_animTime * 10) * 0.4;
         mesh.children.forEach(function (child) {
           if (child.name === "leftArm") child.rotation.x = swing;
-          if (child.name === "rightArm") child.rotation.x = -swing;
+          if (child.name === "rightArm") child.rotation.x = _torchActive ? 0 : -swing; // Hold torch up
           if (child.name === "leftLeg") child.rotation.x = -swing * 0.6;
           if (child.name === "rightLeg") child.rotation.x = swing * 0.6;
         });
       } else {
-        // Idle - arms/legs return to neutral
         mesh.children.forEach(function (child) {
+          if (child.name === "rightArm" && _torchActive) return; // Keep arm up with torch
           if (child.name) child.rotation.x *= 0.85;
         });
       }
+
+      // Update torch 3D mesh position (attached to right arm)
+      if (_torchMesh) {
+        var rightArmObj = null;
+        for (var i = 0; i < mesh.children.length; i++) {
+          if (mesh.children[i].name === "rightArm") { rightArmObj = mesh.children[i]; break; }
+        }
+        if (rightArmObj) {
+          var armWorldPos = new THREE.Vector3();
+          rightArmObj.getWorldPosition(armWorldPos);
+          _torchMesh.position.set(armWorldPos.x, armWorldPos.y + 0.3, armWorldPos.z);
+        }
+      }
     }
 
-    // Update terrain chunks around player
     GameTerrain.update(_x, _z);
-
-    // Update context action display
     updateContextAction();
+  }
+
+  function updateEating(dt) {
+    if (!_isEating) return;
+
+    _eatTimer -= dt;
+    if (_eatTimer <= 0) {
+      // Eating complete - restore hunger
+      var balance = window.GAME_BALANCE || {};
+      var hungerConfig = balance.hunger || {};
+      var foodRestore = (hungerConfig.foodRestore || {})[("resource.food")] || 5;
+      var currentHunger = GameState.getHunger();
+      GameState.setHunger(Math.min(currentHunger + foodRestore, GameState.getMaxHunger()));
+      _isEating = false;
+      _eatTimer = 0;
+    }
+  }
+
+  function updateTorch(dt) {
+    var isDark = typeof DayNightSystem !== 'undefined' && DayNightSystem.getDarkness() > 0.3;
+
+    if (_torchActive) {
+      if (isDark) {
+        _torchFuel -= dt;
+      }
+      if (_torchFuel <= 0) {
+        _torchActive = false;
+        _torchFuel = 0;
+        removeTorchMesh();
+        if (typeof GameHUD !== 'undefined') {
+          GameHUD.showNotification("Đuốc đã cháy hết!");
+        }
+      }
+    }
+
+    // Activate torch if dark and has one in inventory
+    if (!_torchActive && isDark) {
+      var torchCount = GameState.getInventoryCount("item.handheld_torch");
+      if (torchCount > 0) {
+        GameState.removeFromInventory("item.handheld_torch", 1);
+        var torchBalance = GameRegistry.getBalance("item.handheld_torch") || {};
+        _torchFuel = torchBalance.duration || 60;
+        _torchActive = true;
+        createTorchMesh();
+        if (typeof GameHUD !== 'undefined') {
+          GameHUD.showNotification("Đuốc tay đã bật! (" + Math.floor(_torchFuel) + "s)");
+        }
+      }
+    }
+
+    // Remove torch mesh during daytime
+    if (!_torchActive && _torchMesh) {
+      removeTorchMesh();
+    }
+  }
+
+  function createTorchMesh() {
+    if (_torchMesh) return;
+
+    var torchGroup = new THREE.Group();
+
+    // Stick
+    var stickGeo = new THREE.CylinderGeometry(0.02, 0.03, 0.5, 6);
+    var stickMat = new THREE.MeshLambertMaterial({ color: 0x6B3410 });
+    var stick = new THREE.Mesh(stickGeo, stickMat);
+    torchGroup.add(stick);
+
+    // Cloth wrapping at top
+    var wrapGeo = new THREE.CylinderGeometry(0.025, 0.035, 0.08, 6);
+    var wrapMat = new THREE.MeshLambertMaterial({ color: 0xC4A882 });
+    var wrap = new THREE.Mesh(wrapGeo, wrapMat);
+    wrap.position.y = 0.22;
+    torchGroup.add(wrap);
+
+    // Flame tip (outer)
+    var flameGeo = new THREE.ConeGeometry(0.05, 0.18, 6);
+    var flameMat = new THREE.MeshBasicMaterial({ color: 0xFF8C00, transparent: true, opacity: 0.85 });
+    var flame = new THREE.Mesh(flameGeo, flameMat);
+    flame.position.y = 0.33;
+    flame.name = 'torchFlame';
+    torchGroup.add(flame);
+
+    // Flame inner (bright core)
+    var innerGeo = new THREE.ConeGeometry(0.025, 0.1, 6);
+    var innerMat = new THREE.MeshBasicMaterial({ color: 0xFFDD44, transparent: true, opacity: 0.75 });
+    var inner = new THREE.Mesh(innerGeo, innerMat);
+    inner.position.y = 0.3;
+    inner.name = 'torchFlameInner';
+    torchGroup.add(inner);
+
+    // Glow sphere around flame
+    var glowGeo = new THREE.SphereGeometry(0.15, 8, 6);
+    var glowMat = new THREE.MeshBasicMaterial({ color: 0xFFAA00, transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false });
+    var glow = new THREE.Mesh(glowGeo, glowMat);
+    glow.position.y = 0.33;
+    glow.name = 'torchGlow';
+    torchGroup.add(glow);
+
+    torchGroup.name = 'handheldTorch';
+    _torchMesh = torchGroup;
+    GameScene.getScene().add(_torchMesh);
+  }
+
+  function removeTorchMesh() {
+    if (!_torchMesh) return;
+    GameScene.getScene().remove(_torchMesh);
+    _torchMesh = null;
   }
 
   function updateContextAction() {
@@ -248,7 +416,6 @@ window.GamePlayer = (function () {
     var el = document.getElementById('context-action');
     var textEl = document.getElementById('context-text');
 
-    // Check for nearby building first
     var nearBuilding = findNearestBuilding(_x, _z, 2.5);
     if (nearBuilding) {
       var storage = GameState.getBuildingStorage(nearBuilding.uid);
@@ -260,7 +427,7 @@ window.GamePlayer = (function () {
           totalAmount += storage[resId];
         }
       }
-      
+
       if (hasResources) {
         var entity = GameRegistry.getEntity(nearBuilding.entityId);
         var name = entity ? entity.name : nearBuilding.entityId;
@@ -271,7 +438,6 @@ window.GamePlayer = (function () {
       }
     }
 
-    // Otherwise check for harvestable objects
     if (nearObj && nearObj.hp > 0) {
       var entity = GameRegistry.getEntity(nearObj.type);
       var name = entity ? entity.name : nearObj.type;
@@ -286,7 +452,6 @@ window.GamePlayer = (function () {
   }
 
   function interactNearby() {
-    // Check for nearby building first
     var nearBuilding = findNearestBuilding(_x, _z, 2.5);
     if (nearBuilding) {
       var storage = GameState.getBuildingStorage(nearBuilding.uid);
@@ -297,14 +462,13 @@ window.GamePlayer = (function () {
           break;
         }
       }
-      
+
       if (hasResources) {
         collectFromBuilding(nearBuilding);
         return;
       }
     }
 
-    // Otherwise interact with harvestable object
     var nearObj = GameTerrain.findNearestObject(_x, _z, 2.5);
     if (nearObj && nearObj.hp > 0) {
       interactWith(nearObj);
@@ -319,39 +483,32 @@ window.GamePlayer = (function () {
     }
   }
 
-  /**
-   * Find nearest building to player
-   */
   function findNearestBuilding(px, pz, radius) {
     var instances = GameState.getAllInstances();
     var nearest = null;
     var nearestDist = radius;
-    
+
     for (var uid in instances) {
       var inst = instances[uid];
       var dx = inst.x - px;
       var dz = inst.z - pz;
       var dist = Math.sqrt(dx * dx + dz * dz);
-      
+
       if (dist < nearestDist) {
         nearestDist = dist;
         nearest = inst;
       }
     }
-    
+
     return nearest;
   }
 
-  /**
-   * Collect resources from building storage
-   */
   function collectFromBuilding(buildingInstance) {
     var collected = GameState.collectFromBuilding(buildingInstance.uid);
-    
-    // Show notifications for collected resources
+
     var entity = GameRegistry.getEntity(buildingInstance.entityId);
     var buildingName = entity ? entity.name : buildingInstance.entityId;
-    
+
     var messages = [];
     for (var resId in collected) {
       if (collected[resId] > 0) {
@@ -360,11 +517,9 @@ window.GamePlayer = (function () {
         messages.push("+" + collected[resId] + " " + resName);
       }
     }
-    
+
     if (messages.length > 0) {
       GameHUD.showSuccess("Collected from " + buildingName + ": " + messages.join(", "));
-      
-      // Check for newly unlocked content after collecting resources
       UnlockSystem.checkAll();
       GameHUD.renderAll();
     }
@@ -374,30 +529,26 @@ window.GamePlayer = (function () {
     var balance = GameRegistry.getBalance(objData.type);
     if (!balance) return;
 
-    // Check if node is being harvested by NPCs
     if (window.NPCSystem && NPCSystem.getActiveHarvestNodes) {
       var activeNodes = NPCSystem.getActiveHarvestNodes();
       var isBeingHarvested = activeNodes.some(function(activeNode) {
         return activeNode.node === objData;
       });
-      
+
       if (isBeingHarvested) {
         GameHUD.showNotification("An NPC is already harvesting this!");
         return;
       }
     }
 
-    // Always deal exactly 1 damage per hit
     objData.hp--;
 
-    // Show damage
     GameHUD.showDamageNumber(objData.worldX, 0.5, objData.worldZ, "HIT (" + Math.max(0, objData.hp) + "/" + objData.maxHp + ")", "damage");
     GameHUD.showObjectHpBar(objData);
 
     if (objData.hp <= 0 && !objData._destroyed) {
       objData._destroyed = true;
-      
-      // Give rewards
+
       if (balance.rewards) {
         for (var resId in balance.rewards) {
           var amount = balance.rewards[resId];
@@ -408,14 +559,10 @@ window.GamePlayer = (function () {
         }
       }
 
-      // Hide the 3D mesh
       GameEntities.hideObject(objData);
-
-      // Check for newly unlocked content after harvesting
       UnlockSystem.checkAll();
       GameHUD.renderAll();
 
-      // Schedule respawn
       var respawnTime = balance.respawnTime || 30;
       setTimeout(function () {
         if (objData && objData._destroyed) {
@@ -429,6 +576,15 @@ window.GamePlayer = (function () {
     GameHUD.renderAll();
   }
 
+  // === Public API ===
+  function isEating() { return _isEating; }
+  function isRegenerating() {
+    var isInCombat = (window.GameCombat && GameCombat.isActive && GameCombat.isActive());
+    return !isInCombat && (_animTime - _lastCombatTime > 3);
+  }
+  function hasTorchLight() { return _torchActive; }
+  function getTorchFuel() { return _torchFuel; }
+
   function getPosition() {
     return { x: _x, z: _z };
   }
@@ -439,7 +595,6 @@ window.GamePlayer = (function () {
     if (mesh) {
       mesh.position.set(x, 0, z);
     }
-    // Also sync to GameState
     if (GameState && GameState.setPlayerPosition) {
       GameState.setPlayerPosition(x, z);
     }
@@ -453,6 +608,39 @@ window.GamePlayer = (function () {
     return mesh;
   }
 
+  function updateTorchFlame(t, flicker) {
+    if (!_torchMesh) return;
+    var flameOuter = _torchMesh.getObjectByName('torchFlame');
+    var flameInner = _torchMesh.getObjectByName('torchFlameInner');
+    var glow = _torchMesh.getObjectByName('torchGlow');
+
+    if (flameOuter) {
+      if (flameOuter.userData.baseScaleY === undefined) {
+        flameOuter.userData.baseScaleY = flameOuter.scale.y;
+        flameOuter.userData.baseScaleX = flameOuter.scale.x;
+        flameOuter.userData.baseScaleZ = flameOuter.scale.z;
+      }
+      var sf = 1.0 + flicker * 2.5;
+      flameOuter.scale.y = flameOuter.userData.baseScaleY * sf;
+      flameOuter.scale.x = flameOuter.userData.baseScaleX * (1.0 + flicker * 0.5);
+      flameOuter.scale.z = flameOuter.userData.baseScaleZ * (1.0 + flicker * 0.5);
+      flameOuter.rotation.z = Math.sin(t * 8.0) * 0.08;
+      flameOuter.rotation.x = Math.sin(t * 6.0) * 0.05;
+    }
+    if (flameInner) {
+      if (flameInner.userData.baseScaleY === undefined) {
+        flameInner.userData.baseScaleY = flameInner.scale.y;
+      }
+      flameInner.scale.y = flameInner.userData.baseScaleY * (1.0 + flicker * 2.0);
+    }
+    if (glow) {
+      var gp = 0.5 + 0.5 * Math.sin(t * 4.0);
+      glow.material.opacity = gp * 0.25 + 0.05;
+      var gs = 0.85 + 0.2 * Math.sin(t * 3.5);
+      glow.scale.set(gs, gs, gs);
+    }
+  }
+
   return {
     init: init,
     update: update,
@@ -460,6 +648,12 @@ window.GamePlayer = (function () {
     setPosition: setPosition,
     getDirection: getDirection,
     getMesh: getMesh,
-    interactNearby: interactNearby
+    interactNearby: interactNearby,
+    startEat: startEat,
+    isEating: isEating,
+    isRegenerating: isRegenerating,
+    hasTorchLight: hasTorchLight,
+    getTorchFuel: getTorchFuel,
+    updateTorchFlame: updateTorchFlame
   };
 })();

@@ -102,6 +102,99 @@ body { overflow: hidden; background: #1a1a2e; font-family: 'Segoe UI', sans-seri
   50% { color: #ff1744; text-shadow: 0 0 14px rgba(255,23,68,0.9); }
 }
 
+/* === HUNGER BAR === */
+.hunger-wrapper {
+  position: fixed;
+  top: 82px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 12;
+  pointer-events: none;
+  transition: all 0.3s;
+}
+.hunger-icon {
+  font-size: 18px;
+}
+.hunger-bar-container {
+  position: relative;
+  width: 200px;
+}
+.hunger-bar {
+  height: 14px;
+  background: rgba(15,52,96,0.85);
+  border-radius: 7px;
+  overflow: hidden;
+  border: 2px solid rgba(240,165,0,0.4);
+  box-shadow: 0 0 6px rgba(240,165,0,0.15);
+}
+.hunger-fill {
+  height: 100%;
+  border-radius: 5px;
+  transition: width 0.3s, background 0.5s;
+  background: linear-gradient(90deg, #f0a500, #ffcc00);
+  position: relative;
+}
+.hunger-fill.hunger-warn {
+  background: linear-gradient(90deg, #e94560, #f0a500);
+}
+.hunger-fill.hunger-critical {
+  background: linear-gradient(90deg, #c62828, #e94560);
+  animation: hungerPulse 0.8s ease-in-out infinite;
+}
+.hunger-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 10px;
+  font-weight: bold;
+  color: white;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+  white-space: nowrap;
+}
+.eat-btn {
+  background: rgba(240, 165, 0, 0.8);
+  border: 1px solid #f0a500;
+  color: white;
+  font-size: 11px;
+  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+.eat-btn:hover { background: rgba(240, 165, 0, 1); }
+.eat-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.hunger-wrapper.low-hunger .hunger-icon {
+    animation: hungerPulse 0.8s ease-in-out infinite;
+  }
+  @keyframes hungerPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+
+/* === DAY/NIGHT CLOCK === */
+.day-night-clock {
+  position: fixed;
+  top: 12px;
+  right: 140px;
+  background: rgba(22,33,62,0.9);
+  border: 1px solid #0f3460;
+  border-radius: 8px;
+  padding: 4px 12px;
+  font-size: 14px;
+  font-weight: bold;
+  z-index: 12;
+  pointer-events: none;
+}
+#clock-time {
+  color: #ffd700;
+}
+
 .resource-bar { display: flex; gap: 10px; flex-wrap: wrap; }
 .resource-item {
   display: flex; align-items: center; gap: 4px;
@@ -137,7 +230,7 @@ body { overflow: hidden; background: #1a1a2e; font-family: 'Segoe UI', sans-seri
 
 /* HP Bar (enemy combat bar) */
 .hp-bar-container {
-  position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
+  position: fixed; top: 106px; left: 50%; transform: translateX(-50%);
   width: 200px; display: none; z-index: 15;
 }
 .hp-bar-container.show { display: block; }
@@ -313,16 +406,51 @@ body { overflow: hidden; background: #1a1a2e; font-family: 'Segoe UI', sans-seri
 }
 .inv-slot:hover { border-color: #e94560; }
 .inv-slot.equipped { border-color: #4ecca3; background: rgba(78,204,163,0.2); }
+.consumable-slot { border-color: rgba(255, 160, 50, 0.4); background: rgba(255, 160, 50, 0.08); }
+.consumable-slot:hover { border-color: #ffa832; background: rgba(255, 160, 50, 0.15); }
 
-/* Minimap */
+/* Minimap - circular */
 #minimap {
-  position: fixed; bottom: 160px; right: 15px;
-  width: 120px; height: 120px;
-  background: rgba(22,33,62,0.9);
-  border: 2px solid #0f3460; border-radius: 8px;
-  z-index: 15; overflow: hidden;
+  position: fixed; bottom: 20px; right: 20px;
+  width: 160px; height: 160px;
+  z-index: 15; cursor: pointer;
+  filter: drop-shadow(0 0 8px rgba(0,0,0,0.7));
+  transition: transform 0.15s;
 }
-#minimap canvas { width: 100%; height: 100%; }
+#minimap:hover { transform: scale(1.05); }
+#minimap canvas { width: 100%; height: 100%; display: block; }
+
+/* Full Map Overlay */
+.map-popup {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 82vw; height: 82vh;
+  background: #06080a;
+  border: 2px solid rgba(80, 160, 120, 0.5);
+  border-radius: 12px;
+  z-index: 200;
+  display: flex; flex-direction: column;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.8);
+  overflow: hidden;
+}
+.map-popup-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 15px;
+  background: rgba(10, 20, 10, 0.95);
+  border-bottom: 1px solid rgba(80, 160, 120, 0.3);
+  height: 32px;
+  border-radius: 12px 12px 0 0;
+}
+.map-popup-title { color: #8ab; font-size: 13px; font-weight: bold; letter-spacing: 1px; }
+.map-close-btn {
+  background: transparent;
+  border: 1px solid rgba(200, 80, 80, 0.5);
+  color: #c88; font-size: 11px; padding: 3px 10px;
+  border-radius: 3px; cursor: pointer;
+}
+.map-close-btn:hover { background: rgba(200, 60, 60, 0.3); color: #faa; }
+#map-full-canvas { flex: 1; display: block; }
 
 /* === BACKPACK ICON === */
 /* === BUILDING STORAGE LABELS === */

@@ -7,6 +7,8 @@ window.TickSystem = (function () {
     _tickCount++;
     calculateResourceStats();
     applyConsumption();  // Only consumption now, no passive production
+    applyHunger();
+    applyFireFuelDrain();
     UnlockSystem.checkAll();
 
     if (typeof GameHUD !== "undefined") {
@@ -186,6 +188,45 @@ window.TickSystem = (function () {
 
     // Warehouse auto-transfer: move storage from nearby buildings to warehouses
     transferToWarehouses();
+
+    // Passive production: buildings with produces but no consumesPerTick and no workers
+    applyPassiveProduction();
+  }
+
+  /**
+   * Passive production: buildings with produces but no consumption and no workers
+   * (e.g., well produces food automatically)
+   */
+  function applyPassiveProduction() {
+    var instances = GameState.getAllInstances();
+    for (var uid in instances) {
+      var instance = instances[uid];
+      var buildingId = instance.entityId;
+      var balance = GameRegistry.getBalance(buildingId);
+      if (!balance) continue;
+
+      var level = instance.level || 1;
+      var workerCount = (balance.workerCount && balance.workerCount[level]) || 0;
+      var hasConsumption = balance.consumesPerTick && Object.keys(balance.consumesPerTick).length > 0;
+
+      if (balance.produces && workerCount === 0 && !hasConsumption) {
+        for (var resId in balance.produces) {
+          var amount = balance.produces[resId];
+          var mult = UpgradeSystem.getProductionMultiplier(buildingId, uid);
+          var speedMult = 1.0;
+          if (balance.productionSpeed) {
+            speedMult = balance.productionSpeed[level] || 1.0;
+          }
+          var globalBonus = 0;
+          if (window.ResearchSystem) {
+            var bonuses = ResearchSystem.getGlobalBonuses();
+            globalBonus = bonuses.productionBonus || 0;
+          }
+          var totalAmount = amount * mult * speedMult * (1 + globalBonus);
+          GameState.addFractionalResource(resId, totalAmount);
+        }
+      }
+    }
   }
 
   /**
@@ -257,6 +298,55 @@ window.TickSystem = (function () {
         transferred += amount;
       }
     });
+  }
+
+  function applyHunger() {
+    var balance = window.GAME_BALANCE || {};
+    var hungerConfig = balance.hunger || { drainPerTick: 0.2, starvingHpDrain: 1, regenHungerMult: 2.0 };
+    var drain = hungerConfig.drainPerTick || 0.2;
+
+    // Double hunger drain when regenerating HP
+    var isRegen = (typeof GamePlayer !== 'undefined') && GamePlayer.isRegenerating && GamePlayer.isRegenerating();
+    var regenMult = isRegen ? (hungerConfig.regenHungerMult || 2.0) : 1.0;
+
+    var currentHunger = GameState.getHunger();
+    var newHunger = currentHunger - (drain * regenMult);
+
+    // Starving: drain HP
+    if (newHunger <= 0) {
+      var hpDrain = hungerConfig.starvingHpDrain || 1;
+      var player = GameState.getPlayer();
+      GameState.setPlayerHP(player.hp - hpDrain);
+      newHunger = 0;
+    }
+
+    GameState.setHunger(Math.max(0, newHunger));
+  }
+
+  function applyFireFuelDrain() {
+    // Only drain fuel at night when fire is burning
+    if (typeof DayNightSystem === 'undefined') return;
+    if (!DayNightSystem.isNight()) return;
+
+    var instances = GameState.getAllInstances();
+    for (var uid in instances) {
+      var inst = instances[uid];
+      var balance = GameRegistry.getBalance(inst.entityId);
+      if (!balance || !balance.lightRadius) continue;
+
+      var fuelPerTick = balance.fuelPerTick || 1;
+      var fuelData = GameState.getFireFuelData(uid);
+
+      if (!fuelData) {
+        var maxFuel = balance.fuelCapacity || 999;
+        GameState.setFireFuel(uid, maxFuel);
+        fuelData = GameState.getFireFuelData(uid);
+      }
+
+      if (fuelData && fuelData.current > 0) {
+        GameState.setFireFuel(uid, fuelData.current - fuelPerTick);
+      }
+    }
   }
 
   function getResourceStats() {

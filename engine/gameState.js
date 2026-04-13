@@ -30,7 +30,12 @@ window.GameState = (function () {
     fractionalAccumulator: {},
     gameSpeed: 1.0,
     isPaused: false,
-    researched: []  // Researched technologies
+    researched: [],  // Researched technologies
+    hunger: 100,
+    maxHunger: 100,
+    timeOfDay: 12,
+    fireFuel: {},
+    exploredChunks: {}
   };
 
   function init() {
@@ -56,6 +61,11 @@ window.GameState = (function () {
     _state.worldSeed = Math.floor(Math.random() * 100000);
     _state.fractionalAccumulator = {};
     _state.researched = [];
+    _state.hunger = 100;
+    _state.maxHunger = 100;
+    _state.timeOfDay = 12;
+    _state.fireFuel = {};
+    _state.exploredChunks = {};
   }
 
   // === Resources ===
@@ -442,6 +452,11 @@ window.GameState = (function () {
     _state.fractionalAccumulator = data.fractionalAccumulator || {};
     _state.gameSpeed = data.gameSpeed || 1.0;
     _state.isPaused = data.isPaused || false;
+    _state.hunger = data.hunger !== undefined ? data.hunger : 100;
+    _state.maxHunger = data.maxHunger || 100;
+    _state.timeOfDay = data.timeOfDay !== undefined ? data.timeOfDay : 12;
+    _state.fireFuel = data.fireFuel || {};
+    _state.exploredChunks = data.exploredChunks || {};
     return true;
   }
 
@@ -452,6 +467,57 @@ window.GameState = (function () {
 
   function getShowLockedItems() { return _state.showLockedItems; }
   function setShowLockedItems(value) { _state.showLockedItems = !!value; }
+
+  // === Hunger ===
+  function getHunger() { return _state.hunger; }
+  function setHunger(val) { _state.hunger = Math.max(0, Math.min(val, _state.maxHunger)); }
+  function getMaxHunger() { return _state.maxHunger; }
+  function isHungry() { return _state.hunger < 20; }
+  function isStarving() { return _state.hunger <= 0; }
+
+  // === Time of Day ===
+  function getTimeOfDay() { return _state.timeOfDay; }
+  function setTimeOfDay(val) { _state.timeOfDay = val % 24; }
+
+  // === Fire Fuel ===
+  function getFireFuel(uid) {
+    if (!_state.fireFuel[uid]) return null;
+    return _state.fireFuel[uid].current;
+  }
+  function setFireFuel(uid, current) {
+    if (!_state.fireFuel[uid]) {
+      var inst = _state.instances[uid];
+      var balance = inst ? GameRegistry.getBalance(inst.entityId) : null;
+      var maxFuel = (balance && balance.fuelCapacity) ? balance.fuelCapacity : 999;
+      _state.fireFuel[uid] = { current: current, max: maxFuel };
+    }
+    _state.fireFuel[uid].current = Math.max(0, Math.min(current, _state.fireFuel[uid].max));
+  }
+  function addFireFuel(uid, amount) {
+    if (!_state.fireFuel[uid]) {
+      var inst = _state.instances[uid];
+      var balance = inst ? GameRegistry.getBalance(inst.entityId) : null;
+      var maxFuel = (balance && balance.fuelCapacity) ? balance.fuelCapacity : 999;
+      _state.fireFuel[uid] = { current: 0, max: maxFuel };
+    }
+    _state.fireFuel[uid].current = Math.min(_state.fireFuel[uid].max, _state.fireFuel[uid].current + amount);
+  }
+  function getFireFuelMax(uid) {
+    if (!_state.fireFuel[uid]) return 0;
+    return _state.fireFuel[uid].max;
+  }
+  function getFireFuelData(uid) {
+    return _state.fireFuel[uid] || null;
+  }
+
+  // === Explored Chunks ===
+  function markChunkExplored(cx, cz) {
+    _state.exploredChunks[cx + "," + cz] = true;
+  }
+  function isChunkExplored(cx, cz) {
+    return !!(_state.exploredChunks[cx + "," + cz]);
+  }
+  function getExplored() { return _state.exploredChunks; }
 
   // === Research ===
   function markResearched(techId) {
@@ -499,6 +565,14 @@ window.GameState = (function () {
     setShowLockedItems: setShowLockedItems,
     markResearched: markResearched,
     isResearched: isResearched,
-    getResearched: getResearched
+    getResearched: getResearched,
+    getHunger: getHunger, setHunger: setHunger,
+    getMaxHunger: getMaxHunger, isHungry: isHungry, isStarving: isStarving,
+    getTimeOfDay: getTimeOfDay, setTimeOfDay: setTimeOfDay,
+    getFireFuel: getFireFuel, setFireFuel: setFireFuel,
+    addFireFuel: addFireFuel, getFireFuelMax: getFireFuelMax,
+    getFireFuelData: getFireFuelData,
+    markChunkExplored: markChunkExplored, isChunkExplored: isChunkExplored,
+    getExplored: getExplored
   };
 })();

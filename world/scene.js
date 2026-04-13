@@ -36,13 +36,14 @@ window.GameScene = (function () {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.physicallyCorrectLights = true;
 
-    // Ambient light
+    // Ambient light (scaled for physicallyCorrectLights)
     var ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
     scene.add(ambientLight);
 
-    // Directional light (sun)
-    var dirLight = new THREE.DirectionalLight(0xfff4e0, 0.8);
+    // Directional light (sun) (scaled for physicallyCorrectLights)
+    var dirLight = new THREE.DirectionalLight(0xfff4e0, 1.2);
     dirLight.position.set(15, 25, 10);
     dirLight.castShadow = true;
     dirLight.shadow.mapSize.width = 2048;
@@ -56,7 +57,7 @@ window.GameScene = (function () {
     scene.add(dirLight);
 
     // Hemisphere light for nicer colors
-    var hemiLight = new THREE.HemisphereLight(0x87CEEB, 0x7ec850, 0.3);
+    var hemiLight = new THREE.HemisphereLight(0x87CEEB, 0x7ec850, 0.4);
     scene.add(hemiLight);
 
     window.addEventListener('resize', onResize);
@@ -146,6 +147,15 @@ window.GameScene = (function () {
 
       // Update camera to follow player
       updateCamera();
+
+      // Update day/night cycle (always, even when paused)
+      if (typeof DayNightSystem !== 'undefined') DayNightSystem.update(dt);
+
+      // Update fire lights (always, even when paused)
+      if (typeof FireSystem !== 'undefined') FireSystem.update(dt);
+
+      // Update minimap
+      if (typeof MiniMap !== 'undefined') MiniMap.update();
 
       renderer.render(scene, camera);
     }

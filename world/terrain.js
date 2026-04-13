@@ -32,6 +32,11 @@ window.GameTerrain = (function () {
         if (!chunks[key]) {
           generateChunk(cx, cz);
 
+          // Mark chunk as explored
+          if (GameState.markChunkExplored) {
+            GameState.markChunkExplored(cx, cz);
+          }
+
           // Restore saved object states from previous visit
           var savedData = GameState.getChunkData(key);
           if (savedData && savedData.objects) {
@@ -73,6 +78,12 @@ window.GameTerrain = (function () {
         if (chunkToUnload.mesh) {
           GameScene.getScene().remove(chunkToUnload.mesh);
         }
+
+        // Clear water tiles for unloaded chunk
+        if (typeof WaterSystem !== 'undefined') {
+          WaterSystem.clearWaterForChunk(cx, cz);
+        }
+
         delete chunks[key];
       }
     }
@@ -100,7 +111,7 @@ window.GameTerrain = (function () {
     var groundGeo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE);
     var groundColor = new THREE.Color(0x7ec850);
     groundColor.offsetHSL(0, 0, (seededRandom(seed + 1) - 0.5) * 0.03);
-    var groundMat = new THREE.MeshLambertMaterial({ color: groundColor });
+    var groundMat = new THREE.MeshStandardMaterial({ color: groundColor, roughness: 1, metalness: 0 });
     var ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(CHUNK_SIZE / 2, 0, CHUNK_SIZE / 2);
@@ -313,6 +324,14 @@ window.GameTerrain = (function () {
       });
     }
 
+    // Generate water for this chunk
+    if (typeof WaterSystem !== 'undefined') {
+      var waterPositions = WaterSystem.generateWaterForChunk(cx, cz, seed);
+      if (waterPositions.length > 0) {
+        WaterSystem.createWaterMesh(waterPositions, group);
+      }
+    }
+
     chunkData.mesh = group;
     chunks[key] = chunkData;
     GameScene.getScene().add(group);
@@ -369,7 +388,17 @@ window.GameTerrain = (function () {
       }
     }
 
+    // Check for deep water (not walkable)
+    if (typeof WaterSystem !== 'undefined' && WaterSystem.isDeepWater(worldX, worldZ)) {
+      return false;
+    }
+
     return true;
+  }
+
+  function isShallowWater(worldX, worldZ) {
+    if (typeof WaterSystem === 'undefined') return false;
+    return WaterSystem.isShallowWater(worldX, worldZ);
   }
 
   function findNearestObject(worldX, worldZ, maxDist) {
@@ -437,6 +466,7 @@ window.GameTerrain = (function () {
     getAllChunks: getAllChunks,
     getChunkSize: getChunkSize,
     isWalkable: isWalkable,
+    isShallowWater: isShallowWater,
     findNearestObject: findNearestObject,
     restoreChunk: restoreChunk,
     seededRandom: seededRandom,

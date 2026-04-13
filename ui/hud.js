@@ -15,6 +15,8 @@ try {
   function renderAll() {
     renderResources();
     renderPlayerStats();
+    renderHungerBar();
+    renderDayNightClock();
     renderActivePanel();
   }
 
@@ -80,6 +82,7 @@ try {
     var maxHp = GameState.getPlayerMaxHp();
     var atk = GameState.getPlayerAttack();
     var def = GameState.getPlayerDefense();
+    var hunger = GameState.getHunger ? GameState.getHunger() : 100;
 
     var atkEl = document.getElementById("stat-atk");
     var defEl = document.getElementById("stat-def");
@@ -87,6 +90,9 @@ try {
 
     if (atkEl) atkEl.textContent = "ATK: " + atk;
     if (defEl) defEl.textContent = "DEF: " + def;
+    if (hunger < 20 && atkEl) {
+      atkEl.textContent = "ATK: " + atk + " (Slow!)";
+    }
 
     if (ageEl) {
       var ageEntity = GameRegistry.getEntity(GameState.getAge());
@@ -122,6 +128,50 @@ try {
     }
 
     // Save info removed - cleaner UI
+  }
+
+  function renderHungerBar() {
+    var hunger = GameState.getHunger();
+    var maxHunger = GameState.getMaxHunger();
+    var hungerFill = document.getElementById("hunger-fill");
+    var hungerText = document.getElementById("hunger-text");
+    var hungerWrapper = document.getElementById("hunger-wrapper");
+
+    if (!hungerFill || !hungerText) return;
+
+    var pct = Math.max(0, (hunger / maxHunger) * 100);
+    hungerFill.style.width = pct + "%";
+
+    var foodCount = GameState.getResource("resource.food");
+    var isEatingNow = typeof GamePlayer !== 'undefined' && GamePlayer.isEating && GamePlayer.isEating();
+
+    var text = Math.floor(hunger) + "/" + maxHunger + " Food:" + Math.floor(foodCount);
+    if (isEatingNow) {
+      text = "Dang an..." + Math.floor(hunger) + "/" + maxHunger;
+    }
+    hungerText.textContent = text;
+
+    hungerFill.classList.remove("hunger-warn", "hunger-critical");
+    if (hunger <= 0) {
+      hungerFill.classList.add("hunger-critical");
+    } else if (hunger < 20) {
+      hungerFill.classList.add("hunger-warn");
+    }
+
+    if (hungerWrapper) {
+      if (hunger < 20) {
+        hungerWrapper.classList.add("low-hunger");
+      } else {
+        hungerWrapper.classList.remove("low-hunger");
+      }
+    }
+  }
+
+  function renderDayNightClock() {
+    var clockEl = document.getElementById("clock-time");
+    if (!clockEl) return;
+    if (typeof DayNightSystem === 'undefined') return;
+    clockEl.textContent = DayNightSystem.getTimeString();
   }
 
   function switchTab(tabName) {
@@ -565,6 +615,7 @@ try {
     if (BuildingSystem.isBuildMode()) return;
     _selectedInstance = uid;
     showBuildingInspector(uid);
+    if (window.RangeIndicator) RangeIndicator.show(uid);
   }
   
   function showBuildingInspector(uid) {
@@ -674,6 +725,36 @@ try {
       storageHtml += '</div>';
     }
 
+    // --- Fuel section for fire buildings ---
+    var fuelHtml = "";
+    if (balance && balance.lightRadius) {
+      var fuelData = GameState.getFireFuelData ? GameState.getFireFuelData(uid) : null;
+      var currentFuel = fuelData ? fuelData.current : (balance.fuelCapacity || 999);
+      var maxFuel = balance.fuelCapacity || 999;
+      var fuelPct = maxFuel > 0 ? Math.floor((currentFuel / maxFuel) * 100) : 0;
+      var fuelColor = fuelPct > 50 ? "#4ecca3" : (fuelPct > 20 ? "#f0a500" : "#e94560");
+
+      fuelHtml = '<div class="inspector-section">' +
+        '<div style="font-size:11px;">🔥 Fuel: <span style="color:' + fuelColor + '; font-weight:bold;">' + Math.floor(currentFuel) + '/' + maxFuel + '</span> (' + fuelPct + '%)</div>';
+
+      if (balance.refuelCost) {
+        var refuelParts = [];
+        var canRefuel = true;
+        for (var resId in balance.refuelCost) {
+          var needed = balance.refuelCost[resId];
+          var have = GameState.getResource(resId);
+          var res = GameRegistry.getEntity(resId);
+          var resName = res ? res.name : resId;
+          var color = have >= needed ? "#4ecca3" : "#e63946";
+          if (have < needed) canRefuel = false;
+          refuelParts.push('<span style="color:' + color + '">' + needed + ' ' + escapeHtml(resName) + '</span>');
+        }
+        fuelHtml += '<div style="color:#888; font-size:10px; margin-top:2px;">Refuel: ' + refuelParts.join(", ") + '</div>';
+        fuelHtml += '<button class="btn btn-secondary" style="margin-top:4px; font-size:10px; padding:2px 8px;" onclick="GameActions.refuel(\'' + uid + '\')" ' + (canRefuel ? '' : 'disabled') + '>Refuel</button>';
+      }
+      fuelHtml += '</div>';
+    }
+
     // --- Synergy section ---
     var synergyHtml = "";
     if (window.SynergySystem) {
@@ -696,6 +777,21 @@ try {
       if (workers && workers.length > 0) {
         workerHtml = '<div class="inspector-section">' +
           '<div style="color:#aaa; font-size:11px;">👷 Workers: ' + workers.length + '/' + (balance.workerCount[currentLevel] || workers.length) + '</div>' +
+          '</div>';
+      }
+    }
+
+    // --- Range info ---
+    var rangeHtml = "";
+    if (balance) {
+      var sR = (balance.searchRadius && balance.searchRadius[currentLevel]) ? balance.searchRadius[currentLevel] : 0;
+      var tR = balance.transferRange || 0;
+      var rangeParts = [];
+      if (sR > 0) rangeParts.push('<span style="color:#00ff88;">Harvest: ' + sR + '</span>');
+      if (tR > 0) rangeParts.push('<span style="color:#4488ff;">Transfer: ' + tR + '</span>');
+      if (rangeParts.length > 0) {
+        rangeHtml = '<div class="inspector-section">' +
+          '<div style="color:#aaa; font-size:11px;">📡 ' + rangeParts.join(' | ') + '</div>' +
           '</div>';
       }
     }
@@ -739,6 +835,8 @@ try {
       storageHtml +
       synergyHtml +
       workerHtml +
+      rangeHtml +
+      fuelHtml +
       upgradeHtml +
       (refundText ? '<div style="color:#ffb74d; font-size:10px; margin-top:6px; padding-top:6px; border-top:1px solid rgba(255,255,255,0.06);">' + refundText + '</div>' : '') +
       '<div style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.08); display:flex; gap:6px;">' +
@@ -754,6 +852,9 @@ try {
     if (!confirm("Bạn có chắc muốn xóa building này?\nBạn sẽ nhận được 50% chi phí đã bỏ ra.")) {
       return;
     }
+    if (window.RangeIndicator && RangeIndicator.getActiveUid() === uid) {
+      RangeIndicator.hide();
+    }
     BuildingSystem.destroyBuilding(uid);
     closeInspector();
     showNotification("Đã xóa building.");
@@ -763,6 +864,7 @@ try {
     _selectedInstance = null;
     var inspector = document.getElementById("building-inspector");
     if (inspector) inspector.classList.remove("active");
+    if (window.RangeIndicator) RangeIndicator.hide();
   }
 
   /**
@@ -1231,22 +1333,30 @@ try {
     var invContainer = document.getElementById('modal-inventory-grid');
     if (invContainer) {
       var html = '';
-      
+
       for (var itemId in inventory) {
         if (inventory[itemId] <= 0) continue;
         var entity = GameRegistry.getEntity(itemId);
-        if (!entity || entity.type !== 'equipment') continue;
-        
-        html += '<div class="inv-slot" onclick="GameActions.equip(\'' + itemId + '\')">';
+        if (!entity || (entity.type !== 'equipment' && entity.type !== 'consumable')) continue;
+
+        var onClick = entity.type === 'equipment'
+          ? 'onclick="GameActions.equip(\'' + itemId + '\')"'
+          : '';
+        var cssClass = entity.type === 'consumable' ? 'inv-slot consumable-slot' : 'inv-slot';
+
+        html += '<div class="' + cssClass + '" ' + onClick + '>';
         html += '<div>' + (entity ? entity.name : itemId) + '</div>';
         html += '<div>x' + inventory[itemId] + '</div>';
+        if (entity.type === 'consumable' && entity.description) {
+          html += '<div style="font-size:9px;color:#888;">' + entity.description + '</div>';
+        }
         html += '</div>';
       }
-      
+
       if (!html) {
         html = '<div style="grid-column: 1/-1; text-align:center; color:#666; font-size:11px; padding:10px;">No items</div>';
       }
-      
+
       invContainer.innerHTML = html;
     }
   }
