@@ -7,6 +7,19 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div id="loading-screen" style="position:fixed;top:0;left:0;width:100%;height:100%;background:#111;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity 0.8s;">
+    <div style="font-family:monospace;font-size:28px;color:#e8d8a0;margin-bottom:16px;text-shadow:0 0 20px rgba(255,200,80,0.4);">Evolution Simulator 3D</div>
+    <div style="font-family:monospace;font-size:14px;color:#887750;margin-bottom:30px;">Stone Age > Bronze Age > Iron Age</div>
+    <div style="width:200px;height:4px;background:#222;border-radius:2px;overflow:hidden;">
+      <div id="loading-bar" style="width:0%;height:100%;background:linear-gradient(90deg,#aa8830,#ddbb44);transition:width 0.3s;border-radius:2px;"></div>
+    </div>
+    <div id="loading-text" style="font-family:monospace;font-size:11px;color:#665530;margin-top:12px;">Loading...</div>
+  </div>
+  <div id="vignette" style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:100;background:radial-gradient(circle, transparent 60%, rgba(0,0,0,0.4) 100%);opacity:0;transition:opacity 0.5s;"></div>
+  <div id="color-grade" style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:99;opacity:0;transition:opacity 1s;mix-blend-mode:multiply;"></div>
+  <canvas id="fire-light-mask" style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:101;mix-blend-mode:screen;"></canvas>
+  <div id="screen-flash" style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999;opacity:0;transition:opacity 0.2s;"></div>
+
   <canvas id="game-canvas"></canvas>
 
   <!-- HUD Top Left: Resources -->
@@ -191,6 +204,10 @@
   <script src="world/dayNightSystem.js"></script>
   <script src="world/fireSystem.js"></script>
   <script src="world/waterSystem.js"></script>
+  <script src="world/atmosphere.js"></script>
+  <script src="world/animationSystem.js"></script>
+  <script src="world/particleSystem.js"></script>
+  <script src="world/weatherSystem.js"></script>
   <script src="world/minimap.js"></script>
 
   <!-- UI (MUST load BEFORE main.js!) -->

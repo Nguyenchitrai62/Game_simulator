@@ -5,14 +5,6 @@ window.GAME_CONTENT["expansion_fire_light"] = {
   name: "Fire & Light",
   entities: [
     {
-      id: "building.torch",
-      type: "building",
-      name: "Đuốc",
-      description: "Chiếu sáng ban đêm. Cần nạp Wood để duy trì.",
-      visual: { shape: "torch", color: 0x8B4513, roofColor: 0xFFA500, scale: 0.5 },
-      unlock: { age: "age.stone", resources: { "resource.wood": 3 } }
-    },
-    {
       id: "building.campfire",
       type: "building",
       name: "Đống lửa",

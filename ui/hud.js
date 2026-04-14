@@ -50,14 +50,14 @@ try {
       if (_showProductionPanel) {
         var netStr = "", netColor = "#888";
         if (net > 0.001) {
-          netStr = "+" + net.toFixed(1) + "/tick";
-          netColor = "#4ecca3";
-        } else if (net < -0.001) {
-          netStr = net.toFixed(1) + "/tick";
-          netColor = "#e94560";
-          if (stats.timeLeft && stats.timeLeft[res.id] && stats.timeLeft[res.id] < 60) {
-            netStr += " [" + stats.timeLeft[res.id] + " tick]";
-          }
+netStr = "+" + net.toFixed(1) + "/s";
+            netColor = "#4ecca3";
+          } else if (net < -0.001) {
+            netStr = net.toFixed(1) + "/s";
+            netColor = "#e94560";
+            if (stats.timeLeft && stats.timeLeft[res.id] && stats.timeLeft[res.id] < 60) {
+              netStr += " [" + stats.timeLeft[res.id] + "s]";
+            }
         } else {
           netStr = "~0";
           netColor = "#888";

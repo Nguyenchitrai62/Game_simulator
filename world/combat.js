@@ -80,6 +80,11 @@ window.GameCombat = (function () {
       var pos = GamePlayer.getPosition();
       GameHUD.showDamageNumber(pos.x, 1.5, pos.z, "-" + damageToPlayer, "enemy-damage");
 
+      // Player damage flash
+      if (typeof AnimationSystem !== 'undefined') {
+        AnimationSystem.flashScreen('rgba(255,0,0,0.15)', 200);
+      }
+
       // Check player death
       if (GameState.getPlayer().hp <= 0) {
         playerDied();
@@ -95,7 +100,7 @@ window.GameCombat = (function () {
     // Update HUD
     GameHUD.renderAll();
 
-    // Flash the target mesh
+    // Flash the target mesh - enhanced duration (250ms)
     var mesh = GameEntities.getAllMeshes().find(function (m) {
       return m.userData.objectId === target.id;
     });
@@ -104,9 +109,33 @@ window.GameCombat = (function () {
         if (child.isMesh && child.material) {
           var origColor = child.material.color.getHex();
           child.material.color.setHex(0xff0000);
-          setTimeout(function () { child.material.color.setHex(origColor); }, 100);
+          setTimeout(function () { child.material.color.setHex(origColor); }, 250);
         }
       });
+      // Scale pulse effect
+      var origScaleX = mesh.scale.x;
+      var origScaleZ = mesh.scale.z;
+      mesh.scale.x = origScaleX * 1.08;
+      mesh.scale.z = origScaleZ * 1.08;
+      setTimeout(function () {
+        if (mesh) {
+          mesh.scale.x = origScaleX;
+          mesh.scale.z = origScaleZ;
+        }
+      }, 150);
+    }
+
+    // Combat particles
+    if (typeof ParticleSystem !== 'undefined') {
+      ParticleSystem.emit('combatHit', {x: target.worldX, y: 0.5, z: target.worldZ});
+      if (damageToPlayer > 0) {
+        var pos = GamePlayer.getPosition();
+        ParticleSystem.emit('combatHit', {x: pos.x, y: 1.0, z: pos.z}, {color: 0xFF4444});
+      }
+      if (damageToPlayer === 0 && targetAtk > 0) {
+        var pos = GamePlayer.getPosition();
+        ParticleSystem.emit('combatBlock', {x: pos.x, y: 1.0, z: pos.z});
+      }
     }
   }
 
@@ -128,10 +157,19 @@ window.GameCombat = (function () {
           var name = entity ? entity.name : resId;
           GameHUD.showDamageNumber(target.worldX, 1.5, target.worldZ, "+" + amount + " " + name, "loot");
         }
+        // Loot particles
+        if (typeof ParticleSystem !== 'undefined') {
+          ParticleSystem.emit('loot', {x: target.worldX, y: 1.0, z: target.worldZ});
+        }
       }
 
-      // Hide the animal
+      // Hide the animal with death effect
       GameEntities.hideObject(target);
+
+      // Death burst particles
+      if (typeof ParticleSystem !== 'undefined') {
+        ParticleSystem.emit('deathBurst', {x: target.worldX, y: 0.5, z: target.worldZ});
+      }
 
       // Check for newly unlocked content after combat loot
       UnlockSystem.checkAll();

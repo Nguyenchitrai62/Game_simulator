@@ -34,9 +34,9 @@ window.FireSystem = (function () {
     var isCampfire = (entityId === 'building.campfire');
     var seed = hashUid(uid);
 
-    var pointLight = new THREE.PointLight(lightColor, 0, lightRadius * 2);
-    pointLight.position.set(instance.x, 1.8, instance.z);
-    pointLight.decay = 2;
+    var pointLight = new THREE.PointLight(lightColor, 0, lightRadius * 2.5);
+    pointLight.position.set(instance.x, 1.5, instance.z);
+    pointLight.decay = 1.2;
     pointLight.castShadow = false;
 
     GameScene.getScene().add(pointLight);
@@ -157,6 +157,12 @@ window.FireSystem = (function () {
       if (fire.mesh) {
         if (hasFuel) {
           animateFlameMesh(fire.mesh, t, seed, flicker, fuelRatio, darkness);
+          // Ember particles
+          if (typeof ParticleSystem !== 'undefined' && darkness > 0.3) {
+            if (Math.random() < (fire.isCampfire ? 0.025 : 0.01)) {
+              ParticleSystem.emit('fireEmber', {x: fire.x, y: fire.baseY, z: fire.z});
+            }
+          }
         } else {
           hideFlameMesh(fire.mesh);
         }
@@ -236,7 +242,7 @@ window.FireSystem = (function () {
     if (hasActiveTorch) {
       if (!_playerTorchLight) {
         _playerTorchLight = new THREE.PointLight(0xFFA500, 0, 16);
-        _playerTorchLight.decay = 2;
+        _playerTorchLight.decay = 1.2;
         _playerTorchLight.castShadow = false;
         GameScene.getScene().add(_playerTorchLight);
       }
@@ -275,15 +281,15 @@ window.FireSystem = (function () {
         }
         _playerTorchLight.color.copy(torchColor);
 
-        var yJitter = Math.sin(t * 5.0) * 0.15 + Math.sin(t * 10.0) * 0.08;
-        _playerTorchLight.position.set(pos.x, 1.8 + yJitter, pos.z);
+        var yJitter = Math.sin(t * 5.0) * 0.12 + Math.sin(t * 10.0) * 0.06;
+        _playerTorchLight.position.set(pos.x, 1.6 + yJitter, pos.z);
 
         if (GamePlayer.updateTorchFlame) {
           GamePlayer.updateTorchFlame(t, flicker);
         }
       } else {
         _playerTorchLight.intensity = 0;
-        _playerTorchLight.position.set(pos.x, 1.8, pos.z);
+        _playerTorchLight.position.set(pos.x, 1.6, pos.z);
       }
     } else if (_playerTorchLight) {
       GameScene.getScene().remove(_playerTorchLight);
@@ -304,11 +310,61 @@ window.FireSystem = (function () {
     return _lights;
   }
 
+  function getActiveFires() {
+    var result = [];
+    var darkness = (typeof DayNightSystem !== 'undefined') ? DayNightSystem.getDarkness() : 0;
+
+    for (var uid in _lights) {
+      var fire = _lights[uid];
+      if (!fire.light || fire.light.intensity <= 0) continue;
+      var instance = GameState.getInstance(uid);
+      if (!instance) continue;
+      var balance = GameRegistry.getBalance(instance.entityId);
+      if (!balance) continue;
+
+      var fuel = GameState.getFireFuel ? GameState.getFireFuel(uid) : null;
+      var maxFuel = balance.fuelCapacity || 999;
+      var currentFuel = (fuel !== null && fuel !== undefined) ? fuel : maxFuel;
+      if (currentFuel <= 0) continue;
+
+      var radius = (balance.lightRadius || 10) * 0.8;
+      var intensity = Math.min(1.0, darkness * 2.5) * Math.min(1.0, currentFuel / Math.max(1, maxFuel) * 3);
+
+      result.push({
+        x: fire.x,
+        z: fire.z,
+        radius: radius,
+        intensity: intensity,
+        isCampfire: fire.isCampfire
+      });
+    }
+
+    var hasActiveTorch = (typeof GamePlayer !== 'undefined' && GamePlayer.hasTorchLight && GamePlayer.hasTorchLight());
+    if (hasActiveTorch && darkness > 0.05) {
+      var pos = GamePlayer.getPosition();
+      var torchBalance = GameRegistry.getBalance("item.handheld_torch") || {};
+      var torchFuel = GameState.getHandheldTorch ? GameState.getHandheldTorch() : null;
+      var torchActive = torchFuel !== null;
+      var torchIntensity = torchActive ? Math.min(1.0, darkness * 2.5) : 0;
+
+      result.push({
+        x: pos.x,
+        z: pos.z,
+        radius: 6,
+        intensity: torchIntensity,
+        isCampfire: false
+      });
+    }
+
+    return result;
+  }
+
   return {
     init: init,
     update: update,
     addFire: addFire,
     removeFire: removeFire,
-    getFireLights: getFireLights
+    getFireLights: getFireLights,
+    getActiveFires: getActiveFires
   };
 })();

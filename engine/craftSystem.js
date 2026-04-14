@@ -2,13 +2,13 @@ window.CraftSystem = (function () {
 
   function craft(recipeId) {
     if (!GameState.isUnlocked(recipeId)) {
-      GameHUD.showError("Công thức này chưa được mở khóa");
+      if (typeof GameHUD !== 'undefined') GameHUD.showError("Công thức này chưa được mở khóa");
       return false;
     }
 
     var balance = GameRegistry.getBalance(recipeId);
     if (!balance || !balance.input || !balance.output) {
-      GameHUD.showError("Công thức không hợp lệ");
+      if (typeof GameHUD !== 'undefined') GameHUD.showError("Công thức không hợp lệ");
       return false;
     }
 
@@ -19,7 +19,7 @@ window.CraftSystem = (function () {
         var invCount = GameState.getInventoryCount(resId);
         var player = GameState.getPlayer();
         if (invCount > 0 || player.equipped[item.slot] === resId) {
-          GameHUD.showError("You already have this equipment!");
+          if (typeof GameHUD !== 'undefined') GameHUD.showError("You already have this equipment!");
           return false;
         }
       }
@@ -30,7 +30,7 @@ window.CraftSystem = (function () {
       if (!GameState.hasResource(resourceId, needed)) {
         var resEntity = GameRegistry.getEntity(resourceId);
         var missing = needed - GameState.getResource(resourceId);
-        GameHUD.showError(`Không đủ tài nguyên: Cần thêm ${missing} ${resEntity ? resEntity.name : resourceId}`);
+        if (typeof GameHUD !== 'undefined') GameHUD.showError("Không đủ tài nguyên: Cần thêm " + missing + " " + (resEntity ? resEntity.name : resourceId));
         return false;
       }
     }
@@ -52,7 +52,7 @@ window.CraftSystem = (function () {
 
     // Check for newly unlocked content after crafting
     UnlockSystem.checkAll();
-    GameHUD.renderAll();
+    if (typeof GameHUD !== 'undefined') GameHUD.renderAll();
 
     return true;
   }

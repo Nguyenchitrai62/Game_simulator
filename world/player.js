@@ -17,30 +17,42 @@ window.GamePlayer = (function () {
   var _torchFuel = 0;
   var _torchMesh = null; // 3D torch visible on hand
 
+  // Equipment 3D visuals
+  var _weaponMesh = null;
+  var _shieldMesh = null;
+
   function init(startX, startZ) {
     _x = startX || 8;
     _z = startZ || 8;
 
     var group = new THREE.Group();
 
-    // Body
-    var bodyGeo = new THREE.BoxGeometry(0.4, 0.5, 0.3);
+    // Body (slightly wider, shorter)
+    var bodyGeo = new THREE.BoxGeometry(0.44, 0.48, 0.32);
     var bodyMat = new THREE.MeshLambertMaterial({ color: 0x4488cc });
     var body = new THREE.Mesh(bodyGeo, bodyMat);
     body.position.y = 0.55;
     body.castShadow = true;
+    body.name = "body";
     group.add(body);
 
-    // Head
-    var headGeo = new THREE.SphereGeometry(0.18, 8, 8);
+    // Head (slightly larger for low-poly style)
+    var headGeo = new THREE.SphereGeometry(0.2, 10, 8);
     var headMat = new THREE.MeshLambertMaterial({ color: 0xDEB887 });
     var head = new THREE.Mesh(headGeo, headMat);
     head.position.y = 0.98;
     head.castShadow = true;
     group.add(head);
 
+    // Hair
+    var hairGeo = new THREE.BoxGeometry(0.22, 0.07, 0.22);
+    var hairMat = new THREE.MeshLambertMaterial({ color: 0x3a2010 });
+    var hair = new THREE.Mesh(hairGeo, hairMat);
+    hair.position.y = 1.1;
+    group.add(hair);
+
     // Left arm
-    var armGeo = new THREE.BoxGeometry(0.12, 0.4, 0.12);
+    var armGeo = new THREE.BoxGeometry(0.12, 0.35, 0.12);
     var armMat = new THREE.MeshLambertMaterial({ color: 0xDEB887 });
     var leftArm = new THREE.Mesh(armGeo, armMat);
     leftArm.position.set(-0.3, 0.55, 0);
@@ -78,6 +90,10 @@ window.GamePlayer = (function () {
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = 0.02;
     group.add(shadow);
+
+    // Initialize equipment meshes (hidden by default)
+    _weaponMesh = null;
+    _shieldMesh = null;
 
     group.position.set(_x, 0, _z);
     mesh = group;
@@ -117,6 +133,9 @@ window.GamePlayer = (function () {
     });
   }
 
+  var _lastBuildingClick = { uid: null, time: 0 };
+  var _DOUBLE_CLICK_DELAY = 400;
+
   function onCanvasClick(event) {
     if (event.target.id !== 'game-canvas') return;
 
@@ -144,6 +163,27 @@ window.GamePlayer = (function () {
         } else if (objData.type.startsWith('node.')) {
           GameHUD.showNotification(name + ' | HP: ' + objData.hp + '/' + objData.maxHp);
         }
+      }
+    }
+
+    // Double-click on buildings to collect resources
+    var nearBuilding = findNearestBuilding(_x, _z, 2.5);
+    if (nearBuilding) {
+      var now = Date.now();
+      if (_lastBuildingClick.uid === nearBuilding.uid && (now - _lastBuildingClick.time) < _DOUBLE_CLICK_DELAY) {
+        var storage = GameState.getBuildingStorage(nearBuilding.uid);
+        var hasResources = false;
+        for (var resId in storage) {
+          if (storage[resId] > 0) { hasResources = true; break; }
+        }
+        if (hasResources) {
+          collectFromBuilding(nearBuilding);
+        }
+        _lastBuildingClick.uid = null;
+        _lastBuildingClick.time = 0;
+      } else {
+        _lastBuildingClick.uid = nearBuilding.uid;
+        _lastBuildingClick.time = now;
       }
     }
   }
@@ -259,15 +299,15 @@ window.GamePlayer = (function () {
     }
 
     if (mesh) {
-      mesh.position.x += (_x - mesh.position.x) * 0.3;
-      mesh.position.z += (_z - mesh.position.z) * 0.3;
+      mesh.position.x += (_x - mesh.position.x) * 0.85;
+      mesh.position.z += (_z - mesh.position.z) * 0.85;
 
       if (moved) {
         var targetAngle = Math.atan2(_direction.x, _direction.z) + Math.PI;
         var angleDiff = targetAngle - mesh.rotation.y;
         while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
         while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-        mesh.rotation.y += angleDiff * 0.2;
+        mesh.rotation.y += angleDiff * 0.4;
       }
 
       // Walking animation
@@ -543,6 +583,19 @@ window.GamePlayer = (function () {
 
     objData.hp--;
 
+    // Emit harvest particles based on node type
+    if (typeof ParticleSystem !== 'undefined') {
+      var nodeType = objData.type;
+      if (nodeType === "node.tree") ParticleSystem.emit('woodChip', {x: objData.worldX, y: 0.5, z: objData.worldZ});
+      else if (nodeType === "node.rock") ParticleSystem.emit('rockDust', {x: objData.worldX, y: 0.3, z: objData.worldZ});
+      else if (nodeType === "node.berry_bush") ParticleSystem.emit('berryBurst', {x: objData.worldX, y: 0.4, z: objData.worldZ});
+      else if (nodeType === "node.flint_deposit") ParticleSystem.emit('spark', {x: objData.worldX, y: 0.3, z: objData.worldZ});
+      else if (nodeType === "node.copper_deposit") ParticleSystem.emit('spark', {x: objData.worldX, y: 0.3, z: objData.worldZ}, {color: 0xB87333});
+      else if (nodeType === "node.tin_deposit") ParticleSystem.emit('spark', {x: objData.worldX, y: 0.3, z: objData.worldZ}, {color: 0xC0C0C0});
+      else if (nodeType === "node.iron_deposit") ParticleSystem.emit('spark', {x: objData.worldX, y: 0.3, z: objData.worldZ}, {color: 0x8B7355});
+      else if (nodeType === "node.coal_deposit") ParticleSystem.emit('rockDust', {x: objData.worldX, y: 0.3, z: objData.worldZ}, {color: 0x2F2F2F});
+    }
+
     GameHUD.showDamageNumber(objData.worldX, 0.5, objData.worldZ, "HIT (" + Math.max(0, objData.hp) + "/" + objData.maxHp + ")", "damage");
     GameHUD.showObjectHpBar(objData);
 
@@ -574,6 +627,98 @@ window.GamePlayer = (function () {
     }
 
     GameHUD.renderAll();
+  }
+
+  // === Equipment 3D Visuals ===
+  function updateEquipmentVisuals() {
+    if (!mesh) return;
+    var player = GameState.getPlayer();
+    if (!player || !player.equipped) return;
+
+    // Weapon
+    var weaponId = player.equipped.weapon;
+    if (weaponId && !_weaponMesh) {
+      var weaponGeo = new THREE.BoxGeometry(0.04, 0.3, 0.06);
+      var weaponColor = 0xA0A0A0;
+      var wep = GameRegistry.getEntity(weaponId);
+      if (wep && wep.id) {
+        if (wep.id.indexOf('wooden') > -1) weaponColor = 0x8B6914;
+        else if (wep.id.indexOf('stone') > -1) weaponColor = 0x808080;
+        else if (wep.id.indexOf('bronze') > -1) weaponColor = 0xB87333;
+        else if (wep.id.indexOf('iron') > -1) weaponColor = 0x6A6A6A;
+      }
+      var weaponMat = new THREE.MeshLambertMaterial({ color: weaponColor });
+      _weaponMesh = new THREE.Mesh(weaponGeo, weaponMat);
+      _weaponMesh.castShadow = true;
+      mesh.add(_weaponMesh);
+      _weaponMesh.position.set(0.3, -0.05, 0.15);
+    } else if (!weaponId && _weaponMesh) {
+      mesh.remove(_weaponMesh);
+      _weaponMesh = null;
+    }
+
+    // Shield (offhand)
+    var offhandId = player.equipped.offhand;
+    if (offhandId && !_shieldMesh) {
+      var shieldGeo = new THREE.BoxGeometry(0.04, 0.2, 0.18);
+      var shieldColor = 0x8B7355;
+      var shld = GameRegistry.getEntity(offhandId);
+      if (shld && shld.id) {
+        if (shld.id.indexOf('wooden') > -1) shieldColor = 0x8B6914;
+        else if (shld.id.indexOf('stone') > -1) shieldColor = 0x808080;
+        else if (shld.id.indexOf('bronze') > -1) shieldColor = 0xB87333;
+        else if (shld.id.indexOf('iron') > -1) shieldColor = 0x6A6A6A;
+      }
+      var shieldMat = new THREE.MeshLambertMaterial({ color: shieldColor });
+      _shieldMesh = new THREE.Mesh(shieldGeo, shieldMat);
+      _shieldMesh.castShadow = true;
+      mesh.add(_shieldMesh);
+      _shieldMesh.position.set(-0.3, 0.0, 0.0);
+    } else if (!offhandId && _shieldMesh) {
+      mesh.remove(_shieldMesh);
+      _shieldMesh = null;
+    }
+
+    // Armor body color
+    var armorId = player.equipped.armor;
+    if (armorId && mesh) {
+      mesh.traverse(function (child) {
+        if (child.name === 'body' && child.isMesh) {
+          var armorEntity = GameRegistry.getEntity(armorId);
+          if (armorEntity && armorEntity.id) {
+            if (armorEntity.id.indexOf('leather') > -1) {
+              child.material.color.setHex(0x8B5A2B);
+            } else if (armorEntity.id.indexOf('bronze') > -1) {
+              child.material.color.setHex(0x5a7799);
+            } else if (armorEntity.id.indexOf('iron') > -1) {
+              child.material.color.setHex(0x5577aa);
+            }
+          }
+        }
+      });
+    } else if (!armorId && mesh) {
+      mesh.traverse(function (child) {
+        if (child.name === 'body' && child.isMesh) {
+          child.material.color.setHex(0x4488cc);
+        }
+      });
+    }
+
+    // Boots leg color
+    var bootsId = player.equipped.boots;
+    if (bootsId) {
+      mesh.traverse(function (child) {
+        if ((child.name === 'leftLeg' || child.name === 'rightLeg') && child.isMesh) {
+          child.material.color.setHex(0x654321);
+        }
+      });
+    } else {
+      mesh.traverse(function (child) {
+        if ((child.name === 'leftLeg' || child.name === 'rightLeg') && child.isMesh) {
+          child.material.color.setHex(0x3a3a5c);
+        }
+      });
+    }
   }
 
   // === Public API ===
@@ -654,6 +799,7 @@ window.GamePlayer = (function () {
     isRegenerating: isRegenerating,
     hasTorchLight: hasTorchLight,
     getTorchFuel: getTorchFuel,
-    updateTorchFlame: updateTorchFlame
+    updateTorchFlame: updateTorchFlame,
+    updateEquipmentVisuals: updateEquipmentVisuals
   };
 })();

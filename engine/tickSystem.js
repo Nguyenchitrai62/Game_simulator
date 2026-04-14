@@ -75,9 +75,9 @@ window.TickSystem = (function () {
         }
       }
       
-      if (building.balance.consumesPerTick) {
-        for (var resId in building.balance.consumesPerTick) {
-          var amt = building.balance.consumesPerTick[resId];
+      if (building.balance.consumesPerSecond) {
+        for (var resId in building.balance.consumesPerSecond) {
+          var amt = building.balance.consumesPerSecond[resId];
           _resourceStats.consumption[resId] = (_resourceStats.consumption[resId] || 0) + amt;
         }
       }
@@ -93,8 +93,8 @@ window.TickSystem = (function () {
       // Calculate depletion time
       if (_resourceStats.net[resId] < 0) {
         var current = GameState.getResource(resId);
-        var perTickLoss = Math.abs(_resourceStats.net[resId]);
-        _resourceStats.timeLeft[resId] = Math.floor(current / perTickLoss);
+        var perSecondLoss = Math.abs(_resourceStats.net[resId]);
+        _resourceStats.timeLeft[resId] = Math.floor(current / perSecondLoss);
       } else {
         _resourceStats.timeLeft[resId] = Infinity;
       }
@@ -117,7 +117,7 @@ window.TickSystem = (function () {
       var buildingId = instance.entityId;
       var balance = GameRegistry.getBalance(buildingId);
       
-      if (balance && balance.consumesPerTick) {
+      if (balance && balance.consumesPerSecond) {
         buildingList.push({
           uid: uid,
           instance: instance,
@@ -138,8 +138,8 @@ window.TickSystem = (function () {
       var canConsume = true;
       
       // Check if player has enough resources
-      for (var resId in building.balance.consumesPerTick) {
-        var needed = building.balance.consumesPerTick[resId];
+for (var resId in building.balance.consumesPerSecond) {
+          var needed = building.balance.consumesPerSecond[resId];
         if (!GameState.hasResource(resId, needed)) {
           canConsume = false;
           break;
@@ -148,8 +148,8 @@ window.TickSystem = (function () {
       
       if (canConsume) {
         // Deduct consumption from player resources
-        for (var resId in building.balance.consumesPerTick) {
-          GameState.removeResource(resId, building.balance.consumesPerTick[resId]);
+        for (var resId in building.balance.consumesPerSecond) {
+          GameState.removeResource(resId, building.balance.consumesPerSecond[resId]);
         }
         
         // Apply production (e.g., Smelter produces bronze after consuming copper+tin)
@@ -189,7 +189,7 @@ window.TickSystem = (function () {
     // Warehouse auto-transfer: move storage from nearby buildings to warehouses
     transferToWarehouses();
 
-    // Passive production: buildings with produces but no consumesPerTick and no workers
+    // Passive production: buildings with produces but no consumesPerSecond and no workers
     applyPassiveProduction();
   }
 
@@ -207,7 +207,7 @@ window.TickSystem = (function () {
 
       var level = instance.level || 1;
       var workerCount = (balance.workerCount && balance.workerCount[level]) || 0;
-      var hasConsumption = balance.consumesPerTick && Object.keys(balance.consumesPerTick).length > 0;
+      var hasConsumption = balance.consumesPerSecond && Object.keys(balance.consumesPerSecond).length > 0;
 
       if (balance.produces && workerCount === 0 && !hasConsumption) {
         for (var resId in balance.produces) {
@@ -217,12 +217,17 @@ window.TickSystem = (function () {
           if (balance.productionSpeed) {
             speedMult = balance.productionSpeed[level] || 1.0;
           }
+          var synergyBonus = { productionBonus: 0, speedBonus: 0 };
+          if (window.SynergySystem) {
+            synergyBonus = SynergySystem.getSynergyBonus(uid);
+            speedMult *= (1 + synergyBonus.speedBonus);
+          }
           var globalBonus = 0;
           if (window.ResearchSystem) {
             var bonuses = ResearchSystem.getGlobalBonuses();
             globalBonus = bonuses.productionBonus || 0;
           }
-          var totalAmount = amount * mult * speedMult * (1 + globalBonus);
+          var totalAmount = amount * mult * speedMult * (1 + synergyBonus.productionBonus + globalBonus);
           GameState.addFractionalResource(resId, totalAmount);
         }
       }
@@ -302,8 +307,8 @@ window.TickSystem = (function () {
 
   function applyHunger() {
     var balance = window.GAME_BALANCE || {};
-    var hungerConfig = balance.hunger || { drainPerTick: 0.2, starvingHpDrain: 1, regenHungerMult: 2.0 };
-    var drain = hungerConfig.drainPerTick || 0.2;
+    var hungerConfig = balance.hunger || { drainPerSecond: 0.1, starvingHpDrain: 1, regenHungerMult: 2.0 };
+    var drain = hungerConfig.drainPerSecond || 0.1;
 
     // Double hunger drain when regenerating HP
     var isRegen = (typeof GamePlayer !== 'undefined') && GamePlayer.isRegenerating && GamePlayer.isRegenerating();
@@ -316,8 +321,27 @@ window.TickSystem = (function () {
     if (newHunger <= 0) {
       var hpDrain = hungerConfig.starvingHpDrain || 1;
       var player = GameState.getPlayer();
-      GameState.setPlayerHP(player.hp - hpDrain);
+      var newHp = player.hp - hpDrain;
+      GameState.setPlayerHP(newHp);
       newHunger = 0;
+
+      // Check starvation death
+      if (newHp <= 0) {
+        GameState.setPlayerHP(GameState.getPlayerMaxHp());
+        if (typeof GamePlayer !== 'undefined' && GamePlayer.setPosition) {
+          GamePlayer.setPosition(8, 8);
+        }
+        // Lose 30% resources
+        var resources = GameState.getAllResources();
+        for (var id in resources) {
+          var lost = Math.floor(resources[id] * 0.3);
+          if (lost > 0) GameState.addResource(id, -lost);
+        }
+        GameState.setHunger(GameState.getMaxHunger() * 0.5);
+        if (typeof GameHUD !== 'undefined' && GameHUD.showNotification) {
+          GameHUD.showNotification("Bạn đã chết vì đói! Mất 30% tài nguyên.");
+        }
+      }
     }
 
     GameState.setHunger(Math.max(0, newHunger));
@@ -334,7 +358,7 @@ window.TickSystem = (function () {
       var balance = GameRegistry.getBalance(inst.entityId);
       if (!balance || !balance.lightRadius) continue;
 
-      var fuelPerTick = balance.fuelPerTick || 1;
+      var fuelPerSecond = balance.fuelPerSecond || 1;
       var fuelData = GameState.getFireFuelData(uid);
 
       if (!fuelData) {
@@ -344,7 +368,7 @@ window.TickSystem = (function () {
       }
 
       if (fuelData && fuelData.current > 0) {
-        GameState.setFireFuel(uid, fuelData.current - fuelPerTick);
+        GameState.setFireFuel(uid, fuelData.current - fuelPerSecond);
       }
     }
   }

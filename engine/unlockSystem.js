@@ -134,6 +134,18 @@ window.UnlockSystem = (function () {
       }
     }
 
+    if (conditions.technologies) {
+      for (var i = 0; i < conditions.technologies.length; i++) {
+        total++;
+        var techId = conditions.technologies[i];
+        var hasTech = GameState.isResearched(techId);
+        if (hasTech) {
+          met++;
+        }
+        details.push({ type: "technology", id: techId, met: hasTech });
+      }
+    }
+
     return {
       percent: total > 0 ? met / total : 1,
       details: details

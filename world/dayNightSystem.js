@@ -85,9 +85,9 @@ window.DayNightSystem = (function () {
     var gameSpeed = (typeof GameState !== 'undefined' && GameState.getGameSpeed) ? GameState.getGameSpeed() : 1.0;
     var balance = window.GAME_BALANCE || {};
     var config = balance.dayNight || {};
-    var tickAdvance = config.tickAdvance || 0.0667;
+    var hoursPerSecond = config.hoursPerSecond || 0.0667;
 
-    _timeOfDay += tickAdvance * dt * gameSpeed;
+    _timeOfDay += hoursPerSecond * dt * gameSpeed;
     if (_timeOfDay >= 24) _timeOfDay -= 24;
 
     if (GameState.setTimeOfDay) {
@@ -143,6 +143,23 @@ window.DayNightSystem = (function () {
     }
     if (hemiLight) {
       hemiLight.intensity = vals.hemiInt;
+    }
+
+    // Update vignette based on darkness
+    var vignetteEl = document.getElementById('vignette');
+    if (vignetteEl) {
+      vignetteEl.style.opacity = vals.darkness > 0.7 ? (vals.darkness - 0.7) * 1.5 : 0;
+    }
+
+    // Update color grade based on time of day
+    var cgEl = document.getElementById('color-grade');
+    if (cgEl) {
+      if (vals.darkness > 0.5) {
+        cgEl.style.background = 'rgba(20,20,60,' + ((vals.darkness - 0.5) * 0.15).toFixed(3) + ')';
+        cgEl.style.opacity = '1';
+      } else {
+        cgEl.style.opacity = '0';
+      }
     }
   }
 

@@ -133,11 +133,24 @@ window.BuildingSystem = (function () {
 
     // Create 3D mesh
     var entity = GameRegistry.getEntity(buildingId);
-    var mesh = createBuildingMeshOrSpecial(entity, 1, false);  // Level 1 when first built
+    var mesh = createBuildingMeshOrSpecial(entity, 1, false);
     if (mesh) {
       mesh.position.set(snapX, 0, snapZ);
       mesh.userData.instanceUid = uid;
+      // Construction animation: scale from 0 to 1
+      mesh.scale.set(0.01, 0.01, 0.01);
       GameScene.getScene().add(mesh);
+      var buildStart = performance.now();
+      var uid2 = uid;
+      function animateBuild() {
+        var elapsed = performance.now() - buildStart;
+        var t = Math.min(1, elapsed / 500);
+        var bounce = t < 0.8 ? t / 0.8 : 1 + (1 - (t - 0.8) / 0.2) * 0.05;
+        mesh.scale.set(bounce, bounce, bounce);
+        if (t < 1) requestAnimationFrame(animateBuild);
+        else mesh.scale.set(1, 1, 1);
+      }
+      requestAnimationFrame(animateBuild);
     }
 
     // Push player out if they're inside the building collision area
@@ -426,6 +439,110 @@ window.BuildingSystem = (function () {
     door.position.set(0, 0.15 * scale, 0.41 * scale);
     group.add(door);
 
+    // === Building-type specific details ===
+    if (!isPreview) {
+      var buildingId = entity.id || '';
+      var detailMat = new THREE.MeshLambertMaterial({ color: color, transparent: false, opacity: 1.0 });
+
+      if (buildingId === 'building.wood_cutter') {
+        // Axe detail leaned against side
+        var axeHandleGeo = new THREE.CylinderGeometry(0.02 * scale, 0.02 * scale, 0.4 * scale, 4);
+        var axeHandle = new THREE.Mesh(axeHandleGeo, new THREE.MeshLambertMaterial({ color: 0x8B6914 }));
+        axeHandle.position.set(0.45 * scale, 0.15 * scale, 0.1 * scale);
+        axeHandle.rotation.z = 0.4;
+        group.add(axeHandle);
+        var axeHeadGeo = new THREE.BoxGeometry(0.1 * scale, 0.06 * scale, 0.02 * scale);
+        var axeHead = new THREE.Mesh(axeHeadGeo, new THREE.MeshLambertMaterial({ color: 0x808080 }));
+        axeHead.position.set(0.42 * scale, 0.32 * scale, 0.1 * scale);
+        group.add(axeHead);
+      } else if (buildingId === 'building.stone_quarry') {
+        // Rock pile + pickaxe
+        var pileGeo = new THREE.DodecahedronGeometry(0.08 * scale, 0);
+        var pileMat = new THREE.MeshLambertMaterial({ color: 0x808080 });
+        for (var pi = 0; pi < 3; pi++) {
+          var pileStone = new THREE.Mesh(pileGeo, pileMat);
+          pileStone.position.set(0.4 * scale + pi * 0.08 * scale, 0.06 * scale, 0.2 * scale);
+          pileStone.rotation.set(pi * 0.5, pi * 0.3, 0);
+          group.add(pileStone);
+        }
+      } else if (buildingId === 'building.berry_gatherer') {
+        // Basket + tiny bush icon on roof
+        var basketGeo = new THREE.CylinderGeometry(0.05 * scale, 0.06 * scale, 0.06 * scale, 6);
+        var basketMat = new THREE.MeshLambertMaterial({ color: 0xBEAA78 });
+        var basket = new THREE.Mesh(basketGeo, basketMat);
+        basket.position.set(0.4 * scale, 0.05 * scale, 0.2 * scale);
+        group.add(basket);
+      } else if (buildingId === 'building.flint_mine') {
+        // Sharp flint piece on side
+        var flintGeo = new THREE.ConeGeometry(0.06 * scale, 0.15 * scale, 4);
+        var flintMat = new THREE.MeshLambertMaterial({ color: 0x4a4a4a });
+        var flintDetail = new THREE.Mesh(flintGeo, flintMat);
+        flintDetail.position.set(0.45 * scale, 0.1 * scale, 0.15 * scale);
+        flintDetail.rotation.z = -0.5;
+        group.add(flintDetail);
+      } else if (buildingId === 'building.warehouse') {
+        // Larger double-door + chest icon
+        var chestGeo = new THREE.BoxGeometry(0.12 * scale, 0.08 * scale, 0.1 * scale);
+        var chestMat = new THREE.MeshLambertMaterial({ color: 0x8B6914 });
+        var chest = new THREE.Mesh(chestGeo, chestMat);
+        chest.position.set(0.4 * scale, 0.04 * scale, 0.25 * scale);
+        group.add(chest);
+      } else if (buildingId === 'building.barracks') {
+        // Flag on top
+        var poleGeo2 = new THREE.CylinderGeometry(0.015 * scale, 0.015 * scale, 0.35 * scale, 4);
+        var flagPole = new THREE.Mesh(poleGeo2, new THREE.MeshLambertMaterial({ color: 0x654321 }));
+        flagPole.position.set(0.3 * scale, (0.6 + roofH * 0.5) * scale, 0);
+        group.add(flagPole);
+        var flagGeo = new THREE.PlaneGeometry(0.15 * scale, 0.1 * scale);
+        var flag = new THREE.Mesh(flagGeo, new THREE.MeshLambertMaterial({ color: 0xcc3333, side: THREE.DoubleSide }));
+        flag.position.set(0.37 * scale, (0.6 + roofH * 0.5 + 0.07) * scale, 0);
+        group.add(flag);
+      } else if (buildingId === 'building.smelter' || buildingId === 'building.blast_furnace') {
+        // Chimney with orange glow inside
+        var smeltChimGeo = new THREE.CylinderGeometry(0.05 * scale, 0.06 * scale, 0.2 * scale, 6);
+        var smeltChimMat = new THREE.MeshLambertMaterial({ color: 0x555555 });
+        var smeltChim = new THREE.Mesh(smeltChimGeo, smeltChimMat);
+        smeltChim.position.set(0, (0.6 + roofH * 0.8) * scale, 0);
+        group.add(smeltChim);
+        var glowGeo = new THREE.SphereGeometry(0.03 * scale, 6, 4);
+        var glowMat = new THREE.MeshBasicMaterial({ color: 0xFF6600, transparent: true, opacity: 0.6 });
+        var glow = new THREE.Mesh(glowGeo, glowMat);
+        glow.position.set(0, (0.6 + roofH * 0.5) * scale, 0.3 * scale);
+        group.add(glow);
+      } else if (buildingId === 'building.blacksmith') {
+        // Anvil in front
+        var anvilBaseGeo = new THREE.BoxGeometry(0.1 * scale, 0.04 * scale, 0.08 * scale);
+        var anvilMat2 = new THREE.MeshLambertMaterial({ color: 0x444444 });
+        var anvilBase = new THREE.Mesh(anvilBaseGeo, anvilMat2);
+        anvilBase.position.set(0, 0.02 * scale, 0.5 * scale);
+        group.add(anvilBase);
+        var anvilTopGeo = new THREE.BoxGeometry(0.08 * scale, 0.06 * scale, 0.06 * scale);
+        var anvilTop = new THREE.Mesh(anvilTopGeo, anvilMat2);
+        anvilTop.position.set(0, 0.05 * scale, 0.5 * scale);
+        group.add(anvilTop);
+      } else if (buildingId === 'building.copper_mine' || buildingId === 'building.tin_mine' || buildingId === 'building.iron_mine') {
+        // Mine cart
+        var cartGeo = new THREE.BoxGeometry(0.12 * scale, 0.06 * scale, 0.08 * scale);
+        var cartMat = new THREE.MeshLambertMaterial({ color: 0x654321 });
+        var cart = new THREE.Mesh(cartGeo, cartMat);
+        cart.position.set(0.35 * scale, 0.03 * scale, 0.3 * scale);
+        group.add(cart);
+        // Ore pile
+        var oreColor = buildingId === 'building.copper_mine' ? 0xB87333 : (buildingId === 'building.tin_mine' ? 0xC0C0C0 : 0x8B7355);
+        var oreGeo = new THREE.DodecahedronGeometry(0.04 * scale, 0);
+        var orePile = new THREE.Mesh(oreGeo, new THREE.MeshLambertMaterial({ color: oreColor }));
+        orePile.position.set(0.45 * scale, 0.04 * scale, 0.2 * scale);
+        group.add(orePile);
+      } else if (buildingId === 'building.coal_mine') {
+        // Coal pile
+        var coalGeo = new THREE.SphereGeometry(0.06 * scale, 4, 4);
+        var coalMat = new THREE.MeshLambertMaterial({ color: 0x2F2F2F });
+        var coalPile = new THREE.Mesh(coalGeo, coalMat);
+        coalPile.position.set(0.4 * scale, 0.04 * scale, 0.25 * scale);
+        group.add(coalPile);
+      }
+    }
+
     // === Shadow ===
     var shadowGeo = new THREE.CircleGeometry(0.5 * scale, 12);
     var shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: isPreview ? 0.1 : 0.15 });
@@ -667,7 +784,19 @@ window.BuildingSystem = (function () {
     if (mesh) {
       mesh.position.set(worldX, 0, worldZ);
       mesh.userData.instanceUid = uid;
+      // Construction animation: scale from 0 to 1
+      mesh.scale.set(0.01, 0.01, 0.01);
       GameScene.getScene().add(mesh);
+      var buildStart2 = performance.now();
+      function animateBuild2() {
+        var elapsed = performance.now() - buildStart2;
+        var t = Math.min(1, elapsed / 500);
+        var bounce = t < 0.8 ? t / 0.8 : 1 + (1 - (t - 0.8) / 0.2) * 0.05;
+        mesh.scale.set(bounce, bounce, bounce);
+        if (t < 1) requestAnimationFrame(animateBuild2);
+        else mesh.scale.set(1, 1, 1);
+      }
+      requestAnimationFrame(animateBuild2);
     }
 
     // Push player out if inside

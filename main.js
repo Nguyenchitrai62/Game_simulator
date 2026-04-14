@@ -22,6 +22,9 @@ window.GameActions = (function () {
     GameState.equipItem(equipmentId);
     GameHUD.renderAll();
     GameHUD.updateModal();
+    if (typeof GamePlayer !== 'undefined' && GamePlayer.updateEquipmentVisuals) {
+      GamePlayer.updateEquipmentVisuals();
+    }
     var entity = GameRegistry.getEntity(equipmentId);
     GameHUD.showNotification("Equipped: " + (entity ? entity.name : equipmentId));
   }
@@ -30,6 +33,9 @@ window.GameActions = (function () {
     GameState.unequipSlot(slot);
     GameHUD.renderAll();
     GameHUD.updateModal();
+    if (typeof GamePlayer !== 'undefined' && GamePlayer.updateEquipmentVisuals) {
+      GamePlayer.updateEquipmentVisuals();
+    }
     GameHUD.showNotification("Unequipped " + slot);
   }
 
@@ -229,8 +235,17 @@ window.GameActions = (function () {
 
 // === GAME INITIALIZATION ===
 (function () {
+  function setLoadProgress(pct, text) {
+    var bar = document.getElementById('loading-bar');
+    var txt = document.getElementById('loading-text');
+    if (bar) bar.style.width = pct + '%';
+    if (txt) txt.textContent = text || 'Loading...';
+  }
+
+  setLoadProgress(5, 'Initializing registry...');
   GameRegistry.init();
 
+  setLoadProgress(15, 'Checking save data...');
   var versionCheck = GameStorage.checkVersion();
   var loaded = false;
 
@@ -250,18 +265,18 @@ window.GameActions = (function () {
 
   GameState.setVersion(window.GAME_MANIFEST.version);
 
-  // Initialize 3D scene
-  console.log('[Game] Initializing 3D scene...');
+  setLoadProgress(25, 'Loading 3D...');
+
   GameScene.init();
 
-  // Verify scene initialized
   if (!GameScene.getScene()) {
-    console.error('[Game] ❌ CRITICAL: 3D Scene failed to initialize!');
-    alert('CRITICAL ERROR: 3D rendering failed. Check browser console (F12).');
+    console.error('[Game] FAILED: 3D Scene failed to initialize!');
+    var ls = document.getElementById('loading-screen');
+    if (ls) ls.innerHTML = '<div style="color:#ff4444;font-family:monospace;font-size:16px;">ERROR: 3D rendering failed.<br>Check browser console (F12).</div>';
     return;
   }
 
-  // Initialize terrain with world seed
+  setLoadProgress(35, 'Loading terrain...');
   var stateExport = GameState.exportState();
   GameTerrain.init(stateExport.worldSeed);
 
@@ -274,11 +289,10 @@ window.GameActions = (function () {
   var playerData = GameState.getPlayer();
   GamePlayer.init(playerData.x, playerData.z);
 
-  // Initial chunk generation around player
-  // (generateChunk already calls createObjectForChunk internally)
+  setLoadProgress(50, 'Spawning world...');
   GameTerrain.update(playerData.x, playerData.z);
 
-  // Restore saved building instances (create meshes)
+  setLoadProgress(60, 'Restoring buildings...');
   var instances = GameState.getAllInstances();
   for (var uid in instances) {
     var inst = instances[uid];
@@ -302,7 +316,8 @@ window.GameActions = (function () {
   // Restore tile reservations from saved instances
   BuildingSystem.restoreReservations();
 
-  // Initialize day/night system
+  setLoadProgress(70, 'Starting systems...');
+
   var savedState = GameState.exportState();
   if (typeof DayNightSystem !== 'undefined') {
     DayNightSystem.init();
@@ -316,12 +331,27 @@ window.GameActions = (function () {
     FireSystem.init();
   }
 
+  // Initialize atmosphere system (wind, stars, moon, clouds)
+  if (typeof AtmosphereSystem !== 'undefined') {
+    AtmosphereSystem.init();
+  }
+
+  // Initialize particle system
+  if (typeof ParticleSystem !== 'undefined') {
+    ParticleSystem.init();
+  }
+
+  // Initialize weather system
+  if (typeof WeatherSystem !== 'undefined') {
+    WeatherSystem.init();
+  }
+
   // Initialize minimap
   if (typeof MiniMap !== 'undefined') {
     MiniMap.init();
   }
 
-  // Check unlocks (run twice: first pass unlocks basic, second pass unlocks dependents)
+  setLoadProgress(85, 'Unlocking content...');
   UnlockSystem.checkAll();
   UnlockSystem.checkAll();
 
@@ -329,7 +359,7 @@ window.GameActions = (function () {
   console.log("[Game] Unlocked entities: " + unlockedList.length);
   console.log("[Game] Resources: " + JSON.stringify(GameState.getAllResources()));
 
-  // Initialize HUD
+  setLoadProgress(95, 'Loading UI...');
   if (typeof GameHUD !== 'undefined' && GameHUD.init) {
     GameHUD.init();
   }
@@ -341,6 +371,21 @@ window.GameActions = (function () {
     console.error('[Game] ❌ CRITICAL: GameHUD not available! Cannot render UI.');
     alert('CRITICAL ERROR: Game UI (HUD) failed to load!\n\nPlease check browser console (F12) for errors.');
   }
+
+  // Apply initial equipment visuals
+  if (typeof GamePlayer !== 'undefined' && GamePlayer.updateEquipmentVisuals) {
+    GamePlayer.updateEquipmentVisuals();
+  }
+
+  setLoadProgress(100, 'Ready!');
+
+  setTimeout(function() {
+    var ls = document.getElementById('loading-screen');
+    if (ls) {
+      ls.style.opacity = '0';
+      setTimeout(function() { ls.style.display = 'none'; }, 800);
+    }
+  }, 300);
 
   // Mouse move handler - hover detection + build preview
   document.getElementById('game-canvas').addEventListener('mousemove', function (event) {

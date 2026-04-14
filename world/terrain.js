@@ -107,11 +107,18 @@ window.GameTerrain = (function () {
     var group = new THREE.Group();
     group.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
 
-    // Ground plane
+    // Ground plane with biome color
     var groundGeo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE);
-    var groundColor = new THREE.Color(0x7ec850);
-    groundColor.offsetHSL(0, 0, (seededRandom(seed + 1) - 0.5) * 0.03);
-    var groundMat = new THREE.MeshStandardMaterial({ color: groundColor, roughness: 1, metalness: 0 });
+    var biomeColor;
+    if (distFromHome < 2) {
+      biomeColor = new THREE.Color(0x7ec850);
+    } else if (distFromHome < 4) {
+      biomeColor = new THREE.Color(0x6aaa45);
+    } else {
+      biomeColor = new THREE.Color(0x5a8a3a);
+    }
+    biomeColor.offsetHSL(0, 0, (seededRandom(seed + 1) - 0.5) * 0.03);
+    var groundMat = new THREE.MeshStandardMaterial({ color: biomeColor, roughness: 1, metalness: 0 });
     var ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(CHUNK_SIZE / 2, 0, CHUNK_SIZE / 2);
@@ -125,10 +132,33 @@ window.GameTerrain = (function () {
     gridHelper.material.transparent = true;
     group.add(gridHelper);
 
-    // Generate objects based on distance from home
     var rng = function (offset) { return seededRandom(seed + offset); };
 
-    // Trees
+    // Grass tufts decoration
+    var grassCount = Math.floor(rng(5000) * 6) + 3;
+    for (var gi = 0; gi < grassCount; gi++) {
+      var gx = Math.floor(rng(5000 + gi * 3) * CHUNK_SIZE);
+      var gz = Math.floor(rng(5001 + gi * 3) * CHUNK_SIZE);
+      if (cx === 0 && cz === 0 && gx > 6 && gx < 10 && gz > 6 && gz < 10) continue;
+      var grassGroup = createGrassTuft(gx, gz, seed + gi);
+      group.add(grassGroup);
+      if (typeof AtmosphereSystem !== 'undefined') {
+        AtmosphereSystem.registerWindTarget(grassGroup, 'grass');
+      }
+    }
+
+    // Flower clusters decoration
+    var flowerCount = Math.floor(rng(6000) * 3) + 1;
+    var flowerColors = [0xFFDD44, 0xFF6688, 0xFFFFFF, 0xBB66FF];
+    for (var fi = 0; fi < flowerCount; fi++) {
+      var fx = Math.floor(rng(6000 + fi * 2) * CHUNK_SIZE);
+      var fz = Math.floor(rng(6001 + fi * 2) * CHUNK_SIZE);
+      if (cx === 0 && cz === 0 && fx > 6 && fx < 10 && fz > 6 && fz < 10) continue;
+      var flowerGroup = createFlowerCluster(fx, fz, flowerColors[fi % flowerColors.length], seed + fi);
+      group.add(flowerGroup);
+    }
+
+    // Generate objects based on distance from home
     var treeCount;
     if (distFromHome < 1) treeCount = 8 + Math.floor(rng(10) * 5);
     else if (distFromHome < 3) treeCount = 5 + Math.floor(rng(10) * 6);
@@ -456,6 +486,73 @@ window.GameTerrain = (function () {
   function releaseTile(worldX, worldZ) {
     var key = Math.round(worldX) + "," + Math.round(worldZ);
     delete _reservedTiles[key];
+  }
+
+  function createGrassTuft(x, z, s) {
+    var group = new THREE.Group();
+    var grassCount = 3 + Math.floor(seededRandom(s) * 3);
+    var baseHue = seededRandom(s + 1) * 0.08 - 0.04;
+
+    for (var i = 0; i < grassCount; i++) {
+      var height = 0.10 + seededRandom(s + i * 7) * 0.08;
+      var geo = new THREE.ConeGeometry(0.02, height, 3);
+      var color = new THREE.Color(0x5a9a3a);
+      color.offsetHSL(0, 0, baseHue + (seededRandom(s + i * 11) - 0.5) * 0.06);
+      var mat = new THREE.MeshLambertMaterial({ color: color });
+      var blade = new THREE.Mesh(geo, mat);
+      blade.position.set(
+        (seededRandom(s + i * 3) - 0.5) * 0.12,
+        height / 2,
+        (seededRandom(s + i * 5) - 0.5) * 0.12
+      );
+      blade.rotation.set(
+        (seededRandom(s + i * 13) - 0.5) * 0.3,
+        seededRandom(s + i * 9) * Math.PI * 2,
+        (seededRandom(s + i * 17) - 0.5) * 0.2
+      );
+      blade.castShadow = false;
+      blade.receiveShadow = false;
+      group.add(blade);
+    }
+
+    group.position.set(x, 0, z);
+    group.userData.isDecoration = true;
+    return group;
+  }
+
+  function createFlowerCluster(x, z, color, s) {
+    var group = new THREE.Group();
+    var count = 2 + Math.floor(seededRandom(s + 20) * 3);
+
+    for (var i = 0; i < count; i++) {
+      var stemGeo = new THREE.CylinderGeometry(0.005, 0.005, 0.08, 3);
+      var stemMat = new THREE.MeshLambertMaterial({ color: 0x4a8a2e });
+      var stem = new THREE.Mesh(stemGeo, stemMat);
+      var angle = (i / count) * Math.PI * 2 + seededRandom(s + i * 7) * 0.5;
+      var radius = 0.06 + seededRandom(s + i * 11) * 0.06;
+      stem.position.set(
+        Math.cos(angle) * radius,
+        0.04,
+        Math.sin(angle) * radius
+      );
+      stem.castShadow = false;
+      group.add(stem);
+
+      var petalGeo = new THREE.SphereGeometry(0.02, 4, 3);
+      var petalMat = new THREE.MeshLambertMaterial({ color: color });
+      var petal = new THREE.Mesh(petalGeo, petalMat);
+      petal.position.set(
+        stem.position.x,
+        0.08 + seededRandom(s + i * 13) * 0.02,
+        stem.position.z
+      );
+      petal.castShadow = false;
+      group.add(petal);
+    }
+
+    group.position.set(x, 0, z);
+    group.userData.isDecoration = true;
+    return group;
   }
 
   return {

@@ -8,20 +8,14 @@ window.GAME_CONTENT["expansion_iron_age"] = {
   packId: "expansion_iron_age",
   name: "Iron Age Expansion",
   description: "Unlock the power of iron: new resources, dangerous enemies, and powerful equipment.",
-  version: "2.0.0",
-  
+
   entities: [
     // === AGE ===
     {
       id: "age.iron",
       type: "age",
       name: "Iron Age",
-      description: "The age of iron smelting and advanced civilization.",
-      unlock: {
-        age: "age.bronze",
-        resources: { "resource.bronze": 20, "resource.food": 100, "resource.tool": 20 },
-        buildings: { "building.smelter": 2, "building.copper_mine": 2, "building.tin_mine": 1 }
-      }
+      description: "The age of iron smelting and advanced civilization."
     },
 
     // === RESOURCES ===
@@ -116,6 +110,7 @@ window.GAME_CONTENT["expansion_iron_age"] = {
       type: "equipment",
       name: "Iron Sword",
       description: "+15 ATK - Powerful iron blade.",
+      visual: { color: 0x888899 },
       slot: "weapon",
       unlock: { age: "age.iron", buildings: { "building.blacksmith": 1 } }
     },
@@ -124,6 +119,7 @@ window.GAME_CONTENT["expansion_iron_age"] = {
       type: "equipment",
       name: "Iron Shield",
       description: "+10 DEF - Heavy iron shield.",
+      visual: { color: 0x777788 },
       slot: "offhand",
       unlock: { age: "age.iron", buildings: { "building.blacksmith": 1 } }
     },
@@ -132,6 +128,7 @@ window.GAME_CONTENT["expansion_iron_age"] = {
       type: "equipment",
       name: "Iron Armor",
       description: "+15 DEF, +30 HP - Full iron plate.",
+      visual: { color: 0x666677 },
       slot: "armor",
       unlock: { age: "age.iron", resources: { "resource.iron": 20 } }
     },
@@ -140,6 +137,7 @@ window.GAME_CONTENT["expansion_iron_age"] = {
       type: "equipment",
       name: "Iron Boots",
       description: "+3 Speed, +3 DEF - Iron greaves.",
+      visual: { color: 0x777788 },
       slot: "boots",
       unlock: { age: "age.iron" }
     },

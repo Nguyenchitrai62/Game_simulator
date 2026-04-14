@@ -46,14 +46,15 @@ window.GameScene = (function () {
     var dirLight = new THREE.DirectionalLight(0xfff4e0, 1.2);
     dirLight.position.set(15, 25, 10);
     dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 2048;
-    dirLight.shadow.mapSize.height = 2048;
+    dirLight.shadow.mapSize.width = 4096;
+    dirLight.shadow.mapSize.height = 4096;
     dirLight.shadow.camera.near = 0.5;
     dirLight.shadow.camera.far = 100;
-    dirLight.shadow.camera.left = -30;
-    dirLight.shadow.camera.right = 30;
-    dirLight.shadow.camera.top = 30;
-    dirLight.shadow.camera.bottom = -30;
+    dirLight.shadow.camera.left = -35;
+    dirLight.shadow.camera.right = 35;
+    dirLight.shadow.camera.top = 35;
+    dirLight.shadow.camera.bottom = -35;
+    dirLight.shadow.bias = -0.001;
     scene.add(dirLight);
 
     // Hemisphere light for nicer colors
@@ -62,6 +63,12 @@ window.GameScene = (function () {
 
     window.addEventListener('resize', onResize);
     onResize();
+
+    var flmCanvas = document.getElementById('fire-light-mask');
+    if (flmCanvas) {
+      flmCanvas.width = window.innerWidth;
+      flmCanvas.height = window.innerHeight;
+    }
 
     startLoop();
   }
@@ -77,6 +84,12 @@ window.GameScene = (function () {
     camera.bottom = -d;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
+
+    var flmCanvas = document.getElementById('fire-light-mask');
+    if (flmCanvas) {
+      flmCanvas.width = w;
+      flmCanvas.height = h;
+    }
   }
 
   function setZoom(delta) {
@@ -154,6 +167,21 @@ window.GameScene = (function () {
       // Update fire lights (always, even when paused)
       if (typeof FireSystem !== 'undefined') FireSystem.update(dt);
 
+      // Update atmosphere system (wind, stars, moon, clouds)
+      if (typeof AtmosphereSystem !== 'undefined') AtmosphereSystem.update(dt);
+
+      // Update particle system
+      if (typeof ParticleSystem !== 'undefined') ParticleSystem.update(dt);
+
+      // Update weather system
+      if (typeof WeatherSystem !== 'undefined') WeatherSystem.update(dt);
+
+      // Update water animation
+      if (typeof WaterSystem !== 'undefined' && WaterSystem.updateWaterAnimation) WaterSystem.updateWaterAnimation(dt);
+
+      // Update fire light mask (reduce darkness near fires)
+      updateFireLightMask();
+
       // Update minimap
       if (typeof MiniMap !== 'undefined') MiniMap.update();
 
@@ -198,10 +226,10 @@ window.GameScene = (function () {
     // Update shadow camera to follow
     var shadowCam = scene.children.find(function (c) { return c.isDirectionalLight; });
     if (shadowCam) {
-      shadowCam.shadow.camera.left = pos.x - 30;
-      shadowCam.shadow.camera.right = pos.x + 30;
-      shadowCam.shadow.camera.top = pos.z + 30;
-      shadowCam.shadow.camera.bottom = pos.z - 30;
+      shadowCam.shadow.camera.left = pos.x - 35;
+      shadowCam.shadow.camera.right = pos.x + 35;
+      shadowCam.shadow.camera.top = pos.z + 35;
+      shadowCam.shadow.camera.bottom = pos.z - 35;
       shadowCam.shadow.camera.updateProjectionMatrix();
     }
   }
@@ -225,6 +253,59 @@ window.GameScene = (function () {
       x: (vec.x * 0.5 + 0.5) * window.innerWidth,
       y: (-vec.y * 0.5 + 0.5) * window.innerHeight
     };
+  }
+
+  function updateFireLightMask() {
+    var flmCanvas = document.getElementById('fire-light-mask');
+    if (!flmCanvas) return;
+    var ctx = flmCanvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, flmCanvas.width, flmCanvas.height);
+
+    var darkness = (typeof DayNightSystem !== 'undefined') ? DayNightSystem.getDarkness() : 0;
+    if (darkness < 0.1) return;
+
+    var fires = [];
+    if (typeof FireSystem !== 'undefined' && FireSystem.getActiveFires) {
+      fires = FireSystem.getActiveFires();
+    }
+
+    if (fires.length === 0) return;
+
+    var camPos = camera.position;
+    var camTarget = new THREE.Vector3();
+    camera.getWorldDirection(camTarget);
+
+    for (var i = 0; i < fires.length; i++) {
+      var fire = fires[i];
+      if (fire.intensity <= 0) continue;
+
+      var worldPos = new THREE.Vector3(fire.x, 1.0, fire.z);
+      var screenPos = worldToScreen(worldPos);
+
+      if (screenPos.x < -200 || screenPos.x > flmCanvas.width + 200 ||
+          screenPos.y < -200 || screenPos.y > flmCanvas.height + 200) continue;
+
+      var pixelRadius = fire.radius * (flmCanvas.width / 24) * fire.intensity;
+      pixelRadius = Math.max(40, Math.min(pixelRadius, 350));
+
+      var isCampfire = fire.isCampfire;
+      var centerAlpha = isCampfire ? 0.35 * fire.intensity : 0.25 * fire.intensity;
+      centerAlpha = Math.min(centerAlpha, 0.5);
+
+      var grad = ctx.createRadialGradient(
+        screenPos.x, screenPos.y, 0,
+        screenPos.x, screenPos.y, pixelRadius
+      );
+      grad.addColorStop(0, 'rgba(255,220,140,' + centerAlpha.toFixed(3) + ')');
+      grad.addColorStop(0.3, 'rgba(255,180,80,' + (centerAlpha * 0.6).toFixed(3) + ')');
+      grad.addColorStop(0.6, 'rgba(255,140,50,' + (centerAlpha * 0.25).toFixed(3) + ')');
+      grad.addColorStop(1, 'rgba(255,100,30,0)');
+
+      ctx.fillStyle = grad;
+      ctx.fillRect(screenPos.x - pixelRadius, screenPos.y - pixelRadius, pixelRadius * 2, pixelRadius * 2);
+    }
   }
 
   return {

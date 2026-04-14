@@ -1,5 +1,24 @@
+:root {
+  --bg-primary: #1a1a2e;
+  --bg-secondary: rgba(22,33,62,0.95);
+  --bg-tertiary: rgba(15,52,96,0.8);
+  --accent-red: #e94560;
+  --accent-green: #4ecca3;
+  --accent-gold: #f0a500;
+  --accent-blue: #536dfe;
+  --text-primary: #e0e0e0;
+  --text-secondary: #aaa;
+  --text-muted: #888;
+  --text-dim: #666;
+  --stat-hp: #e94560;
+  --stat-atk: #f0a500;
+  --stat-def: #4ecca3;
+  --stat-spd: #536dfe;
+  --transition-speed: 0.2s;
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { overflow: hidden; background: #1a1a2e; font-family: 'Segoe UI', sans-serif; color: #e0e0e0; }
+body { overflow: hidden; background: var(--bg-primary); font-family: 'Segoe UI', sans-serif; color: var(--text-primary); }
 #game-canvas { display: block; width: 100vw; height: 100vh; }
 
 /* === HUD OVERLAY === */
@@ -180,8 +199,8 @@ body { overflow: hidden; background: #1a1a2e; font-family: 'Segoe UI', sans-seri
 /* === DAY/NIGHT CLOCK === */
 .day-night-clock {
   position: fixed;
-  top: 12px;
-  right: 140px;
+  top: 10px;
+  right: 16px;
   background: rgba(22,33,62,0.9);
   border: 1px solid #0f3460;
   border-radius: 8px;
@@ -208,6 +227,7 @@ body { overflow: hidden; background: #1a1a2e; font-family: 'Segoe UI', sans-seri
 .player-stats {
   display: flex; gap: 10px; align-items: center;
   font-size: 13px;
+  margin-right: 80px;
 }
 .stat-hp { color: #e94560; }
 .stat-atk { color: #f0a500; }
@@ -976,3 +996,35 @@ body { overflow: hidden; background: #1a1a2e; font-family: 'Segoe UI', sans-seri
   font-weight: bold;
   color: #e94560;
 }
+
+/* === PHASE 6: UI POLISH === */
+.modal-tab { transition: background var(--transition-speed) ease, color var(--transition-speed) ease, transform 0.1s ease; }
+.modal-tab:hover { transform: translateY(-1px); }
+.modal-tab.active { transform: translateY(0); }
+.modal-panel { animation: fadeInPanel 0.2s ease-out; }
+@keyframes fadeInPanel {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.modal-container { transition: opacity 0.3s ease, transform 0.3s ease; }
+.modal-overlay { transition: opacity 0.3s ease; }
+.notification { animation: slideInRight 0.3s ease-out; }
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.resource-item { transition: transform 0.15s ease; }
+.resource-item:hover { transform: scale(1.05); }
+.building-card { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+.building-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+
+/* Tooltip system */
+.tooltip-container { position: relative; }
+.tooltip-content {
+  display: none; position: absolute; z-index: 10000;
+  background: var(--bg-secondary); border: 1px solid var(--accent-gold);
+  padding: 8px 12px; border-radius: 6px; font-size: 12px;
+  max-width: 200px; bottom: 100%; left: 50%; transform: translateX(-50%);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+.tooltip-container:hover .tooltip-content { display: block; }
