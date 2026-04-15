@@ -32,6 +32,15 @@ window.GameEntities = (function () {
         obj.worldX = cx * chunkSize + obj.x;
         obj.worldZ = cz * chunkSize + obj.z;
         obj.maxHp = obj.hp;
+
+        if (obj.type && obj.type.startsWith("animal.")) {
+          mesh.userData._spawnX = obj.worldX;
+          mesh.userData._spawnZ = obj.worldZ;
+          mesh.userData._movementState = 'patrol';
+          mesh.userData._patrolTarget = null;
+          mesh.userData._idleUntil = 0;
+          mesh.userData._moveSpeed = 0;
+        }
       }
     });
   }
@@ -422,6 +431,10 @@ window.GameEntities = (function () {
         }
         // Reset wander timer to pick new direction
         mesh.userData._wanderTime = performance.now() / 1000;
+        mesh.userData._movementState = 'patrol';
+        mesh.userData._patrolTarget = null;
+        mesh.userData._idleUntil = (performance.now() / 1000) + 0.5;
+        mesh.userData._moveSpeed = 0;
       }
       
       mesh.traverse(function(child) {
@@ -441,117 +454,244 @@ window.GameEntities = (function () {
     }
   }
 
+  function ensureAnimalState(mesh, objData, time) {
+    if (mesh.userData._animalStateReady) return;
+    mesh.userData._animalStateReady = true;
+    mesh.userData._spawnX = mesh.userData._spawnX !== undefined ? mesh.userData._spawnX : objData.worldX;
+    mesh.userData._spawnZ = mesh.userData._spawnZ !== undefined ? mesh.userData._spawnZ : objData.worldZ;
+    mesh.userData._movementState = mesh.userData._movementState || 'patrol';
+    mesh.userData._patrolTarget = mesh.userData._patrolTarget || null;
+    mesh.userData._idleUntil = mesh.userData._idleUntil || (time + Math.random());
+    mesh.userData._moveSpeed = mesh.userData._moveSpeed || 0;
+  }
+
+  function getAnimalBehaviorSettings(type, balance) {
+    var settings = {
+      patrolRadius: 3.2,
+      patrolSpeed: 0.38,
+      chaseSpeed: 1.05,
+      returnSpeed: 0.72,
+      turnRate: 0.18
+    };
+
+    if (type === 'animal.wolf') {
+      settings.patrolSpeed = 0.46;
+      settings.chaseSpeed = 1.18;
+      settings.returnSpeed = 0.8;
+      settings.turnRate = 0.24;
+    } else if (type === 'animal.boar') {
+      settings.patrolSpeed = 0.42;
+      settings.chaseSpeed = 1.0;
+      settings.returnSpeed = 0.76;
+      settings.turnRate = 0.2;
+    } else if (type === 'animal.bear') {
+      settings.patrolRadius = 3.8;
+      settings.patrolSpeed = 0.34;
+      settings.chaseSpeed = 0.9;
+      settings.returnSpeed = 0.64;
+      settings.turnRate = 0.14;
+    } else if (type === 'animal.lion') {
+      settings.patrolRadius = 4.2;
+      settings.patrolSpeed = 0.44;
+      settings.chaseSpeed = 1.15;
+      settings.returnSpeed = 0.82;
+      settings.turnRate = 0.24;
+    } else if (type === 'animal.bandit') {
+      settings.patrolRadius = 2.8;
+      settings.patrolSpeed = 0.4;
+      settings.chaseSpeed = 0.98;
+      settings.returnSpeed = 0.74;
+      settings.turnRate = 0.22;
+    } else if (type === 'animal.sabertooth') {
+      settings.patrolRadius = 4.6;
+      settings.patrolSpeed = 0.5;
+      settings.chaseSpeed = 1.25;
+      settings.returnSpeed = 0.88;
+      settings.turnRate = 0.26;
+    }
+
+    settings.aggroRange = (balance && balance.aggroRange) || 3;
+    settings.attackRange = Math.max(1.05, settings.aggroRange * 0.55);
+    settings.chaseRange = Math.max(settings.attackRange + 1.25, settings.aggroRange * 2.3);
+    return settings;
+  }
+
+  function canAnimalMoveTo(worldX, worldZ) {
+    if (!window.GameTerrain || !GameTerrain.isWalkable) return true;
+    var clearance = 0.2;
+    if (!GameTerrain.isWalkable(worldX, worldZ)) return false;
+
+    var samples = [
+      [clearance, 0],
+      [-clearance, 0],
+      [0, clearance],
+      [0, -clearance]
+    ];
+
+    for (var i = 0; i < samples.length; i++) {
+      if (!GameTerrain.isWalkable(worldX + samples[i][0], worldZ + samples[i][1])) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  function turnAnimalTowards(mesh, targetAngle, turnRate) {
+    var angleDiff = targetAngle - mesh.rotation.y;
+    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+    mesh.rotation.y += angleDiff * turnRate;
+  }
+
+  function pickAnimalPatrolTarget(mesh, settings) {
+    var spawnX = mesh.userData._spawnX;
+    var spawnZ = mesh.userData._spawnZ;
+    for (var attempt = 0; attempt < 10; attempt++) {
+      var angle = Math.random() * Math.PI * 2;
+      var radius = settings.patrolRadius * (0.35 + Math.random() * 0.65);
+      var targetX = spawnX + Math.sin(angle) * radius;
+      var targetZ = spawnZ + Math.cos(angle) * radius;
+      if (canAnimalMoveTo(targetX, targetZ)) {
+        return { x: targetX, z: targetZ };
+      }
+    }
+    return { x: spawnX, z: spawnZ };
+  }
+
+  function moveAnimal(mesh, objData, targetX, targetZ, speed, dt, turnRate) {
+    var dx = targetX - objData.worldX;
+    var dz = targetZ - objData.worldZ;
+    var distance = Math.sqrt(dx * dx + dz * dz);
+    if (distance < 0.08) {
+      mesh.userData._moveSpeed = 0;
+      return true;
+    }
+
+    var dirX = dx / distance;
+    var dirZ = dz / distance;
+    var moveDistance = Math.min(distance, speed * dt);
+    var nextX = objData.worldX + dirX * moveDistance;
+    var nextZ = objData.worldZ + dirZ * moveDistance;
+    var moved = false;
+
+    if (canAnimalMoveTo(nextX, nextZ)) {
+      objData.worldX = nextX;
+      objData.worldZ = nextZ;
+      moved = true;
+    } else if (canAnimalMoveTo(nextX, objData.worldZ)) {
+      objData.worldX = nextX;
+      moved = true;
+    } else if (canAnimalMoveTo(objData.worldX, nextZ)) {
+      objData.worldZ = nextZ;
+      moved = true;
+    }
+
+    mesh.position.x = objData.worldX;
+    mesh.position.z = objData.worldZ;
+    mesh.userData._moveSpeed = moved ? speed : 0;
+    turnAnimalTowards(mesh, Math.atan2(dirX, dirZ), turnRate);
+    return moved && distance <= moveDistance + 0.08;
+  }
+
+  function updateAnimalAnimation(mesh, time, state) {
+    var moveSpeed = mesh.userData._moveSpeed || 0;
+    var moving = moveSpeed > 0.01;
+    var chaseState = state === 'chase';
+    var cycleSpeed = chaseState ? 12 : 8;
+    var amplitude = chaseState ? 0.34 : 0.22;
+
+    mesh.position.y = moving ? Math.sin(time * cycleSpeed * 0.5 + mesh.id) * (chaseState ? 0.03 : 0.018) : 0;
+
+    mesh.children.forEach(function (child) {
+      if (child.name === 'leg') {
+        if (moving) {
+          var phase = (child.position.x + child.position.z) > 0 ? 0 : Math.PI;
+          child.rotation.x = Math.sin(time * cycleSpeed + phase + mesh.id) * amplitude;
+        } else {
+          child.rotation.x *= 0.72;
+        }
+      }
+
+      if (child.name === 'tail') {
+        child.rotation.y = moving ? Math.sin(time * 5 + mesh.id) * 0.16 : child.rotation.y * 0.8;
+      }
+    });
+  }
+
   function update(dt) {
-    // Animate animals (idle movement + actual wandering)
     _meshMap.forEach(function (mesh, id) {
       var objData = _dataMap.get(mesh.id);
       if (!objData) return;
 
       if (objData.type && objData.type.startsWith("animal.") && objData.hp > 0 && !objData._destroyed) {
         var time = performance.now() / 1000;
-        
-        // Check if this animal is in combat
-        var isInCombat = false;
-        if (window.GameCombat && GameCombat.isActive && GameCombat.isActive()) {
-          var activeCombat = GameCombat.getTarget ? GameCombat.getTarget() : null;
-          isInCombat = activeCombat === objData;
-        }
-        
-        // Slow wandering movement (not during combat)
-        if (!isInCombat) {
-          // Aggro check - animals attack player when nearby
-          if (window.GamePlayer && window.GameCombat) {
-            var playerPos = GamePlayer.getPosition();
-            var distToPlayer = Math.sqrt(
-              Math.pow(objData.worldX - playerPos.x, 2) +
-              Math.pow(objData.worldZ - playerPos.z, 2)
-            );
-            var balance = GameRegistry.getBalance(objData.type);
-            var aggroRange = (balance && balance.aggroRange) || 3;
+        ensureAnimalState(mesh, objData, time);
+        var balance = GameRegistry.getBalance(objData.type) || {};
+        var settings = getAnimalBehaviorSettings(objData.type, balance);
+        var combatActive = window.GameCombat && GameCombat.isActive && GameCombat.isActive();
+        var activeTarget = combatActive && GameCombat.getTarget ? GameCombat.getTarget() : null;
+        var isOwnCombat = activeTarget === objData;
+        var playerPos = window.GamePlayer ? GamePlayer.getPosition() : null;
+        var distToPlayer = playerPos ? Math.sqrt(
+          Math.pow(objData.worldX - playerPos.x, 2) +
+          Math.pow(objData.worldZ - playerPos.z, 2)
+        ) : Infinity;
+        var distFromSpawn = Math.sqrt(
+          Math.pow(objData.worldX - mesh.userData._spawnX, 2) +
+          Math.pow(objData.worldZ - mesh.userData._spawnZ, 2)
+        );
 
-            if (distToPlayer < aggroRange && !GameCombat.isActive()) {
-              GameCombat.startCombat(objData);
-              return; // Skip further animation this frame
-            }
+        if (isOwnCombat) {
+          mesh.userData._movementState = 'combat';
+          mesh.userData._patrolTarget = null;
+          mesh.userData._moveSpeed = 0;
+          if (playerPos) {
+            turnAnimalTowards(mesh, Math.atan2(playerPos.x - objData.worldX, playerPos.z - objData.worldZ), settings.turnRate * 1.4);
+          }
+        } else if (!combatActive && playerPos && distToPlayer <= settings.chaseRange) {
+          mesh.userData._movementState = 'chase';
+          mesh.userData._patrolTarget = null;
+          mesh.userData._idleUntil = 0;
 
-            // Chase player if within aggro range x2 (pursuit range)
-            if (distToPlayer < aggroRange * 2 && distToPlayer > aggroRange && !GameCombat.isActive()) {
-              var chaseSpeed = 1.0 * dt;
-              var chaseDx = (playerPos.x - objData.worldX) / distToPlayer;
-              var chaseDz = (playerPos.z - objData.worldZ) / distToPlayer;
-              var chaseX = mesh.position.x + chaseDx * chaseSpeed;
-              var chaseZ = mesh.position.z + chaseDz * chaseSpeed;
-              if (window.GameTerrain && GameTerrain.isWalkable(chaseX, chaseZ)) {
-                mesh.position.x = chaseX;
-                mesh.position.z = chaseZ;
-                objData.worldX = chaseX;
-                objData.worldZ = chaseZ;
-                var chaseAngle = Math.atan2(chaseDx, chaseDz);
-                mesh.rotation.y = chaseAngle;
-              }
-              return; // Skip wandering while chasing
-            }
-          }
-
-          // Initialize wander state if needed
-          if (!mesh.userData._wanderTime) {
-            mesh.userData._wanderTime = time;
-            mesh.userData._wanderDir = Math.random() * Math.PI * 2;
-            // Store spawn point
-            mesh.userData._spawnX = objData.worldX;
-            mesh.userData._spawnZ = objData.worldZ;
-          }
-          
-          // Change direction every 3-5 seconds
-          if (time - mesh.userData._wanderTime > 3 + Math.random() * 2) {
-            mesh.userData._wanderTime = time;
-            mesh.userData._wanderDir = Math.random() * Math.PI * 2;
-          }
-          
-          // Move slowly in wander direction (0.3 tiles/sec)
-          var wanderSpeed = 0.3 * dt;
-          var newX = mesh.position.x + Math.sin(mesh.userData._wanderDir) * wanderSpeed;
-          var newZ = mesh.position.z + Math.cos(mesh.userData._wanderDir) * wanderSpeed;
-          
-          // Check if walkable and within reasonable range of spawn point
-          var distFromSpawn = Math.sqrt(
-            Math.pow(newX - mesh.userData._spawnX, 2) + 
-            Math.pow(newZ - mesh.userData._spawnZ, 2)
-          );
-          
-          if (distFromSpawn < 3 && window.GameTerrain && GameTerrain.isWalkable(newX, newZ)) {
-            // Update mesh position
-            mesh.position.x = newX;
-            mesh.position.z = newZ;
-            
-            // Update hitbox position (so combat/interaction works)
-            objData.worldX = newX;
-            objData.worldZ = newZ;
-            
-            // Smooth rotation (like player)
-            var targetAngle = mesh.userData._wanderDir;
-            var angleDiff = targetAngle - mesh.rotation.y;
-            
-            // Normalize angle difference to always rotate the shortest way
-            while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-            while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-            
-            mesh.rotation.y += angleDiff * 0.1; // Slower rotation than player
+          if (distToPlayer <= settings.attackRange) {
+            GameCombat.startCombat(objData);
+            mesh.userData._moveSpeed = 0;
           } else {
-            // Hit obstacle or too far, pick new direction
-            mesh.userData._wanderDir = Math.random() * Math.PI * 2;
+            var reachedPlayer = moveAnimal(mesh, objData, playerPos.x, playerPos.z, settings.chaseSpeed, dt, settings.turnRate);
+            if (!reachedPlayer && mesh.userData._moveSpeed === 0) {
+              mesh.userData._movementState = 'return';
+            }
+          }
+        } else if (distFromSpawn > settings.patrolRadius * 1.25 || mesh.userData._movementState === 'return') {
+          mesh.userData._movementState = 'return';
+          mesh.userData._patrolTarget = null;
+          if (moveAnimal(mesh, objData, mesh.userData._spawnX, mesh.userData._spawnZ, settings.returnSpeed, dt, settings.turnRate)) {
+            mesh.userData._movementState = 'patrol';
+            mesh.userData._idleUntil = time + 0.5 + Math.random();
+            mesh.userData._moveSpeed = 0;
+          }
+        } else {
+          mesh.userData._movementState = 'patrol';
+
+          if (!mesh.userData._patrolTarget && time >= (mesh.userData._idleUntil || 0)) {
+            mesh.userData._patrolTarget = pickAnimalPatrolTarget(mesh, settings);
+          }
+
+          if (mesh.userData._patrolTarget) {
+            var patrolTarget = mesh.userData._patrolTarget;
+            var reachedPatrol = moveAnimal(mesh, objData, patrolTarget.x, patrolTarget.z, settings.patrolSpeed, dt, settings.turnRate);
+            if (reachedPatrol || mesh.userData._moveSpeed === 0) {
+              mesh.userData._patrolTarget = null;
+              mesh.userData._idleUntil = time + 0.8 + Math.random() * 1.2;
+              mesh.userData._moveSpeed = 0;
+            }
+          } else {
+            mesh.userData._moveSpeed = 0;
           }
         }
-        
-        // Bobbing animation
-        mesh.position.y = Math.sin(time * 2 + mesh.id) * 0.02;
 
-        // Animate legs
-        mesh.children.forEach(function (child) {
-          if (child.name === "leg") {
-            child.rotation.x = Math.sin(time * 3 + mesh.id) * 0.2;
-          }
-        });
+        updateAnimalAnimation(mesh, time, mesh.userData._movementState);
       }
     });
   }

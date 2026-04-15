@@ -104,6 +104,63 @@ window.GameState = (function () {
   function hasResource(id, amount) { return (_state.resources[id] || 0) >= amount; }
   function getAllResources() { return JSON.parse(JSON.stringify(_state.resources)); }
 
+  function getWarehouseInstanceUids() {
+    var uids = [];
+    for (var uid in _state.instances) {
+      if (_state.instances[uid] && _state.instances[uid].entityId === 'building.warehouse') {
+        uids.push(uid);
+      }
+    }
+    uids.sort();
+    return uids;
+  }
+
+  function getSpendableResource(id) {
+    var total = getResource(id);
+    var warehouseUids = getWarehouseInstanceUids();
+
+    for (var i = 0; i < warehouseUids.length; i++) {
+      var uid = warehouseUids[i];
+      var storage = _state.buildingStorage[uid];
+      if (storage && storage[id]) {
+        total += storage[id];
+      }
+    }
+
+    return total;
+  }
+
+  function hasSpendableResource(id, amount) {
+    return getSpendableResource(id) >= amount;
+  }
+
+  function consumeSpendableResource(id, amount) {
+    if (!hasSpendableResource(id, amount)) return false;
+
+    var remaining = amount;
+    var playerAmount = Math.min(getResource(id), remaining);
+    if (playerAmount > 0) {
+      removeResource(id, playerAmount);
+      remaining -= playerAmount;
+    }
+
+    if (remaining <= 0) return true;
+
+    var warehouseUids = getWarehouseInstanceUids();
+    for (var i = 0; i < warehouseUids.length && remaining > 0; i++) {
+      var uid = warehouseUids[i];
+      var storage = _state.buildingStorage[uid];
+      var available = storage && storage[id] ? storage[id] : 0;
+      if (available <= 0) continue;
+
+      var taken = Math.min(available, remaining);
+      addBuildingStorage(uid, id, -taken);
+      remaining -= taken;
+    }
+
+    return remaining <= 0;
+  }
+
   // === Buildings ===
   function addBuilding(id) {
     if (_state.buildings[id] === undefined) _state.buildings[id] = 0;
@@ -239,7 +296,7 @@ window.GameState = (function () {
     }
     
     // Fire UI update event
-    if (window.GameHUD) GameHUD.showNotification(`Đã trang bị ${entity.name}`, "success");
+    if (window.GameHUD) GameHUD.showNotification(`Equipped ${entity.name}`, "success");
 
     return true;
   }
@@ -251,7 +308,7 @@ window.GameState = (function () {
     _state.player.equipped[slot] = null;
     _state.player.maxHp = getPlayerMaxHp();
     _state.player.hp = Math.min(_state.player.hp, _state.player.maxHp);
-    if (window.GameHUD) GameHUD.showNotification(`Đã gỡ bỏ ${entity.name}`, "info");
+    if (window.GameHUD) GameHUD.showNotification(`Unequipped ${entity.name}`, "info");
     return true;
   }
 
@@ -347,6 +404,11 @@ window.GameState = (function () {
     // Clamp to 0 minimum (prevent negative values)
     if (_state.buildingStorage[instanceUid][resourceId] <= 0) {
       delete _state.buildingStorage[instanceUid][resourceId];
+    } else if (amount > 0 && _state.unlocked.indexOf(resourceId) === -1) {
+      var entity = GameRegistry.getEntity(resourceId);
+      if (entity && entity.type === 'resource') {
+        _state.unlocked.push(resourceId);
+      }
     }
   }
 
@@ -538,6 +600,8 @@ window.GameState = (function () {
     init: init,
     addResource: addResource, addFractionalResource: addFractionalResource, removeResource: removeResource,
     getResource: getResource, hasResource: hasResource, getAllResources: getAllResources,
+    getSpendableResource: getSpendableResource, hasSpendableResource: hasSpendableResource,
+    consumeSpendableResource: consumeSpendableResource,
     addBuilding: addBuilding, getBuildingCount: getBuildingCount, getAllBuildings: getAllBuildings,
     unlock: unlock, isUnlocked: isUnlocked, getUnlocked: getUnlocked,
     setAge: setAge, getAge: getAge,

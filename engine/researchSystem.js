@@ -29,7 +29,7 @@ window.ResearchSystem = (function() {
 
     // Check resource cost
     for (var resId in balance.researchCost) {
-      if (!GameState.hasResource(resId, balance.researchCost[resId])) {
+      if (!GameState.hasSpendableResource(resId, balance.researchCost[resId])) {
         return false;
       }
     }
@@ -49,7 +49,7 @@ window.ResearchSystem = (function() {
     
     // Deduct cost
     for (var resId in balance.researchCost) {
-      GameState.removeResource(resId, balance.researchCost[resId]);
+      GameState.consumeSpendableResource(resId, balance.researchCost[resId]);
     }
 
     // Mark researched

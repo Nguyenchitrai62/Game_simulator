@@ -263,6 +263,10 @@ window.GameScene = (function () {
 
     ctx.clearRect(0, 0, flmCanvas.width, flmCanvas.height);
 
+    if (typeof GameHUD !== 'undefined' && GameHUD.isModalActive && GameHUD.isModalActive()) {
+      return;
+    }
+
     var darkness = (typeof DayNightSystem !== 'undefined') ? DayNightSystem.getDarkness() : 0;
     if (darkness < 0.1) return;
 

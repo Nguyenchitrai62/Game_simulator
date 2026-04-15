@@ -72,12 +72,18 @@ window.NPCSystem = (function() {
     const workersToSpawn = workerCount - existingWorkers;
 
     for (let i = 0; i < workersToSpawn; i++) {
+      const spawnPosition = findBuildingAccessPosition(instance);
+      if (!spawnPosition) {
+        console.warn('[NPCSystem] Could not find safe spawn position for worker at building:', instanceUid);
+        continue;
+      }
+
       const npc = {
         uid: `npc_${nextNPCId++}`,
         buildingUid: instanceUid,
         buildingEntityId: instance.entityId,
         state: STATE.IDLE,
-        position: { x: instance.x, z: instance.z },
+        position: { x: spawnPosition.x, z: spawnPosition.z },
         targetNode: null,
         targetPosition: null,
         pathQueue: [],
@@ -92,7 +98,7 @@ window.NPCSystem = (function() {
       // Create 3D mesh
       if (window.GameEntities && GameEntities.createNPCMesh) {
         npc.mesh = GameEntities.createNPCMesh(instance.entityId);
-        npc.mesh.position.set(instance.x, 0, instance.z);
+        npc.mesh.position.set(spawnPosition.x, 0, spawnPosition.z);
         GameScene.addToScene(npc.mesh);
       }
 
@@ -159,6 +165,23 @@ window.NPCSystem = (function() {
    * @param {number} deltaTime - Time delta
    */
   function updateNPC(npc, deltaTime) {
+    const building = GameState.getInstance(npc.buildingUid);
+    if (building) {
+      const nearBuilding = Math.abs(npc.position.x - building.x) < 1.6 && Math.abs(npc.position.z - building.z) < 1.6;
+      if (isInsideBuildingFootprint(npc.position, building) || (nearBuilding && !canMoveTo(npc.position.x, npc.position.z))) {
+        const safePosition = findBuildingAccessPosition(building, npc.targetPosition || npc.position);
+        if (safePosition) {
+          npc.position.x = safePosition.x;
+          npc.position.z = safePosition.z;
+          npc.pathQueue = [];
+          if (npc.mesh) {
+            npc.mesh.position.x = safePosition.x;
+            npc.mesh.position.z = safePosition.z;
+          }
+        }
+      }
+    }
+
     switch (npc.state) {
       case STATE.IDLE:
         handleIdle(npc);
@@ -231,8 +254,16 @@ window.NPCSystem = (function() {
     const node = findNearestNode(building.x, building.z, searchRadius, targetNodeType);
     
     if (node) {
+      const approachPosition = findApproachPosition(node.x, node.z);
+      if (!approachPosition) {
+        npc.targetNode = null;
+        npc.targetPosition = null;
+        npc.state = STATE.IDLE;
+        return;
+      }
+
       npc.targetNode = node;
-      npc.targetPosition = { x: node.x, z: node.z };
+      npc.targetPosition = approachPosition;
       npc.pathQueue = findPath(npc.position, npc.targetPosition);
       npc.state = STATE.WALK_TO_NODE;
     } else {
@@ -333,9 +364,14 @@ window.NPCSystem = (function() {
         // Go home with resources
         const building = GameState.getInstance(npc.buildingUid);
         if (building) {
-          npc.targetPosition = { x: building.x, z: building.z };
-          npc.pathQueue = findPath(npc.position, npc.targetPosition);
-          npc.state = STATE.WALK_HOME;
+          const homePosition = findBuildingAccessPosition(building, npc.position);
+          if (homePosition) {
+            npc.targetPosition = homePosition;
+            npc.pathQueue = findPath(npc.position, npc.targetPosition);
+            npc.state = STATE.WALK_HOME;
+          } else {
+            npc.state = STATE.IDLE;
+          }
         }
       }
     }
@@ -407,13 +443,25 @@ window.NPCSystem = (function() {
       }
       
       const moveDistance = npc.speed;
-      npc.position.x += (dx / distance) * moveDistance;
-      npc.position.z += (dz / distance) * moveDistance;
+      const stepX = npc.position.x + (dx / distance) * moveDistance;
+      const stepZ = npc.position.z + (dz / distance) * moveDistance;
+
+      if (canMoveTo(stepX, stepZ)) {
+        npc.position.x = stepX;
+        npc.position.z = stepZ;
+      } else if (canMoveTo(stepX, npc.position.z)) {
+        npc.position.x = stepX;
+      } else if (canMoveTo(npc.position.x, stepZ)) {
+        npc.position.z = stepZ;
+      } else {
+        npc.pathQueue = findPath(npc.position, npc.targetPosition);
+      }
       return false;
     }
     
     // Follow path queue
     const nextWaypoint = npc.pathQueue[0];
+    const pathIsPartial = npc.pathQueue.isPartial === true;
     const dx = nextWaypoint.x - npc.position.x;
     const dz = nextWaypoint.z - npc.position.z;
     const distance = Math.sqrt(dx * dx + dz * dz);
@@ -423,6 +471,11 @@ window.NPCSystem = (function() {
       npc.pathQueue.shift();
       
       if (npc.pathQueue.length === 0) {
+        if (pathIsPartial) {
+          npc.pathQueue = findPath(npc.position, npc.targetPosition);
+          return false;
+        }
+
         // Reached final destination
         npc.position.x = npc.targetPosition.x;
         npc.position.z = npc.targetPosition.z;
@@ -433,9 +486,127 @@ window.NPCSystem = (function() {
     
     // Move toward waypoint
     const moveDistance = npc.speed;
-    npc.position.x += (dx / distance) * moveDistance;
-    npc.position.z += (dz / distance) * moveDistance;
+    const stepX = npc.position.x + (dx / distance) * moveDistance;
+    const stepZ = npc.position.z + (dz / distance) * moveDistance;
+
+    if (canMoveTo(stepX, stepZ)) {
+      npc.position.x = stepX;
+      npc.position.z = stepZ;
+    } else if (canMoveTo(stepX, npc.position.z)) {
+      npc.position.x = stepX;
+    } else if (canMoveTo(npc.position.x, stepZ)) {
+      npc.position.z = stepZ;
+    } else {
+      npc.pathQueue = findPath(npc.position, npc.targetPosition);
+    }
+
     return false;
+  }
+
+  function canMoveTo(worldX, worldZ) {
+    if (!window.GameTerrain || !GameTerrain.isWalkable) return true;
+    var clearance = 0.18;
+    if (!GameTerrain.isWalkable(worldX, worldZ)) return false;
+
+    var samples = [
+      [clearance, 0],
+      [-clearance, 0],
+      [0, clearance],
+      [0, -clearance]
+    ];
+
+    for (var i = 0; i < samples.length; i++) {
+      if (!GameTerrain.isWalkable(worldX + samples[i][0], worldZ + samples[i][1])) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  function findApproachPosition(worldX, worldZ) {
+    const targetX = Math.round(worldX);
+    const targetZ = Math.round(worldZ);
+
+    if (canMoveTo(targetX, targetZ)) {
+      return { x: targetX, z: targetZ };
+    }
+
+    const candidates = [];
+    for (let radius = 1; radius <= 4; radius++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        for (let dz = -radius; dz <= radius; dz++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== radius) continue;
+
+          const x = targetX + dx;
+          const z = targetZ + dz;
+          if (!canMoveTo(x, z)) continue;
+
+          candidates.push({
+            x: x,
+            z: z,
+            distance: Math.sqrt(dx * dx + dz * dz)
+          });
+        }
+      }
+
+      if (candidates.length > 0) break;
+    }
+
+    if (candidates.length === 0) return null;
+
+    candidates.sort((a, b) => a.distance - b.distance);
+    return { x: candidates[0].x, z: candidates[0].z };
+  }
+
+  function findBuildingAccessPosition(building, fromPosition) {
+    if (!building) return null;
+
+    const anchors = [
+      { x: building.x + 1.2, z: building.z },
+      { x: building.x - 1.2, z: building.z },
+      { x: building.x, z: building.z + 1.2 },
+      { x: building.x, z: building.z - 1.2 },
+      { x: building.x + 1.1, z: building.z + 1.1 },
+      { x: building.x + 1.1, z: building.z - 1.1 },
+      { x: building.x - 1.1, z: building.z + 1.1 },
+      { x: building.x - 1.1, z: building.z - 1.1 }
+    ];
+
+    let bestCandidate = null;
+    let bestScore = Infinity;
+
+    for (let i = 0; i < anchors.length; i++) {
+      const anchor = anchors[i];
+      const candidate = canMoveTo(anchor.x, anchor.z) ? { x: anchor.x, z: anchor.z } : findApproachPosition(anchor.x, anchor.z);
+      if (!candidate) continue;
+
+      const distToBuilding = Math.sqrt(
+        Math.pow(candidate.x - building.x, 2) +
+        Math.pow(candidate.z - building.z, 2)
+      );
+      if (distToBuilding < 1.0) continue;
+
+      let score = Math.abs(distToBuilding - 1.2) * 4;
+      if (fromPosition) {
+        score += Math.sqrt(
+          Math.pow(candidate.x - fromPosition.x, 2) +
+          Math.pow(candidate.z - fromPosition.z, 2)
+        );
+      }
+
+      if (score < bestScore) {
+        bestScore = score;
+        bestCandidate = candidate;
+      }
+    }
+
+    return bestCandidate || findApproachPosition(building.x, building.z);
+  }
+
+  function isInsideBuildingFootprint(position, building) {
+    if (!position || !building) return false;
+    return Math.abs(position.x - building.x) < 0.8 && Math.abs(position.z - building.z) < 0.8;
   }
 
   /**
@@ -522,14 +693,145 @@ window.NPCSystem = (function() {
    * Returns array of waypoints [{x, z}, ...]
    */
   function findPath(start, goal) {
-    // For now, use simple direct path (can be enhanced with real A* later)
-    // NPCs will slide along obstacles like player does
-    
-    // Direct path for simplicity
-    return [{ x: goal.x, z: goal.z }];
-    
-    // TODO: Implement real A* with obstacle avoidance if needed
-    // For MVP, NPCs can use same collision handling as player (slide-along-wall)
+    const startNode = { x: Math.round(start.x), z: Math.round(start.z) };
+    const goalNode = { x: Math.round(goal.x), z: Math.round(goal.z) };
+    const startKey = startNode.x + ',' + startNode.z;
+    const goalKey = goalNode.x + ',' + goalNode.z;
+    const searchMargin = Math.max(10, Math.ceil(heuristic(startNode, goalNode)) + 6);
+    const minX = Math.min(startNode.x, goalNode.x) - searchMargin;
+    const maxX = Math.max(startNode.x, goalNode.x) + searchMargin;
+    const minZ = Math.min(startNode.z, goalNode.z) - searchMargin;
+    const maxZ = Math.max(startNode.z, goalNode.z) + searchMargin;
+
+    if (startKey === goalKey) {
+      return [{ x: goal.x, z: goal.z }];
+    }
+
+    const directions = [
+      { x: 1, z: 0, cost: 1 },
+      { x: -1, z: 0, cost: 1 },
+      { x: 0, z: 1, cost: 1 },
+      { x: 0, z: -1, cost: 1 },
+      { x: 1, z: 1, cost: Math.SQRT2 },
+      { x: 1, z: -1, cost: Math.SQRT2 },
+      { x: -1, z: 1, cost: Math.SQRT2 },
+      { x: -1, z: -1, cost: Math.SQRT2 }
+    ];
+    const open = [startNode];
+    const openKeys = {};
+    const closedKeys = {};
+    const cameFrom = {};
+    const gScore = {};
+    const fScore = {};
+    let iterations = 0;
+    let bestNode = startNode;
+    let bestDistance = heuristic(startNode, goalNode);
+
+    openKeys[startKey] = true;
+    gScore[startKey] = 0;
+    fScore[startKey] = heuristic(startNode, goalNode);
+
+    while (open.length > 0 && iterations < 1600) {
+      iterations++;
+      let currentIndex = 0;
+      for (let i = 1; i < open.length; i++) {
+        const key = open[i].x + ',' + open[i].z;
+        const bestKey = open[currentIndex].x + ',' + open[currentIndex].z;
+        const candidateScore = fScore[key] !== undefined ? fScore[key] : Infinity;
+        const bestScore = fScore[bestKey] !== undefined ? fScore[bestKey] : Infinity;
+        if (candidateScore < bestScore) {
+          currentIndex = i;
+        }
+      }
+
+      const current = open.splice(currentIndex, 1)[0];
+      const currentKey = current.x + ',' + current.z;
+      delete openKeys[currentKey];
+      closedKeys[currentKey] = true;
+
+      const currentDistance = heuristic(current, goalNode);
+      if (currentDistance < bestDistance) {
+        bestDistance = currentDistance;
+        bestNode = current;
+      }
+
+      if (currentKey === goalKey) {
+        const fullPath = reconstructPath(cameFrom, current, startKey);
+        const lastStep = fullPath[fullPath.length - 1];
+        if (!lastStep || lastStep.x !== goalNode.x || lastStep.z !== goalNode.z) {
+          fullPath.push({ x: goal.x, z: goal.z });
+        }
+        return fullPath;
+      }
+
+      for (let i = 0; i < directions.length; i++) {
+        const dir = directions[i];
+        const neighbor = { x: current.x + dir.x, z: current.z + dir.z };
+        const neighborKey = neighbor.x + ',' + neighbor.z;
+
+        if (neighbor.x < minX || neighbor.x > maxX || neighbor.z < minZ || neighbor.z > maxZ) {
+          continue;
+        }
+
+        if (closedKeys[neighborKey]) {
+          continue;
+        }
+
+        if (neighborKey !== goalKey && !canMoveTo(neighbor.x, neighbor.z)) {
+          continue;
+        }
+
+        if (dir.x !== 0 && dir.z !== 0) {
+          if (!canMoveTo(current.x + dir.x, current.z) || !canMoveTo(current.x, current.z + dir.z)) {
+            continue;
+          }
+        }
+
+        const currentScore = gScore[currentKey] !== undefined ? gScore[currentKey] : Infinity;
+        const neighborScore = gScore[neighborKey] !== undefined ? gScore[neighborKey] : Infinity;
+        const tentativeG = currentScore + dir.cost;
+        if (tentativeG >= neighborScore) continue;
+
+        cameFrom[neighborKey] = current;
+        gScore[neighborKey] = tentativeG;
+        fScore[neighborKey] = tentativeG + heuristic(neighbor, goalNode);
+
+        if (!openKeys[neighborKey]) {
+          open.push(neighbor);
+          openKeys[neighborKey] = true;
+        }
+      }
+    }
+
+    if (bestNode && (bestNode.x !== startNode.x || bestNode.z !== startNode.z)) {
+      const partialPath = reconstructPath(cameFrom, bestNode, startKey);
+      partialPath.isPartial = true;
+      return partialPath;
+    }
+
+    return [];
+  }
+
+  function heuristic(a, b) {
+    const dx = a.x - b.x;
+    const dz = a.z - b.z;
+    return Math.sqrt(dx * dx + dz * dz);
+  }
+
+  function reconstructPath(cameFrom, current, startKey) {
+    const path = [];
+    let key = current.x + ',' + current.z;
+    let cursor = current;
+
+    while (key !== startKey) {
+      path.push({ x: cursor.x, z: cursor.z });
+      cursor = cameFrom[key];
+      if (!cursor) break;
+      key = cursor.x + ',' + cursor.z;
+    }
+
+    path.reverse();
+    return path;
   }
 
   /**

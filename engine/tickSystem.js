@@ -92,7 +92,7 @@ window.TickSystem = (function () {
       
       // Calculate depletion time
       if (_resourceStats.net[resId] < 0) {
-        var current = GameState.getResource(resId);
+        var current = GameState.getSpendableResource(resId);
         var perSecondLoss = Math.abs(_resourceStats.net[resId]);
         _resourceStats.timeLeft[resId] = Math.floor(current / perSecondLoss);
       } else {
@@ -140,7 +140,7 @@ window.TickSystem = (function () {
       // Check if player has enough resources
 for (var resId in building.balance.consumesPerSecond) {
           var needed = building.balance.consumesPerSecond[resId];
-        if (!GameState.hasResource(resId, needed)) {
+        if (!GameState.hasSpendableResource(resId, needed)) {
           canConsume = false;
           break;
         }
@@ -149,7 +149,7 @@ for (var resId in building.balance.consumesPerSecond) {
       if (canConsume) {
         // Deduct consumption from player resources
         for (var resId in building.balance.consumesPerSecond) {
-          GameState.removeResource(resId, building.balance.consumesPerSecond[resId]);
+          GameState.consumeSpendableResource(resId, building.balance.consumesPerSecond[resId]);
         }
         
         // Apply production (e.g., Smelter produces bronze after consuming copper+tin)
@@ -339,7 +339,7 @@ for (var resId in building.balance.consumesPerSecond) {
         }
         GameState.setHunger(GameState.getMaxHunger() * 0.5);
         if (typeof GameHUD !== 'undefined' && GameHUD.showNotification) {
-          GameHUD.showNotification("Bạn đã chết vì đói! Mất 30% tài nguyên.");
+          GameHUD.showNotification("You starved. Lost 30% of carried resources.");
         }
       }
     }

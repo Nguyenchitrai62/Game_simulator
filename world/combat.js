@@ -47,6 +47,18 @@ window.GameCombat = (function () {
     var dx = target.worldX - playerPos.x;
     var dz = target.worldZ - playerPos.z;
     var dist = Math.sqrt(dx * dx + dz * dz);
+
+    var targetMesh = GameEntities.getAllMeshes().find(function (m) {
+      return m.userData.objectId === target.id;
+    });
+    if (targetMesh) {
+      var desiredAngle = Math.atan2(playerPos.x - target.worldX, playerPos.z - target.worldZ);
+      var angleDiff = desiredAngle - targetMesh.rotation.y;
+      while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+      while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+      targetMesh.rotation.y += angleDiff * 0.28;
+    }
+
     if (dist > 3) {
       endCombat(false);
       return;
@@ -105,11 +117,32 @@ window.GameCombat = (function () {
       return m.userData.objectId === target.id;
     });
     if (mesh) {
+      var flashedMaterials = [];
       mesh.traverse(function (child) {
         if (child.isMesh && child.material) {
-          var origColor = child.material.color.getHex();
-          child.material.color.setHex(0xff0000);
-          setTimeout(function () { child.material.color.setHex(origColor); }, 250);
+          var materials = Array.isArray(child.material) ? child.material : [child.material];
+          materials.forEach(function (material) {
+            if (!material || !material.color || flashedMaterials.indexOf(material) !== -1) return;
+
+            flashedMaterials.push(material);
+            material.userData = material.userData || {};
+
+            if (material.userData._damageRestoreHex === undefined) {
+              material.userData._damageRestoreHex = material.color.getHex();
+            }
+
+            if (material.userData._damageFlashTimeout) {
+              clearTimeout(material.userData._damageFlashTimeout);
+            }
+
+            material.color.setHex(0xff0000);
+            material.userData._damageFlashTimeout = setTimeout(function () {
+              if (material && material.color) {
+                material.color.setHex(material.userData._damageRestoreHex);
+                material.userData._damageFlashTimeout = null;
+              }
+            }, 250);
+          });
         }
       });
       // Scale pulse effect

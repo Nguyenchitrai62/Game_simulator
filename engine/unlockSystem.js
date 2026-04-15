@@ -36,7 +36,7 @@ window.UnlockSystem = (function () {
 
     if (conditions.resources) {
       for (var resId in conditions.resources) {
-        if (GameState.getResource(resId) < conditions.resources[resId]) {
+        if (GameState.getSpendableResource(resId) < conditions.resources[resId]) {
           return false;
         }
       }
@@ -109,7 +109,7 @@ window.UnlockSystem = (function () {
     if (conditions.resources) {
       for (var resId in conditions.resources) {
         total++;
-        var current = GameState.getResource(resId);
+        var current = GameState.getSpendableResource(resId);
         var target = conditions.resources[resId];
         if (current >= target) {
           met++;
@@ -154,7 +154,7 @@ window.UnlockSystem = (function () {
 
   function formatUnlockTooltip(entity) {
     var progress = getUnlockProgress(entity);
-    var lines = ['<div style="font-weight:bold; margin-bottom:6px;">🔒 Bị khóa - Điều kiện unlock:</div>'];
+    var lines = ['<div style="font-weight:bold; margin-bottom:6px;">🔒 Locked requirements:</div>'];
     
     progress.details.forEach(function (d) {
       var statusIcon = d.met ? '✅' : '⬜';
@@ -162,19 +162,19 @@ window.UnlockSystem = (function () {
       
       if (d.type === 'age') {
         var ageEntity = GameRegistry.getEntity(d.target);
-        text = statusIcon + ' Cần unlock ' + (ageEntity ? ageEntity.name : d.target);
+        text = statusIcon + ' Reach ' + (ageEntity ? ageEntity.name : d.target);
       } else if (d.type === 'resource') {
         var resEntity = GameRegistry.getEntity(d.id);
         var resName = resEntity ? resEntity.name : d.id;
-        text = statusIcon + ' Cần ' + resName + ' (đã có: ' + Math.floor(d.current) + '/' + d.target + ')';
+        text = statusIcon + ' Need ' + resName + ' (' + Math.floor(d.current) + '/' + d.target + ')';
       } else if (d.type === 'building') {
         var buildingEntity = GameRegistry.getEntity(d.id);
         var buildingName = buildingEntity ? buildingEntity.name : d.id;
-        text = statusIcon + ' Cần ' + buildingName + ' (đã có: ' + d.current + '/' + d.target + ')';
+        text = statusIcon + ' Need ' + buildingName + ' (' + d.current + '/' + d.target + ')';
       } else if (d.type === 'technology') {
         var techEntity = GameRegistry.getEntity(d.id);
         var techName = techEntity ? techEntity.name : d.id;
-        text = statusIcon + ' Cần nghiên cứu ' + techName;
+        text = statusIcon + ' Research ' + techName;
       }
       
       if (text) {

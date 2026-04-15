@@ -6,10 +6,14 @@ try {
     var _activeTab = null;
     var _notificationTimer = null;
     var _damageNumbers = [];
+    var _quickbarMode = 'build';
+    var _quickbarItems = [];
+    var _quickbarSelected = { build: null, craft: null };
   
   function init() {
     // Initialize HUD - placeholder for future initialization
     console.log('[GameHUD] Initialized');
+    renderQuickbar();
   }
 
   function renderAll() {
@@ -17,7 +21,9 @@ try {
     renderPlayerStats();
     renderHungerBar();
     renderDayNightClock();
+    renderObjectiveTracker();
     renderActivePanel();
+    renderQuickbar();
   }
 
   var _showProductionPanel = true;
@@ -25,6 +31,23 @@ try {
   function toggleProductionPanel() {
     _showProductionPanel = !_showProductionPanel;
     renderResources();
+  }
+
+  function getResourceIcon(resourceId) {
+    var icons = {
+      'resource.wood': '🪵',
+      'resource.stone': '🪨',
+      'resource.food': '🍖',
+      'resource.flint': '✨',
+      'resource.tool': '🔧',
+      'resource.leather': '🧥',
+      'resource.copper': '🟠',
+      'resource.tin': '⚪',
+      'resource.bronze': '🛡️',
+      'resource.iron': '⚔️',
+      'resource.coal': '⬛'
+    };
+    return icons[resourceId] || '💎';
   }
 
   function renderResources() {
@@ -40,24 +63,25 @@ try {
 
     resources.forEach(function (res) {
       if (!GameState.isUnlocked(res.id)) return;
-      var amount = GameState.getResource(res.id);
+      var amount = GameState.getSpendableResource(res.id);
       var net = stats.net ? stats.net[res.id] : 0;
       
       html += '<div class="resource-item" style="min-width:110px;">';
+      html += '<span class="resource-icon">' + getResourceIcon(res.id) + '</span>';
       html += '<span class="resource-amount">' + Math.floor(amount) + '</span>';
       html += ' <span class="resource-name">' + escapeHtml(res.name) + '</span>';
       
       if (_showProductionPanel) {
         var netStr = "", netColor = "#888";
         if (net > 0.001) {
-netStr = "+" + net.toFixed(1) + "/s";
-            netColor = "#4ecca3";
-          } else if (net < -0.001) {
-            netStr = net.toFixed(1) + "/s";
-            netColor = "#e94560";
-            if (stats.timeLeft && stats.timeLeft[res.id] && stats.timeLeft[res.id] < 60) {
-              netStr += " [" + stats.timeLeft[res.id] + "s]";
-            }
+          netStr = "+" + net.toFixed(1) + "/s";
+          netColor = "#4ecca3";
+        } else if (net < -0.001) {
+          netStr = net.toFixed(1) + "/s";
+          netColor = "#e94560";
+          if (stats.timeLeft && stats.timeLeft[res.id] && stats.timeLeft[res.id] < 60) {
+            netStr += " [" + stats.timeLeft[res.id] + "s]";
+          }
         } else {
           netStr = "~0";
           netColor = "#888";
@@ -70,7 +94,7 @@ netStr = "+" + net.toFixed(1) + "/s";
     });
     
     html += '</div>';
-    html += '<button class="btn btn-small" onclick="GameHUD.toggleProductionPanel()" style="padding:2px 6px;font-size:11px;">' + (_showProductionPanel ? "Ẩn thống kê" : "Hiện thống kê") + '</button>';
+    html += '<button class="btn btn-small" onclick="GameHUD.toggleProductionPanel()" style="padding:2px 6px;font-size:11px;">' + (_showProductionPanel ? "Hide rates" : "Show rates") + '</button>';
     html += '</div>';
 
     container.innerHTML = html;
@@ -83,23 +107,32 @@ netStr = "+" + net.toFixed(1) + "/s";
     var atk = GameState.getPlayerAttack();
     var def = GameState.getPlayerDefense();
     var hunger = GameState.getHunger ? GameState.getHunger() : 100;
+    var speed = GameState.getPlayerSpeed ? GameState.getPlayerSpeed() : 3;
+    var isEatingNow = typeof GamePlayer !== 'undefined' && GamePlayer.isEating && GamePlayer.isEating();
+    var hungerBalance = (window.GAME_BALANCE && GAME_BALANCE.hunger) || {};
+    var isSlowed = false;
+
+    if (hunger < 20) {
+      speed *= (hungerBalance.hungrySpeedMult || 0.5);
+      isSlowed = true;
+    }
+
+    if (isEatingNow) {
+      speed *= (hungerBalance.eatSpeedMult || 0.5);
+      isSlowed = true;
+    }
 
     var atkEl = document.getElementById("stat-atk");
     var defEl = document.getElementById("stat-def");
-    var ageEl = document.getElementById("age-badge");
+    var speedEl = document.getElementById("stat-spd");
+    var panelEl = document.getElementById("player-basic-panel");
 
-    if (atkEl) atkEl.textContent = "ATK: " + atk;
-    if (defEl) defEl.textContent = "DEF: " + def;
-    if (hunger < 20 && atkEl) {
-      atkEl.textContent = "ATK: " + atk + " (Slow!)";
-    }
+    if (atkEl) atkEl.textContent = String(atk);
+    if (defEl) defEl.textContent = String(def);
+    if (speedEl) speedEl.textContent = speed % 1 === 0 ? String(speed) : speed.toFixed(1);
+    if (panelEl) panelEl.classList.toggle('slow', isSlowed);
+    if (speedEl) speedEl.classList.toggle('slowed', isSlowed);
 
-    if (ageEl) {
-      var ageEntity = GameRegistry.getEntity(GameState.getAge());
-      ageEl.textContent = ageEntity ? ageEntity.name : GameState.getAge();
-    }
-
-    // Update player HP bar
     var hpFill = document.getElementById("player-hp-fill");
     var hpText = document.getElementById("player-hp-text");
     var hpWrapper = document.getElementById("player-hp-wrapper");
@@ -109,7 +142,6 @@ netStr = "+" + net.toFixed(1) + "/s";
       hpFill.style.width = pct + "%";
       hpText.textContent = Math.floor(hp) + " / " + maxHp;
 
-      // Color class
       hpFill.classList.remove("hp-warn", "hp-danger");
       if (pct <= 30) {
         hpFill.classList.add("hp-danger");
@@ -117,7 +149,6 @@ netStr = "+" + net.toFixed(1) + "/s";
         hpFill.classList.add("hp-warn");
       }
 
-      // Low HP pulse warning
       if (hpWrapper) {
         if (pct <= 30) {
           hpWrapper.classList.add("low-hp");
@@ -126,8 +157,6 @@ netStr = "+" + net.toFixed(1) + "/s";
         }
       }
     }
-
-    // Save info removed - cleaner UI
   }
 
   function renderHungerBar() {
@@ -147,7 +176,7 @@ netStr = "+" + net.toFixed(1) + "/s";
 
     var text = Math.floor(hunger) + "/" + maxHunger + " Food:" + Math.floor(foodCount);
     if (isEatingNow) {
-      text = "Dang an..." + Math.floor(hunger) + "/" + maxHunger;
+      text = "Eating... " + Math.floor(hunger) + "/" + maxHunger;
     }
     hungerText.textContent = text;
 
@@ -172,6 +201,339 @@ netStr = "+" + net.toFixed(1) + "/s";
     if (!clockEl) return;
     if (typeof DayNightSystem === 'undefined') return;
     clockEl.textContent = DayNightSystem.getTimeString();
+  }
+
+  function getModalTabMeta(tabName) {
+    var metaMap = {
+      resources: {
+        kicker: 'Economy',
+        title: 'Stockpile',
+        subtitle: 'Track reserves, monitor income, and spot shortages before they hurt momentum.'
+      },
+      build: {
+        kicker: 'Settlement',
+        title: 'Construction',
+        subtitle: 'Expand your production network and place the next building with intention.'
+      },
+      craft: {
+        kicker: 'Workshop',
+        title: 'Crafting',
+        subtitle: 'Turn gathered materials into tools, gear, and milestone unlocks.'
+      },
+      stats: {
+        kicker: 'Progression',
+        title: 'Journal',
+        subtitle: 'Review your survivor, settlement growth, and the next age objective in one place.'
+      },
+      research: {
+        kicker: 'Knowledge',
+        title: 'Research',
+        subtitle: 'Spend resources on permanent bonuses and long-term efficiency.'
+      }
+    };
+
+    return metaMap[tabName] || metaMap.resources;
+  }
+
+  function renderModalHeader() {
+    var meta = getModalTabMeta(_modalTab);
+    var kickerEl = document.getElementById('modal-kicker');
+    var titleEl = document.getElementById('modal-title');
+    var subtitleEl = document.getElementById('modal-subtitle');
+
+    if (kickerEl) kickerEl.textContent = meta.kicker;
+    if (titleEl) titleEl.textContent = meta.title;
+    if (subtitleEl) subtitleEl.textContent = meta.subtitle;
+  }
+
+  function getNextAgeObjective() {
+    var currentAge = GameState.getAge();
+    var ages = GameRegistry.getEntitiesByType("age");
+
+    for (var i = 0; i < ages.length; i++) {
+      if (GameState.isUnlocked(ages[i].id) || ages[i].id === currentAge) continue;
+
+      var ageBalance = GameRegistry.getBalance(ages[i].id);
+      if (!ageBalance || !ageBalance.advanceFrom || ageBalance.advanceFrom.age !== currentAge) continue;
+
+      return {
+        entity: ages[i],
+        balance: ageBalance
+      };
+    }
+
+    return null;
+  }
+
+  function renderObjectiveTracker() {
+    var tracker = document.getElementById("objective-tracker");
+    if (!tracker) return;
+    var currentAgeEntity = GameRegistry.getEntity(GameState.getAge());
+    var currentAgeLabel = currentAgeEntity ? currentAgeEntity.name : GameState.getAge();
+
+    var nextAge = getNextAgeObjective();
+    if (!nextAge) {
+      tracker.className = 'objective-tracker ready';
+      tracker.innerHTML = '<div class="objective-meta"><span class="objective-label">Current Age</span><span class="objective-age">' + escapeHtml(currentAgeLabel) + '</span></div>' +
+        '<div class="objective-title">All Ages Unlocked</div>' +
+        '<div class="objective-detail">Current progression content is fully cleared.</div>';
+      return;
+    }
+
+    var balance = nextAge.balance;
+    var checklist = [];
+    var canAdvance = true;
+
+    if (balance.advanceFrom.resources) {
+      for (var resId in balance.advanceFrom.resources) {
+        var resourceCurrent = GameState.getSpendableResource(resId);
+        var resourceNeeded = balance.advanceFrom.resources[resId];
+        var resourceEntity = GameRegistry.getEntity(resId);
+        var resourceMet = resourceCurrent >= resourceNeeded;
+        if (!resourceMet) canAdvance = false;
+        checklist.push({
+          met: resourceMet,
+          label: (resourceEntity ? resourceEntity.name : resId),
+          progress: Math.floor(resourceCurrent) + '/' + resourceNeeded
+        });
+      }
+    }
+
+    if (balance.advanceFrom.buildings) {
+      for (var buildingId in balance.advanceFrom.buildings) {
+        var buildingCurrent = GameState.getBuildingCount(buildingId);
+        var buildingNeeded = balance.advanceFrom.buildings[buildingId];
+        var buildingEntity = GameRegistry.getEntity(buildingId);
+        var buildingMet = buildingCurrent >= buildingNeeded;
+        if (!buildingMet) canAdvance = false;
+        checklist.push({
+          met: buildingMet,
+          label: (buildingEntity ? buildingEntity.name : buildingId),
+          progress: buildingCurrent + '/' + buildingNeeded
+        });
+      }
+    }
+
+    var checklistHtml = '<div class="objective-checklist">';
+    for (var i = 0; i < checklist.length; i++) {
+      checklistHtml += '<div class="objective-check' + (checklist[i].met ? ' met' : '') + '">' +
+        '<span class="objective-check-icon">' + (checklist[i].met ? '&#10003;' : '&#9711;') + '</span>' +
+        '<span class="objective-check-copy"><span class="objective-check-label">' + escapeHtml(checklist[i].label) + '</span><span class="objective-check-progress">' + escapeHtml(checklist[i].progress) + '</span></span>' +
+        '</div>';
+    }
+    checklistHtml += '</div>';
+
+    tracker.className = 'objective-tracker' + (canAdvance ? ' ready' : '');
+    tracker.innerHTML = '<div class="objective-meta"><span class="objective-label">Current Age</span><span class="objective-age">' + escapeHtml(currentAgeLabel) + '</span></div>' +
+      '<div class="objective-title">' + escapeHtml(nextAge.entity.name) + (canAdvance ? ' Ready!' : '') + '</div>' +
+      checklistHtml +
+      '<div class="objective-actions"><button class="objective-advance-btn' + (canAdvance ? ' ready' : '') + '" onclick="GameActions.advanceAge(\'' + nextAge.entity.id + '\')"' + (canAdvance ? '' : ' disabled') + '>Advance Age</button></div>';
+  }
+
+  function getQuickbarBuildItems() {
+    return GameRegistry.getEntitiesByType('building')
+      .filter(function(building) {
+        return GameState.isUnlocked(building.id);
+      })
+      .map(function(building, index) {
+        var balance = GameRegistry.getBalance(building.id) || {};
+        var canBuild = true;
+        var placedCount = GameState.getBuildingCount(building.id);
+        var cost = balance.cost || {};
+
+        for (var resId in cost) {
+          if (!GameState.hasSpendableResource(resId, cost[resId])) {
+            canBuild = false;
+            break;
+          }
+        }
+
+        return {
+          id: building.id,
+          actionType: 'build',
+          icon: getEntityIcon(building),
+          name: building.name,
+          meta: placedCount > 0 ? ('x' + placedCount) : 'new',
+          status: canBuild ? 'Ready' : 'Need',
+          ready: canBuild,
+          sortOrder: canBuild ? 0 : 1,
+          sourceIndex: index
+        };
+      })
+      .sort(function(a, b) {
+        if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+        return a.sourceIndex - b.sourceIndex;
+      })
+      .slice(0, 9);
+  }
+
+  function getQuickbarCraftItems() {
+    return CraftSystem.getAllRecipes()
+      .filter(function(recipe) {
+        return GameState.isUnlocked(recipe.id);
+      })
+      .map(function(recipe, index) {
+        var info = CraftSystem.getRecipeInfo(recipe.id);
+        var balance = info.balance || {};
+        var outputIds = balance.output ? Object.keys(balance.output) : [];
+        var primaryOutputId = outputIds.length ? outputIds[0] : null;
+        var primaryOutputEntity = primaryOutputId ? GameRegistry.getEntity(primaryOutputId) : null;
+        var actionType = 'craft';
+        var actionId = recipe.id;
+        var ready = info.canCraft;
+        var status = ready ? 'Craft' : 'Need';
+        var sortOrder = ready ? 0 : 2;
+        var meta = primaryOutputId && balance.output ? ('x' + balance.output[primaryOutputId]) : 'recipe';
+
+        if (primaryOutputEntity && primaryOutputEntity.type === 'equipment') {
+          var inventoryCount = GameState.getInventoryCount(primaryOutputId);
+          var player = GameState.getPlayer();
+          var slot = primaryOutputEntity.slot || '';
+          meta = slot ? slot : 'gear';
+
+          if (player && player.equipped[slot] === primaryOutputId) {
+            actionType = 'none';
+            ready = false;
+            status = 'Using';
+            sortOrder = 3;
+          } else if (inventoryCount > 0) {
+            actionType = 'equip';
+            actionId = primaryOutputId;
+            ready = true;
+            status = 'Use';
+            sortOrder = 0;
+          }
+        }
+
+        return {
+          id: recipe.id,
+          actionType: actionType,
+          actionId: actionId,
+          icon: getEntityIcon(primaryOutputEntity || recipe),
+          name: recipe.name,
+          meta: meta,
+          status: status,
+          ready: ready,
+          sortOrder: sortOrder,
+          sourceIndex: index
+        };
+      })
+      .sort(function(a, b) {
+        if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+        return a.sourceIndex - b.sourceIndex;
+      })
+      .slice(0, 9);
+  }
+
+  function renderQuickbar() {
+    var toggleButton = document.getElementById('quickbar-toggle');
+    var slots = document.getElementById('quickbar-slots');
+    if (!toggleButton || !slots) return;
+
+    _quickbarItems = _quickbarMode === 'craft' ? getQuickbarCraftItems() : getQuickbarBuildItems();
+
+    toggleButton.className = 'quickbar-toggle ' + (_quickbarMode === 'craft' ? 'craft' : 'build');
+    toggleButton.innerHTML = '<span class="quickbar-toggle-label">' + (_quickbarMode === 'craft' ? 'Craft' : 'Build') + '</span>' +
+      '<span class="quickbar-toggle-hint">Tab</span>';
+
+    var selectedId = _quickbarSelected[_quickbarMode];
+    var html = '';
+
+    for (var i = 0; i < 9; i++) {
+      var item = _quickbarItems[i];
+      if (!item) {
+        html += '<button class="quickbar-slot empty" type="button" disabled>' +
+          '<span class="quickbar-slot-key">' + (i + 1) + '</span>' +
+          '<span class="quickbar-slot-icon">·</span>' +
+          '<span class="quickbar-slot-name">Empty</span>' +
+          '<span class="quickbar-slot-meta"><span>-</span><span class="quickbar-slot-status">None</span></span>' +
+          '</button>';
+        continue;
+      }
+
+      var slotClass = 'quickbar-slot ' + (item.ready ? 'ready' : 'blocked');
+      if (selectedId === item.id) {
+        slotClass += ' selected';
+      }
+
+      html += '<button class="' + slotClass + '" type="button" onclick="GameHUD.activateQuickbarSlot(' + i + ')" title="' + escapeHtml(item.name) + '">' +
+        '<span class="quickbar-slot-key">' + (i + 1) + '</span>' +
+        '<span class="quickbar-slot-icon">' + item.icon + '</span>' +
+        '<span class="quickbar-slot-name">' + escapeHtml(item.name) + '</span>' +
+        '<span class="quickbar-slot-meta"><span>' + escapeHtml(String(item.meta)) + '</span><span class="quickbar-slot-status">' + escapeHtml(item.status) + '</span></span>' +
+        '</button>';
+    }
+
+    slots.innerHTML = html;
+  }
+
+  function toggleQuickbarMode(nextMode, silent) {
+    var resolvedMode = nextMode;
+    if (resolvedMode !== 'build' && resolvedMode !== 'craft') {
+      resolvedMode = _quickbarMode === 'build' ? 'craft' : 'build';
+    }
+
+    if (_quickbarMode === resolvedMode) {
+      renderQuickbar();
+      return;
+    }
+
+    _quickbarMode = resolvedMode;
+
+    if (resolvedMode !== 'build' && window.BuildingSystem && BuildingSystem.isBuildMode && BuildingSystem.isBuildMode()) {
+      BuildingSystem.cancelBuild();
+    }
+
+    renderQuickbar();
+
+    if (!silent) {
+      showNotification('Quickbar: ' + (_quickbarMode === 'craft' ? 'Craft' : 'Build') + ' mode', 'info');
+    }
+  }
+
+  function activateQuickbarSlot(index) {
+    var item = _quickbarItems[index];
+    if (!item) return;
+
+    _quickbarSelected[_quickbarMode] = item.id;
+    renderQuickbar();
+
+    if (item.actionType === 'build') {
+      if (_modalActive) closeModal();
+      BuildingSystem.enterBuildMode(item.id);
+      return;
+    }
+
+    if (window.BuildingSystem && BuildingSystem.isBuildMode && BuildingSystem.isBuildMode()) {
+      BuildingSystem.cancelBuild();
+    }
+
+    if (item.actionType === 'craft') {
+      GameActions.craft(item.actionId);
+      return;
+    }
+
+    if (item.actionType === 'equip') {
+      GameActions.equip(item.actionId);
+      return;
+    }
+
+    showNotification(item.status === 'Using' ? 'This item is already equipped.' : 'This slot is not ready yet.', 'info');
+  }
+
+  function getQuickbarKeyIndex(event) {
+    if (!event) return null;
+
+    if (event.code && event.code.indexOf('Digit') === 0) {
+      var fromCode = Number(event.code.replace('Digit', ''));
+      if (fromCode >= 1 && fromCode <= 9) return fromCode - 1;
+    }
+
+    if (/^[1-9]$/.test(event.key)) {
+      return Number(event.key) - 1;
+    }
+
+    return null;
   }
 
   function switchTab(tabName) {
@@ -283,7 +645,7 @@ netStr = "+" + net.toFixed(1) + "/s";
           var resEntity = GameRegistry.getEntity(resId);
           var name = resEntity ? resEntity.name : resId;
           var needed = balance.cost[resId];
-          var has = GameState.hasResource(resId, needed);
+          var has = GameState.hasSpendableResource(resId, needed);
           if (!has) canBuy = false;
           parts.push('<span class="' + (has ? 'cost-ok' : 'cost-lack') + '">' + name + ':' + needed + '</span>');
         }
@@ -347,7 +709,7 @@ netStr = "+" + net.toFixed(1) + "/s";
           var entity = GameRegistry.getEntity(resId);
           var name = entity ? entity.name : resId;
           var needed = balance.input[resId];
-          var has = GameState.hasResource(resId, needed);
+          var has = GameState.hasSpendableResource(resId, needed);
           parts.push('<span class="' + (has ? 'cost-ok' : 'cost-lack') + '">' + name + ':' + needed + '</span>');
         }
         html += parts.join(' ') + '</div>';
@@ -513,7 +875,7 @@ netStr = "+" + net.toFixed(1) + "/s";
       if (balance.advanceFrom.resources) {
         for (var resId in balance.advanceFrom.resources) {
           var needed = balance.advanceFrom.resources[resId];
-          var current = GameState.getResource(resId);
+          var current = GameState.getSpendableResource(resId);
           var met = current >= needed;
           if (!met) canAdvance = false;
           var resEntity = GameRegistry.getEntity(resId);
@@ -554,12 +916,33 @@ netStr = "+" + net.toFixed(1) + "/s";
   function showNotification(msg, type = "default") {
     var el = document.getElementById("notification");
     if (!el) return;
-    el.textContent = msg;
-    el.classList.remove("show", "error", "success", "warning");
-    el.classList.add("show", type);
+    var iconMap = {
+      error: '⚠️',
+      success: '✅',
+      info: 'ℹ️',
+      warning: '📣',
+      default: '📍'
+    };
+    var labelMap = {
+      error: 'Alert',
+      success: 'Success',
+      info: 'Info',
+      warning: 'Notice',
+      default: 'Update'
+    };
+    var resolvedType = iconMap[type] ? type : 'default';
+
+    el.innerHTML = '<span class="notification-icon">' + iconMap[resolvedType] + '</span>' +
+      '<span class="notification-copy">' +
+      '<span class="notification-label">' + labelMap[resolvedType] + '</span>' +
+      '<span class="notification-message">' + escapeHtml(msg) + '</span>' +
+      '</span>';
+
+    el.classList.remove("show", "error", "success", "info", "warning", "default");
+    el.classList.add("show", resolvedType);
     if (_notificationTimer) clearTimeout(_notificationTimer);
     _notificationTimer = setTimeout(function () {
-      el.classList.remove("show", "error", "success", "warning");
+      el.classList.remove("show", "error", "success", "info", "warning", "default");
     }, 3500);
   }
 
@@ -644,7 +1027,7 @@ netStr = "+" + net.toFixed(1) + "/s";
       if (upgrade.cost) {
         for (var resId in upgrade.cost) {
           var needed = upgrade.cost[resId];
-          var have = GameState.getResource(resId) || 0;
+          var have = GameState.getSpendableResource(resId) || 0;
           var res = GameRegistry.getEntity(resId);
           var resName = res ? res.name : resId;
           var color = have >= needed ? "#4ecca3" : "#e63946";
@@ -671,7 +1054,7 @@ netStr = "+" + net.toFixed(1) + "/s";
         if (upgrade.cost) {
           for (var resId in upgrade.cost) {
             var needed = upgrade.cost[resId];
-            var have = GameState.getResource(resId) || 0;
+            var have = GameState.getSpendableResource(resId) || 0;
             var res = GameRegistry.getEntity(resId);
             var resName = res ? res.name : resId;
             var color = have >= needed ? "#4ecca3" : "#e63946";
@@ -733,16 +1116,17 @@ netStr = "+" + net.toFixed(1) + "/s";
       var maxFuel = balance.fuelCapacity || 999;
       var fuelPct = maxFuel > 0 ? Math.floor((currentFuel / maxFuel) * 100) : 0;
       var fuelColor = fuelPct > 50 ? "#4ecca3" : (fuelPct > 20 ? "#f0a500" : "#e94560");
+      var needsFuel = currentFuel < maxFuel;
 
       fuelHtml = '<div class="inspector-section">' +
         '<div style="font-size:11px;">🔥 Fuel: <span style="color:' + fuelColor + '; font-weight:bold;">' + Math.floor(currentFuel) + '/' + maxFuel + '</span> (' + fuelPct + '%)</div>';
 
       if (balance.refuelCost) {
         var refuelParts = [];
-        var canRefuel = true;
+        var canRefuel = needsFuel;
         for (var resId in balance.refuelCost) {
           var needed = balance.refuelCost[resId];
-          var have = GameState.getResource(resId);
+          var have = GameState.getSpendableResource(resId);
           var res = GameRegistry.getEntity(resId);
           var resName = res ? res.name : resId;
           var color = have >= needed ? "#4ecca3" : "#e63946";
@@ -750,7 +1134,8 @@ netStr = "+" + net.toFixed(1) + "/s";
           refuelParts.push('<span style="color:' + color + '">' + needed + ' ' + escapeHtml(resName) + '</span>');
         }
         fuelHtml += '<div style="color:#888; font-size:10px; margin-top:2px;">Refuel: ' + refuelParts.join(", ") + '</div>';
-        fuelHtml += '<button class="btn btn-secondary" style="margin-top:4px; font-size:10px; padding:2px 8px;" onclick="GameActions.refuel(\'' + uid + '\')" ' + (canRefuel ? '' : 'disabled') + '>Refuel</button>';
+        fuelHtml += '<div style="color:#666; font-size:10px; margin-top:2px;">Double-click the campfire to quick refuel.</div>';
+        fuelHtml += '<button class="btn btn-secondary" style="margin-top:4px; font-size:10px; padding:2px 8px;" onclick="GameActions.refuel(\'' + uid + '\')" ' + (canRefuel ? '' : 'disabled') + '>' + (needsFuel ? 'Refuel' : 'Fuel Full') + '</button>';
       }
       fuelHtml += '</div>';
     }
@@ -849,7 +1234,7 @@ netStr = "+" + net.toFixed(1) + "/s";
   }
   
   function confirmDestroy(uid) {
-    if (!confirm("Bạn có chắc muốn xóa building này?\nBạn sẽ nhận được 50% chi phí đã bỏ ra.")) {
+    if (!confirm("Delete this structure?\nYou will receive a 50% refund.")) {
       return;
     }
     if (window.RangeIndicator && RangeIndicator.getActiveUid() === uid) {
@@ -857,7 +1242,7 @@ netStr = "+" + net.toFixed(1) + "/s";
     }
     BuildingSystem.destroyBuilding(uid);
     closeInspector();
-    showNotification("Đã xóa building.");
+    showNotification("Structure removed.");
   }
   
   function closeInspector() {
@@ -876,6 +1261,22 @@ netStr = "+" + net.toFixed(1) + "/s";
     if (e.key === 'Delete' && _hoveredInstance && !BuildingSystem.isBuildMode()) {
       confirmDestroy(_hoveredInstance);
     }
+  });
+
+  document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      toggleQuickbarMode();
+      return;
+    }
+
+    var quickbarIndex = getQuickbarKeyIndex(e);
+    if (quickbarIndex === null) return;
+
+    e.preventDefault();
+    activateQuickbarSlot(quickbarIndex);
   });
 
   function showObjectHpBar(objData) {
@@ -1046,7 +1447,7 @@ netStr = "+" + net.toFixed(1) + "/s";
       initCharacterCanvas();
       updateCharacterEquipment();
       renderModalLeftSide();
-      renderModalPanel();
+      switchModalTab(_modalTab);
     }
   }
 
@@ -1060,6 +1461,10 @@ netStr = "+" + net.toFixed(1) + "/s";
 
   function switchModalTab(tabName) {
     _modalTab = tabName;
+    if (tabName === 'build' || tabName === 'craft') {
+      toggleQuickbarMode(tabName, true);
+    }
+    renderModalHeader();
     
     // Update tab buttons
     document.querySelectorAll('.modal-tab').forEach(function(tab) {
@@ -1244,10 +1649,235 @@ netStr = "+" + net.toFixed(1) + "/s";
 
   function updateModal() {
     if (_modalActive) {
+      renderModalHeader();
       updateCharacterEquipment();
       renderModalLeftSide();
       renderModalPanel();
     }
+  }
+
+  function describeUnlockProgress(progress) {
+    if (!progress || !progress.details) return '';
+
+    var unmet = [];
+    progress.details.forEach(function(detail) {
+      if (detail.met) return;
+
+      if (detail.type === 'resource') {
+        var resEntity = GameRegistry.getEntity(detail.id);
+        unmet.push((resEntity ? resEntity.name : detail.id) + ' ' + Math.floor(detail.current) + '/' + detail.target);
+      } else if (detail.type === 'building') {
+        var buildingEntity = GameRegistry.getEntity(detail.id);
+        unmet.push((buildingEntity ? buildingEntity.name : detail.id) + ' ' + detail.current + '/' + detail.target);
+      } else if (detail.type === 'age') {
+        var ageEntity = GameRegistry.getEntity(detail.target);
+        unmet.push('Reach ' + (ageEntity ? ageEntity.name : detail.target));
+      } else if (detail.type === 'technology') {
+        var techEntity = GameRegistry.getEntity(detail.id);
+        unmet.push('Research ' + (techEntity ? techEntity.name : detail.id));
+      }
+    });
+
+    return unmet.slice(0, 2).join(' • ');
+  }
+
+  function getEntityIcon(entityOrId) {
+    var entity = typeof entityOrId === 'string' ? GameRegistry.getEntity(entityOrId) : entityOrId;
+    if (!entity) return '✨';
+
+    if (entity.type === 'resource') return getResourceIcon(entity.id);
+    if (entity.type === 'technology') return '🔬';
+    if (entity.type === 'recipe') return '🛠️';
+
+    if (entity.type === 'building') {
+      var buildingIcons = {
+        'building.warehouse': '📦',
+        'building.bridge': '🌉',
+        'building.well': '🪣',
+        'building.campfire': '🔥',
+        'building.barracks': '🛡️',
+        'building.blacksmith': '🔨',
+        'building.smelter': '♨️',
+        'building.blast_furnace': '🏭'
+      };
+      if (buildingIcons[entity.id]) return buildingIcons[entity.id];
+
+      var buildingBalance = GameRegistry.getBalance(entity.id) || {};
+      if (buildingBalance.produces) {
+        var outputIds = Object.keys(buildingBalance.produces);
+        if (outputIds.length) return getResourceIcon(outputIds[0]);
+      }
+
+      if (entity.id === 'building.warehouse') return '📦';
+      if (entity.id === 'building.bridge') return '🌉';
+      if (entity.id === 'building.well') return '🪣';
+      if (entity.id === 'building.campfire') return '🔥';
+      return '🏗️';
+    }
+
+    if (entity.type === 'equipment') {
+      var equipmentIcons = {
+        'equipment.wooden_sword': '🪵⚔',
+        'equipment.stone_spear': '🪨🗡',
+        'equipment.stone_shield': '🪨🛡',
+        'equipment.leather_armor': '🧥',
+        'equipment.leather_boots': '🥾',
+        'equipment.bronze_sword': '🥉⚔',
+        'equipment.bronze_shield': '🥉🛡',
+        'equipment.bronze_armor': '🥉🦺',
+        'equipment.iron_sword': '⚙️⚔',
+        'equipment.iron_shield': '⚙️🛡',
+        'equipment.iron_armor': '⚙️🦺',
+        'equipment.iron_boots': '⚙️🥾'
+      };
+      if (equipmentIcons[entity.id]) return equipmentIcons[entity.id];
+
+      var balance = GameRegistry.getBalance(entity.id);
+      var slot = entity.slot || (balance && balance.slot);
+      if (slot === 'weapon') return '⚔️';
+      if (slot === 'offhand') return '🛡️';
+      if (slot === 'armor') return '🦺';
+      if (slot === 'boots') return '👟';
+      return '🧰';
+    }
+
+    if (entity.type === 'consumable' || entity.type === 'item') return '🔥';
+    return '✨';
+  }
+
+  function getLevelValue(levelMap, preferredLevel) {
+    if (levelMap === undefined || levelMap === null) return 0;
+    if (typeof levelMap === 'number') return levelMap;
+
+    if (preferredLevel !== undefined && levelMap[preferredLevel] !== undefined) {
+      return levelMap[preferredLevel];
+    }
+
+    var keys = Object.keys(levelMap);
+    if (!keys.length) return 0;
+    keys.sort(function(a, b) {
+      return Number(a) - Number(b);
+    });
+    return levelMap[keys[0]];
+  }
+
+  function buildMetricGrid(items) {
+    var filtered = (items || []).filter(function(item) {
+      return item && item.value !== undefined && item.value !== null && item.value !== '';
+    });
+
+    if (!filtered.length) return '';
+
+    var html = '<div class="management-metrics">';
+    filtered.forEach(function(item) {
+      html += '<div class="management-metric">';
+      html += '<div class="management-metric-label">' + escapeHtml(item.label) + '</div>';
+      html += '<div class="management-metric-value">' + escapeHtml(String(item.value)) + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  function buildResourcePills(resourceMap, tone) {
+    if (!resourceMap) return { html: '', allAffordable: true };
+
+    var parts = [];
+    var allAffordable = true;
+
+    for (var resId in resourceMap) {
+      var amount = resourceMap[resId];
+      var entity = GameRegistry.getEntity(resId);
+      var isAffordable = (tone === 'output' || tone === 'neutral') ? true : GameState.hasSpendableResource(resId, amount);
+      if (!isAffordable) allAffordable = false;
+
+      var cssTone = 'neutral';
+      if (tone === 'output') {
+        cssTone = 'output';
+      } else if (tone !== 'neutral') {
+        cssTone = isAffordable ? 'ready' : 'lacking';
+      }
+
+      parts.push(
+        '<span class="resource-pill ' + cssTone + '">' +
+        '<span class="resource-pill-icon">' + getResourceIcon(resId) + '</span>' +
+        '<span>' + escapeHtml(entity ? entity.name : resId) + ' x' + amount + '</span>' +
+        '</span>'
+      );
+    }
+
+    return {
+      html: parts.join(''),
+      allAffordable: allAffordable
+    };
+  }
+
+  function buildRequirementChecklist(entity) {
+    var progress = UnlockSystem.getUnlockProgress(entity);
+    if (!progress || !progress.details || !progress.details.length) return '';
+
+    var html = '<div class="requirement-list">';
+    progress.details.forEach(function(detail) {
+      var text = '';
+
+      if (detail.type === 'age') {
+        var ageEntity = GameRegistry.getEntity(detail.target);
+        text = 'Reach ' + (ageEntity ? ageEntity.name : detail.target);
+      } else if (detail.type === 'resource') {
+        var resourceEntity = GameRegistry.getEntity(detail.id);
+        text = (resourceEntity ? resourceEntity.name : detail.id) + ' ' + Math.floor(detail.current) + '/' + detail.target;
+      } else if (detail.type === 'building') {
+        var buildingEntity = GameRegistry.getEntity(detail.id);
+        text = (buildingEntity ? buildingEntity.name : detail.id) + ' ' + detail.current + '/' + detail.target;
+      } else if (detail.type === 'technology') {
+        var techEntity = GameRegistry.getEntity(detail.id);
+        text = 'Research ' + (techEntity ? techEntity.name : detail.id);
+      }
+
+      if (!text) return;
+
+      html += '<div class="requirement-item' + (detail.met ? ' met' : '') + '">';
+      html += '<span class="requirement-dot">' + (detail.met ? '✓' : '○') + '</span>';
+      html += '<span>' + escapeHtml(text) + '</span>';
+      html += '</div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  function buildTechnologyRequirementChecklist(requiredIds) {
+    if (!requiredIds || !requiredIds.length) return '';
+
+    var html = '<div class="requirement-list">';
+    requiredIds.forEach(function(reqId) {
+      var reqEntity = GameRegistry.getEntity(reqId);
+      var met = window.ResearchSystem && ResearchSystem.isResearched(reqId);
+      html += '<div class="requirement-item' + (met ? ' met' : '') + '">';
+      html += '<span class="requirement-dot">' + (met ? '✓' : '○') + '</span>';
+      html += '<span>Research ' + escapeHtml(reqEntity ? reqEntity.name : reqId) + '</span>';
+      html += '</div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  function buildResearchEffectsList(effects) {
+    if (!effects) return '';
+
+    var effectItems = [];
+    if (effects.harvestSpeedBonus) effectItems.push('Harvest speed +' + Math.round(effects.harvestSpeedBonus * 100) + '%');
+    if (effects.productionBonus) effectItems.push('Production +' + Math.round(effects.productionBonus * 100) + '%');
+    if (effects.storageBonus) effectItems.push('Storage +' + Math.round(effects.storageBonus * 100) + '%');
+    if (effects.npcSpeedBonus) effectItems.push('Worker speed +' + Math.round(effects.npcSpeedBonus * 100) + '%');
+
+    if (!effectItems.length) return '';
+
+    var html = '<div class="effect-list">';
+    effectItems.forEach(function(item) {
+      html += '<div class="effect-item">⚡ ' + escapeHtml(item) + '</div>';
+    });
+    html += '</div>';
+    return html;
   }
 
   function renderModalLeftSide() {
@@ -1367,26 +1997,30 @@ netStr = "+" + net.toFixed(1) + "/s";
 
     var resources = GameRegistry.getEntitiesByType('resource');
     var stats = TickSystem.getResourceStats();
-    var html = '<div class="resources-grid">';
+    var html = '<div class="panel-section">';
+    html += '<div class="section-header">';
+    html += '<div><div class="section-kicker">Economy Snapshot</div><div class="section-title">Available Resources</div><div class="section-copy">These totals reflect everything you can spend right now.</div></div>';
+    html += '</div>';
+    html += '<div class="resources-grid">';
 
     resources.forEach(function(res) {
       if (!GameState.isUnlocked(res.id)) return;
       
-      var amount = GameState.getResource(res.id);
+      var amount = GameState.getSpendableResource(res.id);
       var net = stats.net ? stats.net[res.id] : 0;
       
       var netStr = '';
       var netColor = '#888';
       if (net > 0.001) {
-        netStr = '+' + net.toFixed(1) + '/tick';
+        netStr = '+' + net.toFixed(1) + '/sec';
         netColor = '#4ecca3';
       } else if (net < -0.001) {
-        netStr = net.toFixed(1) + '/tick';
+        netStr = net.toFixed(1) + '/sec';
         netColor = '#e94560';
       }
 
       html += '<div class="resource-card">';
-      html += '<div class="resource-card-icon">💎</div>';
+  html += '<div class="resource-card-icon">' + getResourceIcon(res.id) + '</div>';
       html += '<div class="resource-card-info">';
       html += '<div class="resource-card-name">' + escapeHtml(res.name) + '</div>';
       html += '<div class="resource-card-amount">' + Math.floor(amount) + '</div>';
@@ -1397,7 +2031,7 @@ netStr = "+" + net.toFixed(1) + "/s";
       html += '</div>';
     });
 
-    html += '</div>';
+    html += '</div></div>';
     panel.innerHTML = html;
   }
 
@@ -1406,53 +2040,100 @@ netStr = "+" + net.toFixed(1) + "/s";
     if (!panel) return;
 
     var buildings = GameRegistry.getEntitiesByType('building');
-    var html = '';
+    var readyCards = [];
+    var blockedCards = [];
+    var lockedCards = [];
+    var totalPlaced = 0;
 
     buildings.forEach(function(building) {
+      var balance = GameRegistry.getBalance(building.id) || {};
+      var count = GameState.getBuildingCount(building.id);
       var isUnlocked = GameState.isUnlocked(building.id);
+      var costInfo = buildResourcePills(balance.cost, 'cost');
+      var productionInfo = buildResourcePills(balance.produces, 'output');
+      var consumptionInfo = buildResourcePills(balance.consumesPerSecond, 'neutral');
+      var metrics = buildMetricGrid([
+        { label: 'Workers', value: getLevelValue(balance.workerCount, 1) || null },
+        { label: 'Range', value: getLevelValue(balance.searchRadius, 1) ? getLevelValue(balance.searchRadius, 1) + ' tiles' : null },
+        { label: 'Storage', value: getLevelValue(balance.storageCapacity, 1) || null },
+        { label: 'Transfer', value: balance.transferRange ? balance.transferRange + ' tiles' : null },
+        { label: 'Light', value: balance.lightRadius ? balance.lightRadius + ' tiles' : null },
+        { label: 'Guards', value: getLevelValue(balance.guardCount, 1) || null }
+      ]);
+
+      totalPlaced += count;
       
       if (!isUnlocked) {
-        html += '<div class="card" style="opacity: 0.5;">';
-        html += '<span style="position:absolute; top:8px; right:12px; font-size:18px;">🔒</span>';
-        html += '<div><div class="card-name">' + escapeHtml(building.name) + '</div>';
-        html += '<div class="card-info">' + escapeHtml(building.description || '') + '</div>';
-        html += buildUnlockConditionsHtml(building);
-        html += '</div>';
-        html += '<button class="btn btn-primary" disabled>🔒 Locked</button>';
-        html += '</div>';
+        lockedCards.push(
+          '<div class="management-card locked">' +
+          '<div class="management-card-top">' +
+          '<div class="management-card-identity">' +
+          '<div class="management-icon build">' + getEntityIcon(building) + '</div>' +
+          '<div><div class="management-card-name">' + escapeHtml(building.name) + '</div><div class="management-card-copy">' + escapeHtml(building.description || '') + '</div></div>' +
+          '</div>' +
+          '<div class="management-badges"><span class="management-badge locked">Locked</span></div>' +
+          '</div>' +
+          buildRequirementChecklist(building) +
+          '<div class="card-actions"><button class="btn btn-secondary" disabled>Locked</button></div>' +
+          '</div>'
+        );
         return;
       }
 
-      var balance = GameRegistry.getBalance(building.id);
-      var count = GameState.getBuildingCount(building.id);
-      var canBuy = true;
-
-      html += '<div class="card">';
-      html += '<div><div class="card-name">' + escapeHtml(building.name);
-      if (count > 0) html += ' (x' + count + ')';
-      html += '</div>';
-      html += '<div class="card-info">' + escapeHtml(building.description || '') + '</div>';
-
-      if (balance && balance.cost) {
-        html += '<div class="card-cost">Cost: ';
-        var parts = [];
-        for (var resId in balance.cost) {
-          var resEntity = GameRegistry.getEntity(resId);
-          var name = resEntity ? resEntity.name : resId;
-          var needed = balance.cost[resId];
-          var has = GameState.hasResource(resId, needed);
-          if (!has) canBuy = false;
-          parts.push('<span class="' + (has ? 'cost-ok' : 'cost-lack') + '">' + name + ':' + needed + '</span>');
-        }
-        html += parts.join(' ') + '</div>';
+      var canBuy = costInfo.allAffordable;
+      var cardHtml = '';
+      cardHtml += '<div class="management-card' + (canBuy ? ' ready' : '') + '">';
+      cardHtml += '<div class="management-card-top">';
+      cardHtml += '<div class="management-card-identity">';
+      cardHtml += '<div class="management-icon build">' + getEntityIcon(building) + '</div>';
+      cardHtml += '<div><div class="management-card-name">' + escapeHtml(building.name) + '</div><div class="management-card-copy">' + escapeHtml(building.description || '') + '</div></div>';
+      cardHtml += '</div>';
+      cardHtml += '<div class="management-badges">';
+      cardHtml += '<span class="management-badge neutral">Placed x' + count + '</span>';
+      cardHtml += '<span class="management-badge ' + (canBuy ? 'ready' : 'pending') + '">' + (canBuy ? 'Ready' : 'Need stock') + '</span>';
+      cardHtml += '</div></div>';
+      cardHtml += metrics;
+      if (costInfo.html) {
+        cardHtml += '<div class="management-block"><div class="management-block-label">Construction Cost</div><div class="resource-pill-row">' + costInfo.html + '</div></div>';
       }
+      if (productionInfo.html) {
+        cardHtml += '<div class="management-block"><div class="management-block-label">Produces</div><div class="resource-pill-row">' + productionInfo.html + '</div></div>';
+      }
+      if (consumptionInfo.html) {
+        cardHtml += '<div class="management-block"><div class="management-block-label">Consumes</div><div class="resource-pill-row">' + consumptionInfo.html + '</div></div>';
+      }
+      cardHtml += '<div class="card-actions"><button class="btn btn-primary" onclick="BuildingSystem.enterBuildMode(\'' + building.id + '\'); GameHUD.closeModal();"' + (canBuy ? '' : ' disabled') + '>' + (count > 0 ? 'Place another' : 'Place structure') + '</button></div>';
+      cardHtml += '</div>';
 
-      html += '</div>';
-      html += '<button class="btn btn-primary" onclick="BuildingSystem.enterBuildMode(\'' + building.id + '\'); GameHUD.closeModal();"' + (canBuy ? '' : ' disabled') + '>Build</button>';
-      html += '</div>';
+      if (canBuy) {
+        readyCards.push(cardHtml);
+      } else {
+        blockedCards.push(cardHtml);
+      }
     });
 
-    panel.innerHTML = html || '<div class="card">No buildings available.</div>';
+    var html = '';
+    html += '<div class="panel-section">';
+    html += '<div class="section-header"><div><div class="section-kicker">Settlement Planning</div><div class="section-title">Construction Queue</div><div class="section-copy">See which structures you can place now, which ones still need resources, and which blueprints remain locked.</div></div></div>';
+    html += '<div class="summary-list">';
+    html += '<div class="summary-row"><span>Ready to place</span><span class="summary-value">' + readyCards.length + '</span></div>';
+    html += '<div class="summary-row"><span>Need more stock</span><span class="summary-value">' + blockedCards.length + '</span></div>';
+    html += '<div class="summary-row total"><span>Structures placed</span><span class="summary-value">' + totalPlaced + '</span></div>';
+    html += '</div></div>';
+
+    if (readyCards.length) {
+      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Ready Now</div><div class="section-title">Immediate Builds</div><div class="section-copy">These structures are affordable with your current spendable stockpile.</div></div></div><div class="management-grid">' + readyCards.join('') + '</div></div>';
+    }
+
+    if (blockedCards.length) {
+      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Blocked</div><div class="section-title">Need More Materials</div><div class="section-copy">These blueprints are unlocked, but your current stockpile is still short.</div></div></div><div class="management-grid">' + blockedCards.join('') + '</div></div>';
+    }
+
+    if (lockedCards.length) {
+      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Future Blueprints</div><div class="section-title">Locked Structures</div><div class="section-copy">Track the requirements that unlock your next set of buildings.</div></div></div><div class="management-grid">' + lockedCards.join('') + '</div></div>';
+    }
+
+    panel.innerHTML = html || '<div class="empty-state">No building blueprints are available yet.</div>';
   }
 
   function renderModalCraft() {
@@ -1460,73 +2141,53 @@ netStr = "+" + net.toFixed(1) + "/s";
     if (!panel) return;
 
     var recipes = CraftSystem.getAllRecipes();
-    var html = '';
+    var readyCards = [];
+    var waitingCards = [];
+    var lockedCards = [];
+    var equippedCards = [];
 
     recipes.forEach(function(recipe) {
       var isUnlocked = GameState.isUnlocked(recipe.id);
+      var recipeInfo = CraftSystem.getRecipeInfo(recipe.id);
+      var balance = recipeInfo.balance || {};
+      var inputInfo = buildResourcePills(balance.input, 'cost');
+      var outputInfo = buildResourcePills(balance.output, 'output');
+      var outputKeys = balance.output ? Object.keys(balance.output) : [];
+      var primaryOutputId = outputKeys.length ? outputKeys[0] : null;
+      var primaryOutputEntity = primaryOutputId ? GameRegistry.getEntity(primaryOutputId) : null;
       
       if (!isUnlocked) {
-        html += '<div class="card" style="opacity: 0.5;">';
-        html += '<span style="position:absolute; top:8px; right:12px; font-size:18px;">🔒</span>';
-        html += '<div><div class="card-name">' + escapeHtml(recipe.name) + '</div>';
-        html += '<div class="card-info">' + escapeHtml(recipe.description || '') + '</div>';
-        html += buildUnlockConditionsHtml(recipe);
-        html += '</div>';
-        html += '<button class="btn btn-primary" disabled>🔒 Locked</button>';
-        html += '</div>';
+        lockedCards.push(
+          '<div class="management-card locked">' +
+          '<div class="management-card-top">' +
+          '<div class="management-card-identity">' +
+          '<div class="management-icon craft">' + getEntityIcon(primaryOutputEntity || recipe) + '</div>' +
+          '<div><div class="management-card-name">' + escapeHtml(recipe.name) + '</div><div class="management-card-copy">' + escapeHtml(recipe.description || '') + '</div></div>' +
+          '</div>' +
+          '<div class="management-badges"><span class="management-badge locked">Locked</span></div>' +
+          '</div>' +
+          buildRequirementChecklist(recipe) +
+          '<div class="card-actions"><button class="btn btn-secondary" disabled>Locked</button></div>' +
+          '</div>'
+        );
         return;
       }
 
-      var info = CraftSystem.getRecipeInfo(recipe.id);
-      var balance = info.balance;
-      var canCraft = info.canCraft;
-
-      html += '<div class="card">';
-      html += '<div><div class="card-name">' + escapeHtml(recipe.name) + '</div>';
-      html += '<div class="card-info">' + escapeHtml(recipe.description || '') + '</div>';
-
-      if (balance && balance.input) {
-        html += '<div class="card-cost">Input: ';
-        var parts = [];
-        for (var resId in balance.input) {
-          var entity = GameRegistry.getEntity(resId);
-          var name = entity ? entity.name : resId;
-          var needed = balance.input[resId];
-          var has = GameState.hasResource(resId, needed);
-          parts.push('<span class="' + (has ? 'cost-ok' : 'cost-lack') + '">' + name + ':' + needed + '</span>');
-        }
-        html += parts.join(' ') + '</div>';
-      }
-
-      if (balance && balance.output) {
-        html += '<div class="card-cost" style="color:#4ecca3">Output: ';
-        var parts = [];
-        for (var resId in balance.output) {
-          var entity = GameRegistry.getEntity(resId);
-          var name = entity ? entity.name : resId;
-          parts.push(name + ' x' + balance.output[resId]);
-        }
-        html += parts.join(', ') + '</div>';
-      }
-
-      html += '</div>';
-      
-      // Check if output is equipment and already in inventory
+      var canCraft = recipeInfo.canCraft;
       var hasInInventory = false;
       var outputEquipmentId = null;
       var isEquipped = false;
       if (balance && balance.output) {
-        for (var resId in balance.output) {
-          var entity = GameRegistry.getEntity(resId);
-          if (entity && entity.type === 'equipment') {
-            outputEquipmentId = resId;
-            var invCount = GameState.getInventoryCount(resId);
+        for (var resultId in balance.output) {
+          var resultEntity = GameRegistry.getEntity(resultId);
+          if (resultEntity && resultEntity.type === 'equipment') {
+            outputEquipmentId = resultId;
+            var invCount = GameState.getInventoryCount(resultId);
             if (invCount > 0) {
               hasInInventory = true;
             }
-            // Check if already equipped in the right slot
             var player = GameState.getPlayer();
-            if (player.equipped[entity.slot] === resId) {
+            if (player.equipped[resultEntity.slot] === resultId) {
               isEquipped = true;
             }
             break;
@@ -1534,21 +2195,87 @@ netStr = "+" + net.toFixed(1) + "/s";
         }
       }
 
+      var badges = '';
+      var actionHtml = '';
+      var statusClass = 'pending';
+      var statusText = 'Need materials';
+
       if (isEquipped) {
-        // Already equipped - show disabled button
-        html += '<button class="btn btn-secondary" disabled style="opacity:0.6;">Equipped</button>';
+        statusClass = 'done';
+        statusText = 'Equipped';
+        actionHtml = '<button class="btn btn-secondary" disabled>Equipped</button>';
       } else if (hasInInventory && outputEquipmentId) {
-        // Show "Use" button instead of "Craft"
-        html += '<button class="btn btn-success" onclick="GameActions.equip(\'' + outputEquipmentId + '\'); GameHUD.updateModal();">Use</button>';
+        statusClass = 'ready';
+        statusText = 'Ready to use';
+        actionHtml = '<button class="btn btn-success" onclick="GameActions.equip(\'' + outputEquipmentId + '\'); GameHUD.updateModal();">Use item</button>';
       } else {
-        // Show "Craft" button
-        html += '<button class="btn btn-primary" onclick="GameActions.craft(\'' + recipe.id + '\')"' + (canCraft ? '' : ' disabled') + '>Craft</button>';
+        statusClass = canCraft ? 'ready' : 'pending';
+        statusText = canCraft ? 'Ready to craft' : 'Need materials';
+        actionHtml = '<button class="btn btn-primary" onclick="GameActions.craft(\'' + recipe.id + '\')"' + (canCraft ? '' : ' disabled') + '>Craft</button>';
       }
-      
-      html += '</div>';
+
+      if (primaryOutputEntity && primaryOutputEntity.type === 'equipment') {
+        badges += '<span class="management-badge neutral">' + escapeHtml((primaryOutputEntity.slot || '').replace(/^./, function(ch) { return ch.toUpperCase(); })) + '</span>';
+      }
+      badges += '<span class="management-badge ' + statusClass + '">' + statusText + '</span>';
+
+      var cardHtml = '';
+      cardHtml += '<div class="management-card' + (statusClass === 'done' ? ' complete' : (statusClass === 'ready' ? ' ready' : '')) + '">';
+      cardHtml += '<div class="management-card-top">';
+      cardHtml += '<div class="management-card-identity">';
+      cardHtml += '<div class="management-icon craft">' + getEntityIcon(primaryOutputEntity || recipe) + '</div>';
+      cardHtml += '<div><div class="management-card-name">' + escapeHtml(recipe.name) + '</div><div class="management-card-copy">' + escapeHtml(recipe.description || '') + '</div></div>';
+      cardHtml += '</div>';
+      cardHtml += '<div class="management-badges">' + badges + '</div>';
+      cardHtml += '</div>';
+      cardHtml += buildMetricGrid([
+        { label: 'Result', value: primaryOutputEntity ? primaryOutputEntity.type : 'Recipe' },
+        { label: 'Yield', value: primaryOutputId ? ('x' + balance.output[primaryOutputId]) : null }
+      ]);
+      if (outputInfo.html) {
+        cardHtml += '<div class="management-block"><div class="management-block-label">Output</div><div class="resource-pill-row">' + outputInfo.html + '</div></div>';
+      }
+      if (inputInfo.html) {
+        cardHtml += '<div class="management-block"><div class="management-block-label">Required Materials</div><div class="resource-pill-row">' + inputInfo.html + '</div></div>';
+      }
+      cardHtml += '<div class="card-actions">' + actionHtml + '</div>';
+      cardHtml += '</div>';
+
+      if (statusClass === 'done') {
+        equippedCards.push(cardHtml);
+      } else if (statusClass === 'ready') {
+        readyCards.push(cardHtml);
+      } else {
+        waitingCards.push(cardHtml);
+      }
     });
 
-    panel.innerHTML = html || '<div class="card">No recipes available.</div>';
+    var html = '';
+    html += '<div class="panel-section">';
+    html += '<div class="section-header"><div><div class="section-kicker">Workshop Queue</div><div class="section-title">Crafting Pipeline</div><div class="section-copy">Prioritize what can be crafted right now, what is already equipped, and what still needs more materials.</div></div></div>';
+    html += '<div class="summary-list">';
+    html += '<div class="summary-row"><span>Ready now</span><span class="summary-value">' + readyCards.length + '</span></div>';
+    html += '<div class="summary-row"><span>Need materials</span><span class="summary-value">' + waitingCards.length + '</span></div>';
+    html += '<div class="summary-row total"><span>Already equipped</span><span class="summary-value">' + equippedCards.length + '</span></div>';
+    html += '</div></div>';
+
+    if (readyCards.length) {
+      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Ready Now</div><div class="section-title">Immediate Crafts</div><div class="section-copy">These recipes can be crafted, or their result can be equipped from inventory immediately.</div></div></div><div class="management-grid">' + readyCards.join('') + '</div></div>';
+    }
+
+    if (waitingCards.length) {
+      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Queued</div><div class="section-title">Need More Materials</div><div class="section-copy">Known recipes that are still short on spendable resources.</div></div></div><div class="management-grid">' + waitingCards.join('') + '</div></div>';
+    }
+
+    if (equippedCards.length) {
+      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Loadout</div><div class="section-title">Already Equipped</div><div class="section-copy">These crafted upgrades are already active on your survivor.</div></div></div><div class="management-grid">' + equippedCards.join('') + '</div></div>';
+    }
+
+    if (lockedCards.length) {
+      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Future Recipes</div><div class="section-title">Locked Crafts</div><div class="section-copy">Unlock these recipes through age progression, research, or settlement growth.</div></div></div><div class="management-grid">' + lockedCards.join('') + '</div></div>';
+    }
+
+    panel.innerHTML = html || '<div class="empty-state">No recipes are available yet.</div>';
   }
 
   function renderModalStats() {
@@ -1556,14 +2283,36 @@ netStr = "+" + net.toFixed(1) + "/s";
     if (!panel) return;
 
     var player = GameState.getPlayer();
+    var currentAgeEntity = GameRegistry.getEntity(GameState.getAge());
     var maxHp = GameState.getPlayerMaxHp();
     var attack = GameState.getPlayerAttack();
     var defense = GameState.getPlayerDefense();
     var speed = GameState.getPlayerSpeed ? GameState.getPlayerSpeed() : 3;
+    var nextAge = getNextAgeObjective();
+    var nextUnlocks = UnlockSystem.getNextUnlocks();
+    var buildings = GameState.getAllBuildings();
+    var buildingEntries = Object.keys(buildings).map(function(id) {
+      var entity = GameRegistry.getEntity(id);
+      return {
+        id: id,
+        name: entity ? entity.name : id,
+        count: buildings[id]
+      };
+    }).sort(function(a, b) {
+      return b.count - a.count;
+    });
+    var totalBuildings = buildingEntries.reduce(function(sum, entry) {
+      return sum + entry.count;
+    }, 0);
 
-    var html = '<div class="stats-grid">';
-    
-    // HP
+    var html = '';
+
+    html += '<div class="panel-section">';
+    html += '<div class="section-header">';
+    html += '<div><div class="section-kicker">Survivor Overview</div><div class="section-title">' + escapeHtml(currentAgeEntity ? currentAgeEntity.name : GameState.getAge()) + '</div><div class="section-copy">Your current combat, travel, and survivability profile.</div></div>';
+    html += '</div>';
+    html += '<div class="stats-grid">';
+
     html += '<div class="stat-card hp">';
     html += '<div class="stat-label">❤️ Health</div>';
     html += '<div class="stat-value">' + Math.floor(player.hp) + ' / ' + maxHp + '</div>';
@@ -1575,10 +2324,8 @@ netStr = "+" + net.toFixed(1) + "/s";
         html += '<br>Armor: +' + armorBalance.stats.maxHp;
       }
     }
-    html += '</div>';
-    html += '</div>';
+    html += '</div></div>';
 
-    // Attack
     html += '<div class="stat-card attack">';
     html += '<div class="stat-label">⚔️ Attack</div>';
     html += '<div class="stat-value">' + attack + '</div>';
@@ -1590,10 +2337,8 @@ netStr = "+" + net.toFixed(1) + "/s";
         html += '<br>Weapon: +' + weaponBalance.stats.attack;
       }
     }
-    html += '</div>';
-    html += '</div>';
+    html += '</div></div>';
 
-    // Defense
     html += '<div class="stat-card defense">';
     html += '<div class="stat-label">🛡️ Defense</div>';
     html += '<div class="stat-value">' + defense + '</div>';
@@ -1606,15 +2351,13 @@ netStr = "+" + net.toFixed(1) + "/s";
       }
     }
     if (armorId) {
-      var armorBalance = GameRegistry.getBalance(armorId);
-      if (armorBalance && armorBalance.stats && armorBalance.stats.defense) {
-        html += '<br>Armor: +' + armorBalance.stats.defense;
+      var armorDefBalance = GameRegistry.getBalance(armorId);
+      if (armorDefBalance && armorDefBalance.stats && armorDefBalance.stats.defense) {
+        html += '<br>Armor: +' + armorDefBalance.stats.defense;
       }
     }
-    html += '</div>';
-    html += '</div>';
+    html += '</div></div>';
 
-    // Speed
     html += '<div class="stat-card speed">';
     html += '<div class="stat-label">⚡ Speed</div>';
     html += '<div class="stat-value">' + speed.toFixed(1) + '</div>';
@@ -1626,9 +2369,122 @@ netStr = "+" + net.toFixed(1) + "/s";
         html += '<br>Boots: +' + bootsBalance.stats.speed;
       }
     }
+    html += '</div></div>';
+
+    html += '</div>';
+    html += '<div class="summary-list compact">';
+    html += '<div class="summary-row"><span>Current age</span><span class="summary-value">' + escapeHtml(currentAgeEntity ? currentAgeEntity.name : GameState.getAge()) + '</span></div>';
+    html += '<div class="summary-row"><span>World position</span><span class="summary-value">' + Math.floor(player.x) + ', ' + Math.floor(player.z) + '</span></div>';
     html += '</div>';
     html += '</div>';
 
+    if (nextAge) {
+      var nextAgeBalance = nextAge.balance;
+      var canAdvance = true;
+      var progressItems = [];
+
+      if (nextAgeBalance.advanceFrom.resources) {
+        for (var resId in nextAgeBalance.advanceFrom.resources) {
+          var resourceCurrent = GameState.getSpendableResource(resId);
+          var resourceTarget = nextAgeBalance.advanceFrom.resources[resId];
+          var resourceEntity = GameRegistry.getEntity(resId);
+          var resourceMet = resourceCurrent >= resourceTarget;
+          if (!resourceMet) canAdvance = false;
+          progressItems.push({
+            label: resourceEntity ? resourceEntity.name : resId,
+            current: resourceCurrent,
+            target: resourceTarget,
+            met: resourceMet,
+            isBuilding: false
+          });
+        }
+      }
+
+      if (nextAgeBalance.advanceFrom.buildings) {
+        for (var buildingId in nextAgeBalance.advanceFrom.buildings) {
+          var buildingCurrent = GameState.getBuildingCount(buildingId);
+          var buildingTarget = nextAgeBalance.advanceFrom.buildings[buildingId];
+          var buildingEntity = GameRegistry.getEntity(buildingId);
+          var buildingMet = buildingCurrent >= buildingTarget;
+          if (!buildingMet) canAdvance = false;
+          progressItems.push({
+            label: buildingEntity ? buildingEntity.name : buildingId,
+            current: buildingCurrent,
+            target: buildingTarget,
+            met: buildingMet,
+            isBuilding: true
+          });
+        }
+      }
+
+      html += '<div class="panel-section emphasis">';
+      html += '<div class="section-header">';
+      html += '<div><div class="section-kicker">Main Objective</div><div class="section-title">Advance to ' + escapeHtml(nextAge.entity.name) + '</div><div class="section-copy">Fill every bar below to complete the current age milestone.</div></div>';
+      html += '<div class="section-action-group">';
+      html += '<span class="status-chip ' + (canAdvance ? 'ready' : 'pending') + '">' + (canAdvance ? 'Ready now' : 'In progress') + '</span>';
+      html += '<button class="btn ' + (canAdvance ? 'btn-primary' : 'btn-secondary') + '" onclick="GameActions.advanceAge(\'' + nextAge.entity.id + '\')"' + (canAdvance ? '' : ' disabled') + '>Advance</button>';
+      html += '</div></div>';
+
+      html += '<div class="progress-list">';
+      progressItems.forEach(function(item) {
+        var percent = item.target > 0 ? Math.min(100, (item.current / item.target) * 100) : 100;
+        html += '<div class="progress-item">';
+        html += '<div class="progress-item-top"><span>' + escapeHtml(item.label) + '</span><span class="progress-value">' + Math.floor(item.current) + '/' + item.target + '</span></div>';
+        html += '<div class="progress-track"><div class="progress-fill' + (item.met ? ' ready' : '') + '" style="width:' + percent + '%"></div></div>';
+        html += '</div>';
+      });
+      html += '</div></div>';
+    } else {
+      html += '<div class="panel-section emphasis">';
+      html += '<div class="section-header">';
+      html += '<div><div class="section-kicker">Main Objective</div><div class="section-title">Current Content Cleared</div><div class="section-copy">You have reached the end of the current age progression track.</div></div>';
+      html += '<div class="section-action-group"><span class="status-chip ready">Complete</span></div>';
+      html += '</div></div>';
+    }
+
+    html += '<div class="panel-section">';
+    html += '<div class="section-header">';
+    html += '<div><div class="section-kicker">Settlement</div><div class="section-title">Built Structures</div><div class="section-copy">A quick view of how your current economy footprint is distributed.</div></div>';
+    html += '</div>';
+
+    if (buildingEntries.length > 0) {
+      html += '<div class="summary-list">';
+      html += '<div class="summary-row total"><span>Total buildings</span><span class="summary-value">' + totalBuildings + '</span></div>';
+      buildingEntries.slice(0, 6).forEach(function(entry) {
+        html += '<div class="summary-row"><span>' + escapeHtml(entry.name) + '</span><span class="summary-value">x' + entry.count + '</span></div>';
+      });
+      html += '</div>';
+    } else {
+      html += '<div class="empty-state">No buildings placed yet.</div>';
+    }
+    html += '</div>';
+
+    if (nextUnlocks.length > 0) {
+      html += '<div class="panel-section">';
+      html += '<div class="section-header">';
+      html += '<div><div class="section-kicker">Look Ahead</div><div class="section-title">Upcoming Unlocks</div><div class="section-copy">These are the closest content unlocks based on current progress.</div></div>';
+      html += '</div>';
+      html += '<div class="unlock-list">';
+      nextUnlocks.slice(0, 4).forEach(function(item) {
+        var percent = Math.round(item.progress.percent * 100);
+        var hint = describeUnlockProgress(item.progress);
+        html += '<div class="unlock-card">';
+        html += '<div class="unlock-name">' + escapeHtml(item.entity.name) + '</div>';
+        html += '<div class="unlock-meta">' + percent + '% ready' + (hint ? ' • ' + escapeHtml(hint) : '') + '</div>';
+        html += '<div class="progress-track compact"><div class="progress-fill" style="width:' + percent + '%"></div></div>';
+        html += '</div>';
+      });
+      html += '</div></div>';
+    }
+
+    html += '<div class="panel-section">';
+    html += '<div class="section-header">';
+    html += '<div><div class="section-kicker">Session</div><div class="section-title">Utility Actions</div><div class="section-copy">Manage your save without leaving the journal.</div></div>';
+    html += '</div>';
+    html += '<div class="management-actions">';
+    html += '<button class="btn btn-secondary" onclick="GameActions.saveGame()">Save Game</button>';
+    html += '<button class="btn btn-danger" onclick="GameActions.resetGame()">Reset Progress</button>';
+    html += '</div>';
     html += '</div>';
 
     panel.innerHTML = html;
@@ -1640,11 +2496,14 @@ netStr = "+" + net.toFixed(1) + "/s";
 
     var allTechs = GameRegistry.getEntitiesByType('technology');
     if (!allTechs || allTechs.length === 0) {
-      panel.innerHTML = '<div class="card">No technologies available.</div>';
+      panel.innerHTML = '<div class="empty-state">No technologies are available yet.</div>';
       return;
     }
 
-    var html = '<div style="margin-bottom:8px; color:#aaa; font-size:11px;">Nghiên cứu công nghệ để nâng cấp toàn bộ.</div>';
+    var readyCards = [];
+    var waitingCards = [];
+    var lockedCards = [];
+    var completeCards = [];
 
     allTechs.forEach(function(tech) {
       var balance = GameRegistry.getBalance(tech.id);
@@ -1663,85 +2522,92 @@ netStr = "+" + net.toFixed(1) + "/s";
         });
       }
 
-      // Cost display
-      var costHtml = '';
-      if (balance && balance.researchCost) {
-        var costParts = [];
-        for (var resId in balance.researchCost) {
-          var needed = balance.researchCost[resId];
-          var have = GameState.getResource(resId) || 0;
-          var res = GameRegistry.getEntity(resId);
-          var resName = res ? res.name : resId;
-          var color = have >= needed ? '#4ecca3' : '#e63946';
-          costParts.push('<span style="color:' + color + '">' + needed + ' ' + escapeHtml(resName) + '</span>');
-        }
-        costHtml = costParts.join(', ');
-      }
+      var costInfo = buildResourcePills(balance && balance.researchCost, 'cost');
+      var effectsHtml = buildResearchEffectsList(balance && balance.effects);
+      var statusClass = 'pending';
+      var statusText = 'Need resources';
+      var actionHtml = '<button class="btn btn-secondary" disabled>Need resources</button>';
 
-      // Effects display
-      var effectsHtml = '';
-      if (balance && balance.effects) {
-        var effectParts = [];
-        if (balance.effects.harvestSpeedBonus) effectParts.push('+' + Math.round(balance.effects.harvestSpeedBonus * 100) + '% harvest speed');
-        if (balance.effects.productionBonus) effectParts.push('+' + Math.round(balance.effects.productionBonus * 100) + '% production');
-        if (balance.effects.storageBonus) effectParts.push('+' + Math.round(balance.effects.storageBonus * 100) + '% storage');
-        if (balance.effects.npcSpeedBonus) effectParts.push('+' + Math.round(balance.effects.npcSpeedBonus * 100) + '% NPC speed');
-        effectsHtml = effectParts.join(', ');
-      }
-
-      // Card styling based on state
-      var borderColor, opacity;
       if (isResearched) {
-        borderColor = '#4ecca3';
-        opacity = '1';
+        statusClass = 'done';
+        statusText = 'Completed';
+        actionHtml = '<button class="btn btn-secondary" disabled>Completed</button>';
       } else if (canResearch) {
-        borderColor = '#f0a500';
-        opacity = '1';
+        statusClass = 'ready';
+        statusText = 'Ready to research';
+        actionHtml = '<button class="btn btn-primary" onclick="GameActions.researchTech(\'' + tech.id + '\')">Research</button>';
       } else if (isUnlocked && prereqsMet) {
-        borderColor = '#888';
-        opacity = '0.9';
+        statusClass = 'pending';
+        statusText = 'Need resources';
       } else {
-        borderColor = '#444';
-        opacity = '0.5';
+        statusClass = 'locked';
+        statusText = isUnlocked ? 'Need prerequisites' : 'Locked';
+        actionHtml = '<button class="btn btn-secondary" disabled>' + statusText + '</button>';
       }
 
-      html += '<div class="card" style="border-left:3px solid ' + borderColor + '; opacity:' + opacity + '; margin-bottom:6px;">';
-
-      // Title row
-      html += '<div style="display:flex; justify-content:space-between; align-items:center;">';
-      html += '<div class="card-name" style="font-size:12px;">';
-      if (isResearched) html += '✅ ';
-      html += escapeHtml(tech.name) + '</div>';
-
-      // Status badge
-      if (isResearched) {
-        html += '<span style="color:#4ecca3; font-size:10px; background:#1a3a2a; padding:2px 6px; border-radius:3px;">Done</span>';
-      } else if (canResearch) {
-        html += '<button class="btn btn-primary" style="font-size:10px; padding:3px 10px;" onclick="GameActions.researchTech(\'' + tech.id + '\')">Research</button>';
-      } else if (!isUnlocked) {
-        html += '<span style="color:#666; font-size:10px;">Locked</span>';
-      } else if (!prereqsMet) {
-        html += '<span style="color:#e63946; font-size:10px;">Need: ' + prereqNames.join(', ') + '</span>';
-      } else {
-        html += '<span style="color:#888; font-size:10px;">Need resources</span>';
-      }
-      html += '</div>';
-
-      // Description
-      html += '<div class="card-info" style="margin-top:4px;">' + escapeHtml(tech.description || '') + '</div>';
-
-      // Effects
+      var cardHtml = '';
+      cardHtml += '<div class="management-card' + (statusClass === 'done' ? ' complete' : (statusClass === 'ready' ? ' ready' : '') ) + (statusClass === 'locked' ? ' locked' : '') + '">';
+      cardHtml += '<div class="management-card-top">';
+      cardHtml += '<div class="management-card-identity">';
+      cardHtml += '<div class="management-icon research">' + getEntityIcon(tech) + '</div>';
+      cardHtml += '<div><div class="management-card-name">' + escapeHtml(tech.name) + '</div><div class="management-card-copy">' + escapeHtml(tech.description || '') + '</div></div>';
+      cardHtml += '</div>';
+      cardHtml += '<div class="management-badges"><span class="management-badge ' + statusClass + '">' + statusText + '</span></div>';
+      cardHtml += '</div>';
+      cardHtml += buildMetricGrid([
+        { label: 'Prerequisites', value: balance && balance.requires ? balance.requires.length : 0 },
+        { label: 'Bonuses', value: balance && balance.effects ? Object.keys(balance.effects).length : 0 }
+      ]);
       if (effectsHtml) {
-        html += '<div style="color:#ffb74d; font-size:10px; margin-top:4px;">⚡ ' + effectsHtml + '</div>';
+        cardHtml += '<div class="management-block"><div class="management-block-label">Effects</div>' + effectsHtml + '</div>';
       }
-
-      // Cost
-      if (costHtml && !isResearched) {
-        html += '<div style="color:#aaa; font-size:10px; margin-top:4px;">Cost: ' + costHtml + '</div>';
+      if (costInfo.html && !isResearched) {
+        cardHtml += '<div class="management-block"><div class="management-block-label">Research Cost</div><div class="resource-pill-row">' + costInfo.html + '</div></div>';
       }
+      if (balance && balance.requires && balance.requires.length && !prereqsMet) {
+        cardHtml += '<div class="management-block"><div class="management-block-label">Required Tech</div>' + buildTechnologyRequirementChecklist(balance.requires) + '</div>';
+      }
+      if (!isUnlocked) {
+        cardHtml += '<div class="management-block"><div class="management-block-label">Unlock Path</div>' + buildRequirementChecklist(tech) + '</div>';
+      }
+      cardHtml += '<div class="card-actions">' + actionHtml + '</div>';
+      cardHtml += '</div>';
 
-      html += '</div>';
+      if (isResearched) {
+        completeCards.push(cardHtml);
+      } else if (canResearch) {
+        readyCards.push(cardHtml);
+      } else if (!isUnlocked || !prereqsMet) {
+        lockedCards.push(cardHtml);
+      } else {
+        waitingCards.push(cardHtml);
+      }
     });
+
+    var html = '';
+    html += '<div class="panel-section">';
+    html += '<div class="section-header"><div><div class="section-kicker">Knowledge Track</div><div class="section-title">Research Overview</div><div class="section-copy">Prioritize immediate upgrades, track blocked technology, and review the bonuses you have already secured.</div></div></div>';
+    html += '<div class="summary-list">';
+    html += '<div class="summary-row"><span>Ready to research</span><span class="summary-value">' + readyCards.length + '</span></div>';
+    html += '<div class="summary-row"><span>Waiting</span><span class="summary-value">' + waitingCards.length + '</span></div>';
+    html += '<div class="summary-row total"><span>Completed</span><span class="summary-value">' + completeCards.length + '</span></div>';
+    html += '</div></div>';
+
+    if (readyCards.length) {
+      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Ready Now</div><div class="section-title">Immediate Upgrades</div><div class="section-copy">These technologies can be researched right now with your current stockpile.</div></div></div><div class="management-grid">' + readyCards.join('') + '</div></div>';
+    }
+
+    if (waitingCards.length) {
+      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Waiting</div><div class="section-title">Need More Resources</div><div class="section-copy">The tech is unlocked and all prerequisites are met, but the research cost is still out of reach.</div></div></div><div class="management-grid">' + waitingCards.join('') + '</div></div>';
+    }
+
+    if (lockedCards.length) {
+      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Blocked</div><div class="section-title">Locked Technology</div><div class="section-copy">These upgrades still need an unlock condition or prerequisite tech before you can invest in them.</div></div></div><div class="management-grid">' + lockedCards.join('') + '</div></div>';
+    }
+
+    if (completeCards.length) {
+      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Archive</div><div class="section-title">Completed Research</div><div class="section-copy">Permanent bonuses already active across your settlement.</div></div></div><div class="management-grid">' + completeCards.join('') + '</div></div>';
+    }
 
     panel.innerHTML = html;
   }
@@ -1772,7 +2638,10 @@ netStr = "+" + net.toFixed(1) + "/s";
     closeModal: closeModal,
     isModalActive: function() { return _modalActive; },
     switchModalTab: switchModalTab,
-    updateModal: updateModal
+    updateModal: updateModal,
+    renderQuickbar: renderQuickbar,
+    toggleQuickbarMode: toggleQuickbarMode,
+    activateQuickbarSlot: activateQuickbarSlot
   };
   })();
   

@@ -25,8 +25,6 @@ window.GameActions = (function () {
     if (typeof GamePlayer !== 'undefined' && GamePlayer.updateEquipmentVisuals) {
       GamePlayer.updateEquipmentVisuals();
     }
-    var entity = GameRegistry.getEntity(equipmentId);
-    GameHUD.showNotification("Equipped: " + (entity ? entity.name : equipmentId));
   }
 
   function unequip(slot) {
@@ -36,7 +34,6 @@ window.GameActions = (function () {
     if (typeof GamePlayer !== 'undefined' && GamePlayer.updateEquipmentVisuals) {
       GamePlayer.updateEquipmentVisuals();
     }
-    GameHUD.showNotification("Unequipped " + slot);
   }
 
   function saveGame() {
@@ -95,7 +92,7 @@ window.GameActions = (function () {
     
     if (hasSomething) {
       GameStorage.save();
-      GameHUD.showSuccess("Đã thu hoạch: " + parts.join(", "));
+      GameHUD.showSuccess("Collected: " + parts.join(", "));
       GameHUD.renderAll();
       
       // Refresh inspector to show empty storage
@@ -104,7 +101,7 @@ window.GameActions = (function () {
         GameHUD.selectInstance(instanceUid);
       }
     } else {
-      GameHUD.showNotification("Kho trống");
+      GameHUD.showNotification("Storage is empty.");
     }
   }
 
@@ -115,27 +112,35 @@ window.GameActions = (function () {
     var balance = GameRegistry.getBalance(instance.entityId);
     if (!balance || !balance.refuelCost) return;
 
+    var fuelData = GameState.getFireFuelData ? GameState.getFireFuelData(instanceUid) : null;
+    var maxFuel = balance.fuelCapacity || 999;
+    var currentFuel = fuelData ? fuelData.current : maxFuel;
+    if (currentFuel >= maxFuel) {
+      GameHUD.showNotification("Fuel is already full.");
+      return;
+    }
+
     // Check if can afford refuel
     for (var resId in balance.refuelCost) {
-      if (!GameState.hasResource(resId, balance.refuelCost[resId])) {
-        GameHUD.showError("Không đủ nhiên liệu!");
+      if (!GameState.hasSpendableResource(resId, balance.refuelCost[resId])) {
+        GameHUD.showError("Not enough fuel.");
         return;
       }
     }
 
     // Deduct refuel cost
     for (var resId in balance.refuelCost) {
-      GameState.removeResource(resId, balance.refuelCost[resId]);
+      GameState.consumeSpendableResource(resId, balance.refuelCost[resId]);
     }
 
     // Add fuel
-    var refillAmount = balance.fuelCapacity || 999;
+    var refillAmount = maxFuel - currentFuel;
     if (GameState.addFireFuel) {
       GameState.addFireFuel(instanceUid, refillAmount);
     }
 
     GameStorage.save();
-    GameHUD.showSuccess("Đã nạp nhiên liệu!");
+    GameHUD.showSuccess("Refueled successfully.");
     GameHUD.renderAll();
     GameHUD.selectInstance(instanceUid);
   }
@@ -165,7 +170,7 @@ window.GameActions = (function () {
     if (conditions.resources) {
       for (var resId in conditions.resources) {
         var needed = conditions.resources[resId];
-        if (!GameState.hasResource(resId, needed)) {
+        if (!GameState.hasSpendableResource(resId, needed)) {
           var resEntity = GameRegistry.getEntity(resId);
           var resName = resEntity ? resEntity.name : resId;
           GameHUD.showError("Need " + needed + " " + resName);
@@ -387,6 +392,8 @@ window.GameActions = (function () {
     }
   }, 300);
 
+  var _lastBuildingActionClick = { uid: null, time: 0 };
+
   // Mouse move handler - hover detection + build preview
   document.getElementById('game-canvas').addEventListener('mousemove', function (event) {
     // Build preview mode - update ghost position
@@ -449,12 +456,52 @@ window.GameActions = (function () {
       var obj = intersects[i].object;
       while (obj && !obj.userData.instanceUid) obj = obj.parent;
       if (obj && obj.userData.instanceUid) {
-        GameHUD.selectInstance(obj.userData.instanceUid);
+        var instanceUid = obj.userData.instanceUid;
+        var now = Date.now();
+        var storage = GameState.getBuildingStorage(instanceUid) || {};
+        var hasResources = false;
+        for (var resId in storage) {
+          if (storage[resId] > 0) {
+            hasResources = true;
+            break;
+          }
+        }
+
+        var instance = GameState.getInstance(instanceUid);
+        var balance = instance ? (GameRegistry.getBalance(instance.entityId) || {}) : null;
+        var fuelData = GameState.getFireFuelData ? GameState.getFireFuelData(instanceUid) : null;
+        var maxFuel = balance && balance.fuelCapacity ? balance.fuelCapacity : 0;
+        var currentFuel = fuelData ? fuelData.current : maxFuel;
+        var canQuickRefuel = !!(balance && balance.refuelCost && currentFuel < maxFuel);
+
+        if (_lastBuildingActionClick.uid === instanceUid && (now - _lastBuildingActionClick.time) < 400) {
+          if (hasResources) {
+            GameActions.collectFromBuilding(instanceUid);
+            _lastBuildingActionClick.uid = null;
+            _lastBuildingActionClick.time = 0;
+            event.preventDefault();
+            return;
+          }
+
+          if (canQuickRefuel) {
+            GameActions.refuel(instanceUid);
+            _lastBuildingActionClick.uid = null;
+            _lastBuildingActionClick.time = 0;
+            event.preventDefault();
+            return;
+          }
+        }
+
+        _lastBuildingActionClick.uid = instanceUid;
+        _lastBuildingActionClick.time = now;
+        GameHUD.selectInstance(instanceUid);
         event.preventDefault();
         return;
       }
     }
 
+    _lastBuildingActionClick.uid = null;
+    _lastBuildingActionClick.time = 0;
     GameHUD.closeInspector();
   });
 

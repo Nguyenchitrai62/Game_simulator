@@ -19,7 +19,7 @@ window.UpgradeSystem = (function () {
 
     if (upgrade.cost) {
       for (var resId in upgrade.cost) {
-        if (!GameState.hasResource(resId, upgrade.cost[resId])) {
+        if (!GameState.hasSpendableResource(resId, upgrade.cost[resId])) {
           return { can: false, reason: "Not enough resources" };
         }
       }
@@ -37,7 +37,7 @@ window.UpgradeSystem = (function () {
     // Deduct cost
     if (upgrade.cost) {
       for (var resId in upgrade.cost) {
-        GameState.removeResource(resId, upgrade.cost[resId]);
+        GameState.consumeSpendableResource(resId, upgrade.cost[resId]);
       }
     }
 

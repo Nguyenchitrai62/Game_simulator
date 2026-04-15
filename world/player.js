@@ -133,9 +133,6 @@ window.GamePlayer = (function () {
     });
   }
 
-  var _lastBuildingClick = { uid: null, time: 0 };
-  var _DOUBLE_CLICK_DELAY = 400;
-
   function onCanvasClick(event) {
     if (event.target.id !== 'game-canvas') return;
 
@@ -166,26 +163,6 @@ window.GamePlayer = (function () {
       }
     }
 
-    // Double-click on buildings to collect resources
-    var nearBuilding = findNearestBuilding(_x, _z, 2.5);
-    if (nearBuilding) {
-      var now = Date.now();
-      if (_lastBuildingClick.uid === nearBuilding.uid && (now - _lastBuildingClick.time) < _DOUBLE_CLICK_DELAY) {
-        var storage = GameState.getBuildingStorage(nearBuilding.uid);
-        var hasResources = false;
-        for (var resId in storage) {
-          if (storage[resId] > 0) { hasResources = true; break; }
-        }
-        if (hasResources) {
-          collectFromBuilding(nearBuilding);
-        }
-        _lastBuildingClick.uid = null;
-        _lastBuildingClick.time = 0;
-      } else {
-        _lastBuildingClick.uid = nearBuilding.uid;
-        _lastBuildingClick.time = now;
-      }
-    }
   }
 
   // === MANUAL EAT: press F or click Eat button ===
@@ -194,14 +171,14 @@ window.GamePlayer = (function () {
 
     var foodAmount = GameState.getResource("resource.food");
     if (foodAmount < 1) {
-      if (typeof GameHUD !== 'undefined') GameHUD.showNotification("Không có food!");
+      if (typeof GameHUD !== 'undefined') GameHUD.showNotification("No food available.");
       return;
     }
 
     var currentHunger = GameState.getHunger();
     var maxHunger = GameState.getMaxHunger();
     if (currentHunger >= maxHunger) {
-      if (typeof GameHUD !== 'undefined') GameHUD.showNotification("Đã no!");
+      if (typeof GameHUD !== 'undefined') GameHUD.showNotification("Already full.");
       return;
     }
 
@@ -209,10 +186,12 @@ window.GamePlayer = (function () {
     GameState.removeResource("resource.food", 1);
     var balance = window.GAME_BALANCE || {};
     var hungerConfig = balance.hunger || {};
+    var eatDuration = Number(hungerConfig.eatDuration);
+    if (!(eatDuration > 0)) eatDuration = 0.5;
     _isEating = true;
-    _eatTimer = hungerConfig.eatDuration || 1.0;
+    _eatTimer = eatDuration;
 
-    if (typeof GameHUD !== 'undefined') GameHUD.showNotification("Đang ăn... (1s)");
+    if (typeof GameHUD !== 'undefined') GameHUD.showNotification("Eating... (" + eatDuration.toFixed(1) + "s)");
   }
 
   function update(dt) {
@@ -372,7 +351,7 @@ window.GamePlayer = (function () {
         _torchFuel = 0;
         removeTorchMesh();
         if (typeof GameHUD !== 'undefined') {
-          GameHUD.showNotification("Đuốc đã cháy hết!");
+          GameHUD.showNotification("Torch burned out.");
         }
       }
     }
@@ -387,7 +366,7 @@ window.GamePlayer = (function () {
         _torchActive = true;
         createTorchMesh();
         if (typeof GameHUD !== 'undefined') {
-          GameHUD.showNotification("Đuốc tay đã bật! (" + Math.floor(_torchFuel) + "s)");
+          GameHUD.showNotification("Hand torch lit. (" + Math.floor(_torchFuel) + "s)");
         }
       }
     }

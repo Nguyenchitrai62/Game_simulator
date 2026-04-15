@@ -26,27 +26,27 @@ window.BuildingSystem = (function () {
 
     // Check for deep water (not walkable, not bridgeable)
     if (typeof WaterSystem !== 'undefined' && WaterSystem.isDeepWater(worldX, worldZ) && !isBridge) {
-      return { valid: false, reason: "Không thể xây trên nước sâu" };
+      return { valid: false, reason: "Cannot build on deep water" };
     }
 
     // Must be on walkable ground (no trees/rocks blocking) unless building on water/shallow with bridge
     var onWater = typeof WaterSystem !== 'undefined' && (WaterSystem.isDeepWater(worldX, worldZ) || WaterSystem.isShallowWater(worldX, worldZ));
     if (!onWater && !GameTerrain.isWalkable(worldX, worldZ)) {
-      return { valid: false, reason: "Vị trí này không thể xây dựng" };
+      return { valid: false, reason: "This tile is blocked" };
     }
     // Bridges can be placed on water tiles
     if (onWater && !isBridge) {
-      return { valid: false, reason: "Cần cầu để xây trên nước" };
+      return { valid: false, reason: "Build a bridge to place structures on water" };
     }
     // Bridges can ONLY be placed on water
     if (isBridge && !onWater) {
-      return { valid: false, reason: "Cầu chỉ xây được trên nước" };
+      return { valid: false, reason: "Bridges can only be placed on water" };
     }
 
     // Check tile reservation
     var key = Math.round(worldX) + "," + Math.round(worldZ);
     if (_reservedTiles[key]) {
-      return { valid: false, reason: "Vị trí này đã có building khác" };
+      return { valid: false, reason: "Another structure already occupies this tile" };
     }
 
     // Must not overlap existing instances with 0.8 buffer
@@ -56,7 +56,7 @@ window.BuildingSystem = (function () {
       var dx = Math.abs(inst.x - worldX);
       var dz = Math.abs(inst.z - worldZ);
       if (dx < 0.8 && dz < 0.8) {
-        return { valid: false, reason: "Vị trí này đã có building khác" };
+        return { valid: false, reason: "Another structure already occupies this tile" };
       }
     }
 
@@ -85,7 +85,7 @@ window.BuildingSystem = (function () {
     }
 
     if (!foundPos) {
-      GameHUD.showError("Không tìm được vị trí hợp lệ gần bạn!");
+      GameHUD.showError("No valid building tile found near you.");
       return false;
     }
 
@@ -94,17 +94,17 @@ window.BuildingSystem = (function () {
 
     // Check cost
     for (var resId in balance.cost) {
-      if (!GameState.hasResource(resId, balance.cost[resId])) {
+      if (!GameState.hasSpendableResource(resId, balance.cost[resId])) {
         var resEntity = GameRegistry.getEntity(resId);
-        var needed = balance.cost[resId] - GameState.getResource(resId);
-        GameHUD.showError("Không đủ " + (resEntity ? resEntity.name : resId) + ": cần thêm " + needed);
+        var needed = balance.cost[resId] - GameState.getSpendableResource(resId);
+        GameHUD.showError("Not enough " + (resEntity ? resEntity.name : resId) + ": need " + needed + " more.");
         return false;
       }
     }
 
     // Deduct cost
     for (var resId in balance.cost) {
-      GameState.removeResource(resId, balance.cost[resId]);
+      GameState.consumeSpendableResource(resId, balance.cost[resId]);
     }
 
     // Ensure _nextId is above existing
@@ -124,6 +124,10 @@ window.BuildingSystem = (function () {
       z: snapZ,
       uid: uid
     };
+
+    if (balance && balance.isBridge && typeof WaterSystem !== 'undefined') {
+      instanceData.bridgeBaseWaterType = WaterSystem.isDeepWater(snapX, snapZ) ? 'deep' : 'shallow';
+    }
 
     // Reserve tile and save to state
     var tileKey = snapX + "," + snapZ;
@@ -199,7 +203,7 @@ window.BuildingSystem = (function () {
 
     GameHUD.renderAll();
     GameStorage.save();
-    GameHUD.showSuccess("Đã xây: " + (entity ? entity.name : buildingId));
+    GameHUD.showSuccess("Built: " + (entity ? entity.name : buildingId));
     return true;
   }
 
@@ -659,9 +663,9 @@ window.BuildingSystem = (function () {
 
     // Check cost first
     for (var resId in balance.cost) {
-      if (!GameState.hasResource(resId, balance.cost[resId])) {
+      if (!GameState.hasSpendableResource(resId, balance.cost[resId])) {
         var resEntity = GameRegistry.getEntity(resId);
-        GameHUD.showError("Không đủ " + (resEntity ? resEntity.name : resId));
+        GameHUD.showError("Not enough " + (resEntity ? resEntity.name : resId) + ".");
         return;
       }
     }
@@ -683,7 +687,7 @@ window.BuildingSystem = (function () {
     updatePreviewColor(snapX, snapZ);
 
     GameScene.getScene().add(mesh);
-    GameHUD.showNotification("Chọn vị trí xây dựng. Click để đặt, ESC để hủy.");
+    GameHUD.showNotification("Choose a build tile. Click to place, ESC to cancel.");
   }
 
   function updatePreviewColor(worldX, worldZ) {
@@ -712,7 +716,7 @@ window.BuildingSystem = (function () {
   function confirmBuild() {
     if (!_buildMode.active || !_buildMode.previewMesh) return;
     if (!_buildMode.lastValidPos) {
-      GameHUD.showError("Vị trí không hợp lệ!");
+      GameHUD.showError("Invalid build position.");
       return;
     }
 
@@ -743,16 +747,16 @@ window.BuildingSystem = (function () {
 
     // Final cost check
     for (var resId in balance.cost) {
-      if (!GameState.hasResource(resId, balance.cost[resId])) {
+      if (!GameState.hasSpendableResource(resId, balance.cost[resId])) {
         var resEntity = GameRegistry.getEntity(resId);
-        GameHUD.showError("Không đủ " + (resEntity ? resEntity.name : resId));
+        GameHUD.showError("Not enough " + (resEntity ? resEntity.name : resId) + ".");
         return false;
       }
     }
 
     // Deduct cost
     for (var resId in balance.cost) {
-      GameState.removeResource(resId, balance.cost[resId]);
+      GameState.consumeSpendableResource(resId, balance.cost[resId]);
     }
 
     // Ensure _nextId is above existing
@@ -772,6 +776,10 @@ window.BuildingSystem = (function () {
       z: worldZ,
       uid: uid
     };
+
+    if (balance && balance.isBridge && typeof WaterSystem !== 'undefined') {
+      instanceData.bridgeBaseWaterType = WaterSystem.isDeepWater(worldX, worldZ) ? 'deep' : 'shallow';
+    }
 
     var tileKey = worldX + "," + worldZ;
     _reservedTiles[tileKey] = true;
@@ -838,7 +846,7 @@ window.BuildingSystem = (function () {
     UnlockSystem.checkAll();
     GameHUD.renderAll();
     GameStorage.save();
-    GameHUD.showSuccess("Đã xây: " + (entity ? entity.name : buildingId));
+    GameHUD.showSuccess("Built: " + (entity ? entity.name : buildingId));
     return true;
   }
 
@@ -868,7 +876,11 @@ window.BuildingSystem = (function () {
     // Reset water tile if bridge was destroyed
     var buildingBalance = GameRegistry.getBalance(instance.entityId);
     if (buildingBalance && buildingBalance.isBridge && typeof WaterSystem !== 'undefined') {
-      WaterSystem.removeWaterTile(Math.round(instance.x), Math.round(instance.z));
+      if (instance.bridgeBaseWaterType) {
+        WaterSystem.setWaterTile(Math.round(instance.x), Math.round(instance.z), instance.bridgeBaseWaterType);
+      } else {
+        WaterSystem.removeWaterTile(Math.round(instance.x), Math.round(instance.z));
+      }
     }
 
     // Remove fire light if present

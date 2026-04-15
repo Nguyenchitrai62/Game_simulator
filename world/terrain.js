@@ -360,6 +360,7 @@ window.GameTerrain = (function () {
       if (waterPositions.length > 0) {
         WaterSystem.createWaterMesh(waterPositions, group);
       }
+      reapplyBridgeTilesForChunk(cx, cz);
     }
 
     chunkData.mesh = group;
@@ -388,6 +389,23 @@ window.GameTerrain = (function () {
     return chunks;
   }
 
+  function reapplyBridgeTilesForChunk(cx, cz) {
+    if (typeof GameState === 'undefined' || typeof WaterSystem === 'undefined') return;
+
+    var instances = GameState.getAllInstances();
+    for (var uid in instances) {
+      var inst = instances[uid];
+      var balance = (typeof GameRegistry !== 'undefined') ? GameRegistry.getBalance(inst.entityId) : null;
+      if (!balance || !balance.isBridge) continue;
+
+      var instChunkX = Math.floor(inst.x / CHUNK_SIZE);
+      var instChunkZ = Math.floor(inst.z / CHUNK_SIZE);
+      if (instChunkX === cx && instChunkZ === cz) {
+        WaterSystem.setWaterTile(inst.x, inst.z, 'bridge');
+      }
+    }
+  }
+
   function isWalkable(worldX, worldZ) {
     var cx = Math.floor(worldX / CHUNK_SIZE);
     var cz = Math.floor(worldZ / CHUNK_SIZE);
@@ -412,6 +430,8 @@ window.GameTerrain = (function () {
       var instances = GameState.getAllInstances();
       for (var uid in instances) {
         var inst = instances[uid];
+        var instBalance = (typeof GameRegistry !== 'undefined') ? GameRegistry.getBalance(inst.entityId) : null;
+        if (instBalance && instBalance.isBridge) continue;
         var bdx = Math.abs(inst.x - worldX);
         var bdz = Math.abs(inst.z - worldZ);
         if (bdx < 0.8 && bdz < 0.8) return false;

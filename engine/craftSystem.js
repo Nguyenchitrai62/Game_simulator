@@ -2,13 +2,13 @@ window.CraftSystem = (function () {
 
   function craft(recipeId) {
     if (!GameState.isUnlocked(recipeId)) {
-      if (typeof GameHUD !== 'undefined') GameHUD.showError("Công thức này chưa được mở khóa");
+      if (typeof GameHUD !== 'undefined') GameHUD.showError("This recipe is locked.");
       return false;
     }
 
     var balance = GameRegistry.getBalance(recipeId);
     if (!balance || !balance.input || !balance.output) {
-      if (typeof GameHUD !== 'undefined') GameHUD.showError("Công thức không hợp lệ");
+      if (typeof GameHUD !== 'undefined') GameHUD.showError("Invalid recipe.");
       return false;
     }
 
@@ -27,17 +27,17 @@ window.CraftSystem = (function () {
 
     for (var resourceId in balance.input) {
       var needed = balance.input[resourceId];
-      if (!GameState.hasResource(resourceId, needed)) {
+      if (!GameState.hasSpendableResource(resourceId, needed)) {
         var resEntity = GameRegistry.getEntity(resourceId);
-        var missing = needed - GameState.getResource(resourceId);
-        if (typeof GameHUD !== 'undefined') GameHUD.showError("Không đủ tài nguyên: Cần thêm " + missing + " " + (resEntity ? resEntity.name : resourceId));
+        var missing = needed - GameState.getSpendableResource(resourceId);
+        if (typeof GameHUD !== 'undefined') GameHUD.showError("Not enough resources: need " + missing + " more " + (resEntity ? resEntity.name : resourceId));
         return false;
       }
     }
 
     for (var resourceId in balance.input) {
       var needed = balance.input[resourceId];
-      GameState.removeResource(resourceId, needed);
+      GameState.consumeSpendableResource(resourceId, needed);
     }
 
     for (var resourceId in balance.output) {
@@ -65,7 +65,7 @@ window.CraftSystem = (function () {
 
     for (var resourceId in balance.input) {
       var needed = balance.input[resourceId];
-      if (!GameState.hasResource(resourceId, needed)) return false;
+      if (!GameState.hasSpendableResource(resourceId, needed)) return false;
     }
 
     return true;

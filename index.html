@@ -25,12 +25,9 @@
   <!-- HUD Top Left: Resources -->
   <div class="hud hud-top">
     <div class="resource-bar" id="resource-bar"></div>
-    <div class="player-stats" id="player-stats">
-      <span class="stat-atk" id="stat-atk">ATK: 1</span>
-      <span class="stat-def" id="stat-def">DEF: 0</span>
-      <span class="age-badge" id="age-badge">Stone Age</span>
-    </div>
   </div>
+
+  <div class="objective-tracker" id="objective-tracker"></div>
 
   <!-- Player HP Bar (always visible, prominent during combat) -->
   <div class="player-hp-wrapper" id="player-hp-wrapper">
@@ -52,7 +49,7 @@
       </div>
       <div class="hunger-text" id="hunger-text">100 / 100</div>
     </div>
-    <button class="eat-btn" id="eat-btn" onclick="GamePlayer.startEat()">[F] An</button>
+    <button class="eat-btn" id="eat-btn" onclick="GamePlayer.startEat()">[F] Eat</button>
   </div>
 
   <!-- Day/Night Clock -->
@@ -77,10 +74,39 @@
   <!-- Building Storage Labels -->
   <div id="building-storage-labels"></div>
 
-  <!-- Backpack Icon (Bottom Left) -->
-  <div class="backpack-icon" id="backpack-icon" onclick="GameHUD.toggleModal()">
-    <div class="backpack-icon-inner">🎒</div>
-    <div class="backpack-tooltip">Press B</div>
+  <div class="player-basic-panel" id="player-basic-panel">
+    <div class="player-basic-title">Player</div>
+    <div class="player-basic-grid">
+      <div class="player-basic-stat">
+        <span class="player-basic-label">ATK</span>
+        <span class="player-basic-value stat-atk" id="stat-atk">1</span>
+      </div>
+      <div class="player-basic-stat">
+        <span class="player-basic-label">DEF</span>
+        <span class="player-basic-value stat-def" id="stat-def">0</span>
+      </div>
+      <div class="player-basic-stat">
+        <span class="player-basic-label">SPD</span>
+        <span class="player-basic-value stat-spd" id="stat-spd">3</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="quickbar" id="quickbar">
+    <div class="quickbar-switch" id="quickbar-switch">
+      <button class="quickbar-toggle build" id="quickbar-toggle" onclick="GameHUD.toggleQuickbarMode()">
+        <span class="quickbar-toggle-label">Build</span>
+        <span class="quickbar-toggle-hint">Tab</span>
+      </button>
+    </div>
+    <div class="quickbar-slots" id="quickbar-slots"></div>
+    <button class="quickbar-backpack" id="quickbar-backpack" onclick="if (GameHUD.isModalActive()) { GameHUD.closeModal(); } else { GameHUD.openModal(); }">
+      <span class="quickbar-backpack-icon">🎒</span>
+      <span class="quickbar-backpack-copy">
+        <span class="quickbar-backpack-label">Bag</span>
+        <span class="quickbar-backpack-hint">B</span>
+      </span>
+    </button>
   </div>
 
   <!-- Character Modal -->
@@ -107,6 +133,14 @@
       <!-- Right Side: Tabs & Content -->
       <div class="modal-right">
         <div class="modal-header">
+          <div class="modal-header-top">
+            <div class="modal-context">
+              <div class="modal-kicker" id="modal-kicker">Economy</div>
+              <div class="modal-title" id="modal-title">Resources</div>
+              <div class="modal-subtitle" id="modal-subtitle">Track your stockpile and current economy flow.</div>
+            </div>
+            <button class="modal-close" onclick="GameHUD.closeModal()">✕</button>
+          </div>
           <div class="modal-tabs">
             <button class="modal-tab active" data-tab="resources" onclick="GameHUD.switchModalTab('resources')">
               <span class="tab-icon">💰</span> Resources
@@ -124,7 +158,6 @@
               <span class="tab-icon">🔬</span> Research
             </button>
           </div>
-          <button class="modal-close" onclick="GameHUD.closeModal()">✕</button>
         </div>
 
         <div class="modal-content">
@@ -147,7 +180,7 @@
   <!-- Full Map Overlay -->
   <div id="map-popup" class="map-popup" style="display:none;">
     <div class="map-popup-bar">
-      <span class="map-popup-title">BAN DO THE GIOI</span>
+      <span class="map-popup-title">WORLD MAP</span>
       <button class="map-close-btn" onclick="MiniMap.toggleMap()">[M] / [ESC]</button>
     </div>
     <canvas id="map-full-canvas"></canvas>
@@ -215,10 +248,5 @@
 
   <!-- Entry Point -->
   <script src="main.js"></script>
-
-  <!-- Dev Tools -->
-  <script src="dev/validate.js"></script>
-  <script src="dev/ai_generate.js"></script>
-  <script src="dev/preview.js"></script>
 </body>
 </html>

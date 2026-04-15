@@ -546,7 +546,7 @@ window.GAME_BALANCE = {
     foodRestore: {
       "resource.food": 5      // 1 thức ăn phục 5 đói
     },
-    eatDuration: 1.0,         // thời gian ăn (giây)
+    eatDuration: 0.5,         // thời gian ăn (giây)
     eatSpeedMult: 0.5,        // tốc độ di chuyển khi ăn ×0.5
     regenHungerMult: 2.0       // hồi HP tốn đói ×2
   },
