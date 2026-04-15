@@ -20,7 +20,7 @@ window.GamePreview = (function () {
       html += '<div style="margin-bottom:10px"><strong>Entities (' + packData.entities.length + '):</strong></div>';
       packData.entities.forEach(function (entity) {
         html += '<div style="background:#16213e;padding:6px 10px;margin:4px 0;border-radius:4px;font-size:13px">';
-        html += '<span style="color:#e94560">[' + entity.type + ']</span> ';
+        html += '<span style="color:#e94560">[' + escapeHtml(entity.type) + ']</span> ';
         html += '<span style="color:#4ecca3">' + escapeHtml(entity.id) + '</span> - ';
         html += escapeHtml(entity.name);
         html += '</div>';
