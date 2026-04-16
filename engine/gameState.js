@@ -33,7 +33,7 @@ window.GameState = (function () {
     researched: [],  // Researched technologies
     hunger: 100,
     maxHunger: 100,
-    timeOfDay: 12,
+    timeOfDay: 6,
     fireFuel: {},
     exploredChunks: {}
   };
@@ -63,7 +63,7 @@ window.GameState = (function () {
     _state.researched = [];
     _state.hunger = 100;
     _state.maxHunger = 100;
-    _state.timeOfDay = 12;
+    _state.timeOfDay = 6;
     _state.fireFuel = {};
     _state.exploredChunks = {};
   }
@@ -167,7 +167,15 @@ window.GameState = (function () {
     _state.buildings[id]++;
   }
 
-  function getBuildingCount(id) { return _state.buildings[id] || 0; }
+  function getBuildingCount(id) {
+    if (id === 'building.berry_gatherer') {
+      return (_state.buildings['building.berry_gatherer'] || 0)
+        + (_state.buildings['building.wood_cutter'] || 0)
+        + (_state.buildings['building.stone_quarry'] || 0)
+        + (_state.buildings['building.flint_mine'] || 0);
+    }
+    return _state.buildings[id] || 0;
+  }
   function getAllBuildings() { return JSON.parse(JSON.stringify(_state.buildings)); }
 
   // === Unlock ===
@@ -333,6 +341,81 @@ window.GameState = (function () {
   function getInstance(uid) { return _state.instances[uid] || null; }
   function getAllInstances() { return JSON.parse(JSON.stringify(_state.instances)); }
   function removeInstance(uid) { delete _state.instances[uid]; }
+
+  function ensureFarmState(uid) {
+    var instance = getInstance(uid);
+    if (!instance) return null;
+
+    if (!instance.farmState) {
+      instance.farmState = {};
+    }
+
+    if (instance.farmState.cropKey === undefined) instance.farmState.cropKey = 'root_crop';
+    if (instance.farmState.planted === undefined) instance.farmState.planted = false;
+    if (instance.farmState.watered === undefined) instance.farmState.watered = false;
+    if (instance.farmState.ready === undefined) instance.farmState.ready = false;
+    if (instance.farmState.progress === undefined) instance.farmState.progress = 0;
+    if (instance.farmState.waterSourceType === undefined) instance.farmState.waterSourceType = null;
+    if (instance.farmState.riverBoosted === undefined) instance.farmState.riverBoosted = false;
+
+    instance.farmState.progress = Math.max(0, Math.min(1, instance.farmState.progress || 0));
+    if (!instance.farmState.planted) {
+      instance.farmState.watered = false;
+      instance.farmState.ready = false;
+      instance.farmState.progress = 0;
+      instance.farmState.waterSourceType = null;
+      instance.farmState.riverBoosted = false;
+    }
+    if (instance.farmState.ready) {
+      instance.farmState.progress = 1;
+    }
+
+    return instance.farmState;
+  }
+
+  function getFarmState(uid) {
+    var state = ensureFarmState(uid);
+    return state ? JSON.parse(JSON.stringify(state)) : null;
+  }
+
+  function setFarmState(uid, nextState) {
+    var state = ensureFarmState(uid);
+    if (!state) return null;
+
+    nextState = nextState || {};
+    for (var key in nextState) {
+      state[key] = nextState[key];
+    }
+
+    state.progress = Math.max(0, Math.min(1, state.progress || 0));
+    if (!state.planted) {
+      state.watered = false;
+      state.ready = false;
+      state.progress = 0;
+    }
+    if (state.ready) {
+      state.progress = 1;
+    }
+
+    return JSON.parse(JSON.stringify(state));
+  }
+
+  function resetFarmState(uid) {
+    var instance = getInstance(uid);
+    if (!instance) return null;
+
+    instance.farmState = {
+      cropKey: 'root_crop',
+      planted: false,
+      watered: false,
+      ready: false,
+      progress: 0,
+      waterSourceType: null,
+      riverBoosted: false
+    };
+
+    return JSON.parse(JSON.stringify(instance.farmState));
+  }
   
   function destroyInstance(uid) {
     var instance = getInstance(uid);
@@ -516,7 +599,7 @@ window.GameState = (function () {
     _state.isPaused = data.isPaused || false;
     _state.hunger = data.hunger !== undefined ? data.hunger : 100;
     _state.maxHunger = data.maxHunger || 100;
-    _state.timeOfDay = data.timeOfDay !== undefined ? data.timeOfDay : 12;
+    _state.timeOfDay = data.timeOfDay !== undefined ? data.timeOfDay : 6;
     _state.fireFuel = data.fireFuel || {};
     _state.exploredChunks = data.exploredChunks || {};
     return true;
@@ -614,6 +697,7 @@ window.GameState = (function () {
     getInventory: getInventory, getInventoryCount: getInventoryCount,
     addInstance: addInstance, getInstance: getInstance,
     getAllInstances: getAllInstances, removeInstance: removeInstance,
+    getFarmState: getFarmState, setFarmState: setFarmState, resetFarmState: resetFarmState,
     destroyInstance: destroyInstance,
     addBuildingStorage: addBuildingStorage, getBuildingStorage: getBuildingStorage,
     collectFromBuilding: collectFromBuilding, clearBuildingStorage: clearBuildingStorage,

@@ -1,5 +1,5 @@
 window.DayNightSystem = (function () {
-  var _timeOfDay = 12; // 0-24, start at noon
+  var _timeOfDay = 6; // 0-24, start at early morning
   var _isRunning = false;
 
   var _lightState = {
@@ -76,7 +76,7 @@ window.DayNightSystem = (function () {
   }
 
   function init() {
-    _timeOfDay = 12;
+    _timeOfDay = 6;
     _isRunning = true;
     console.log('[DayNight] Initialized - using lighting-only darkness (no fog)');
   }

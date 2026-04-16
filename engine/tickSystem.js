@@ -7,6 +7,7 @@ window.TickSystem = (function () {
     _tickCount++;
     calculateResourceStats();
     applyConsumption();  // Only consumption now, no passive production
+    applyFarmingProgress();
     applyHunger();
     applyFireFuelDrain();
     UnlockSystem.checkAll();
@@ -229,6 +230,38 @@ for (var resId in building.balance.consumesPerSecond) {
           }
           var totalAmount = amount * mult * speedMult * (1 + synergyBonus.productionBonus + globalBonus);
           GameState.addFractionalResource(resId, totalAmount);
+        }
+      }
+    }
+  }
+
+  function applyFarmingProgress() {
+    var instances = GameState.getAllInstances();
+
+    for (var uid in instances) {
+      var instance = instances[uid];
+      var balance = GameRegistry.getBalance(instance.entityId);
+      var farming = balance ? balance.farming : null;
+      if (!farming) continue;
+
+      var farmState = GameState.getFarmState(uid);
+      if (!farmState || !farmState.planted || farmState.ready) continue;
+
+      var prevVisualPhase = (window.BuildingSystem && BuildingSystem.getFarmPlotVisualState) ? BuildingSystem.getFarmPlotVisualState(uid).phase : null;
+
+      var growthSeconds = (window.GameActions && GameActions.getFarmGrowthSeconds) ? GameActions.getFarmGrowthSeconds(uid, farmState) : (farmState.watered ? farming.wateredGrowthSeconds : farming.dryGrowthSeconds);
+      growthSeconds = Math.max(1, growthSeconds || 1);
+
+      var nextProgress = Math.min(1, (farmState.progress || 0) + (1 / growthSeconds));
+      var nextState = GameState.setFarmState(uid, {
+        progress: nextProgress,
+        ready: nextProgress >= 1
+      });
+
+      if (window.BuildingSystem && BuildingSystem.refreshBuilding && BuildingSystem.getFarmPlotVisualState) {
+        var nextVisualPhase = BuildingSystem.getFarmPlotVisualState(uid).phase;
+        if (((nextState && nextState.ready) !== !!farmState.ready) || prevVisualPhase !== nextVisualPhase) {
+          BuildingSystem.refreshBuilding(uid);
         }
       }
     }

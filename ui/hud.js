@@ -333,7 +333,7 @@ try {
   function getQuickbarBuildItems() {
     return GameRegistry.getEntitiesByType('building')
       .filter(function(building) {
-        return GameState.isUnlocked(building.id);
+        return GameState.isUnlocked(building.id) && !building.hiddenInBuildMenu;
       })
       .map(function(building, index) {
         var balance = GameRegistry.getBalance(building.id) || {};
@@ -610,7 +610,9 @@ try {
     var panel = document.getElementById("panel-build");
     if (!panel) return;
 
-    var buildings = GameRegistry.getEntitiesByType("building");
+    var buildings = GameRegistry.getEntitiesByType("building").filter(function(building) {
+      return !building.hiddenInBuildMenu;
+    });
     var html = "";
 
     buildings.forEach(function (building) {
@@ -1140,6 +1142,31 @@ try {
       fuelHtml += '</div>';
     }
 
+    // --- Auto farming section ---
+    var farmHtml = "";
+    if (instance.entityId === 'building.farm_plot' && window.GameActions && GameActions.getFarmPlotStatus) {
+      var farmStatus = GameActions.getFarmPlotStatus(uid);
+      if (farmStatus) {
+        var progressColor = farmStatus.ready ? '#4ecca3' : (farmStatus.riverBoosted ? '#66d9ff' : (farmStatus.watered ? '#57c7ff' : '#f0a500'));
+        var supportColor = farmStatus.hasWaterSupport ? (farmStatus.supportSourceType === 'river' ? '#66d9ff' : '#4ecca3') : '#888';
+        var storedText = farmStatus.storedAmount > 0 ? farmStatus.storedSummaryText : 'Storage empty';
+        farmHtml = '<div class="inspector-section">' +
+          '<div style="font-size:11px; color:#aaa; margin-bottom:4px;">🌱 Crop: <span style="color:#e0e0e0; font-weight:bold;">' + escapeHtml(farmStatus.cropName) + '</span></div>' +
+          '<div style="font-size:11px; margin-bottom:4px;">Status: <span style="color:' + progressColor + '; font-weight:bold;">' + escapeHtml(farmStatus.statusText) + '</span></div>' +
+          '<div style="height:6px; background:rgba(15,52,96,0.9); border-radius:4px; overflow:hidden; border:1px solid rgba(255,255,255,0.08); margin-bottom:4px;">' +
+            '<div style="width:' + farmStatus.progressPercent + '%; height:100%; background:' + progressColor + '; transition:width 0.2s;"></div>' +
+          '</div>' +
+          '<div style="font-size:10px; color:#9fb3c8; margin-bottom:2px;">' + escapeHtml(farmStatus.detailText) + '</div>' +
+          '<div style="font-size:10px; color:#c7d6e8; margin-bottom:3px;">👷 Resident: ' + escapeHtml(farmStatus.workerStatusText) + '</div>' +
+          '<div style="font-size:10px; color:' + supportColor + '; margin-bottom:3px;">💧 ' + escapeHtml(farmStatus.supportSourceName) + '</div>' +
+          '<div style="font-size:10px; color:#888; margin-bottom:3px;">Current yield: ' + escapeHtml(farmStatus.currentYieldText || farmStatus.dryYieldText) + '</div>' +
+          '<div style="font-size:10px; color:#888; margin-bottom:3px;">Dry: ' + escapeHtml(farmStatus.dryYieldText) + ' • Watered: ' + escapeHtml(farmStatus.wateredYieldText) + '</div>' +
+          '<div style="font-size:10px; color:#888; margin-bottom:4px;">River boost: ' + escapeHtml(farmStatus.riverYieldText) + '</div>' +
+          '<div style="font-size:10px; color:#c7d6e8;">Stored: ' + escapeHtml(storedText) + '</div>' +
+        '</div>';
+      }
+    }
+
     // --- Synergy section ---
     var synergyHtml = "";
     if (window.SynergySystem) {
@@ -1171,9 +1198,11 @@ try {
     if (balance) {
       var sR = (balance.searchRadius && balance.searchRadius[currentLevel]) ? balance.searchRadius[currentLevel] : 0;
       var tR = balance.transferRange || 0;
+      var wR = balance.waterRadius || 0;
       var rangeParts = [];
-      if (sR > 0) rangeParts.push('<span style="color:#00ff88;">Harvest: ' + sR + '</span>');
+      if (sR > 0) rangeParts.push('<span style="color:#00ff88;">' + (instance.entityId === 'building.farm_plot' ? 'Worker: ' : 'Harvest: ') + sR + '</span>');
       if (tR > 0) rangeParts.push('<span style="color:#4488ff;">Transfer: ' + tR + '</span>');
+      if (wR > 0) rangeParts.push('<span style="color:#57c7ff;">Water: ' + wR + '</span>');
       if (rangeParts.length > 0) {
         rangeHtml = '<div class="inspector-section">' +
           '<div style="color:#aaa; font-size:11px;">📡 ' + rangeParts.join(' | ') + '</div>' +
@@ -1218,6 +1247,7 @@ try {
       '</div>' +
       '<div style="color:#888; font-size:11px; margin-bottom:6px;">' + escapeHtml(entity.description || '') + '</div>' +
       storageHtml +
+      farmHtml +
       synergyHtml +
       workerHtml +
       rangeHtml +
@@ -1279,35 +1309,135 @@ try {
     activateQuickbarSlot(quickbarIndex);
   });
 
-  function showObjectHpBar(objData) {
+  function formatRewardSummary(rewardMap) {
+    if (!rewardMap) return '';
+
+    var parts = [];
+    for (var resId in rewardMap) {
+      if (!rewardMap[resId]) continue;
+      var entity = GameRegistry.getEntity(resId);
+      parts.push(rewardMap[resId] + ' ' + (entity ? entity.name : resId));
+    }
+
+    return parts.join(' + ');
+  }
+
+  function getNodeAccentColor(nodeInfo) {
+    if (!nodeInfo) return '#4ecca3';
+    if (nodeInfo.isGiant) return '#f0a500';
+    if (nodeInfo.stateLabel === 'Fruiting' || nodeInfo.stateLabel === 'Mature') return '#4ecca3';
+    if (nodeInfo.stateLabel === 'No Fruit' || nodeInfo.stateLabel === 'Sapling') return '#7db4ff';
+    if (nodeInfo.stateLabel === 'Young' || nodeInfo.stateLabel === 'Large') return '#f0a500';
+    return '#4ecca3';
+  }
+
+  function getWorldNodeTitle(objData, nodeInfo, entity) {
+    if (!nodeInfo) return entity ? entity.name : objData.type;
+    if (objData.type === 'node.tree' || objData.type === 'node.rock' || objData.type === 'node.berry_bush') {
+      return nodeInfo.name || nodeInfo.label;
+    }
+    return nodeInfo.label;
+  }
+
+  function getWorldNodeMeta(objData, nodeInfo) {
+    if (!nodeInfo) return '';
+
+    var rewardText = formatRewardSummary(nodeInfo.rewards);
+    if (objData.type === 'node.tree' || objData.type === 'node.rock') {
+      return rewardText;
+    }
+    if (objData.type === 'node.berry_bush') {
+      return rewardText || 'No fruit';
+    }
+
+    return (nodeInfo.stateLabel ? nodeInfo.stateLabel + ' • ' : '') + rewardText;
+  }
+
+  function shouldShowWorldNodeLabel(objData) {
+    if (!objData || !objData.type) return false;
+    return objData.type !== 'node.tree' && objData.type !== 'node.rock' && objData.type !== 'node.berry_bush';
+  }
+
+  function getInspectNodeMeta(objData, nodeInfo) {
+    if (!nodeInfo) return 'HP ' + objData.hp + '/' + objData.maxHp;
+
+    var rewardText = formatRewardSummary(nodeInfo.rewards);
+    if (objData.type === 'node.tree') {
+      return rewardText || 'Wood';
+    }
+    if (objData.type === 'node.rock') {
+      return rewardText || 'Stone';
+    }
+    if (objData.type === 'node.berry_bush') {
+      return rewardText || 'No ripe fruit';
+    }
+
+    return (nodeInfo.stateLabel ? nodeInfo.stateLabel + ' • ' : '') + rewardText;
+  }
+
+  function showObjectHpBar(objData, holdMs) {
+    if (showObjectHpBar._hideTimer) {
+      clearTimeout(showObjectHpBar._hideTimer);
+      showObjectHpBar._hideTimer = null;
+    }
+
     var el = document.getElementById("object-hp-bar");
     if (!el) {
       el = document.createElement("div");
       el.id = "object-hp-bar";
-      el.style.cssText = 'position:fixed; width:60px; z-index:20; pointer-events:none; text-align:center;';
-      el.innerHTML = '<div style="font-size:10px; color:#aaa; margin-bottom:2px;"></div><div style="height:4px; background:#0f3460; border-radius:2px; overflow:hidden;"><div style="height:100%; background:#4ecca3; border-radius:2px; transition:width 0.2s;"></div></div>';
+      el.innerHTML = '<div class="object-hp-title"></div><div class="object-hp-meta"></div><div class="object-hp-track"><div class="object-hp-fill"></div></div>';
       document.body.appendChild(el);
     }
 
     var pos = GameScene.worldToScreen(new THREE.Vector3(objData.worldX, 1.5, objData.worldZ));
     if (!pos) { el.style.display = "none"; return; }
 
+    var nodeInfo = (objData.type && objData.type.indexOf('node.') === 0 && typeof GameTerrain !== 'undefined' && GameTerrain.getNodeInfo) ? GameTerrain.getNodeInfo(objData) : null;
+    var entity = GameRegistry.getEntity(objData.type);
+    var titleText = nodeInfo ? getWorldNodeTitle(objData, nodeInfo, entity) : (entity ? entity.name : objData.type);
+    var metaText = getInspectNodeMeta(objData, nodeInfo);
+    var accentColor = nodeInfo ? getNodeAccentColor(nodeInfo) : 'rgba(255,255,255,0.12)';
+
     var pct = Math.max(0, (objData.hp / objData.maxHp) * 100);
-    el.style.left = (pos.x - 30) + "px";
-    el.style.top = pos.y + "px";
+    el.style.left = (pos.x - 52) + "px";
+    el.style.top = (pos.y - 4) + "px";
     el.style.display = "block";
 
-    var label = el.querySelector("div");
-    if (label) label.textContent = objData.hp + "/" + objData.maxHp;
+    var title = el.querySelector('.object-hp-title');
+    if (title) title.textContent = titleText;
 
-    var fill = el.querySelector("div > div > div");
+    var meta = el.querySelector('.object-hp-meta');
+    if (meta) meta.textContent = metaText;
+
+    var track = el.querySelector('.object-hp-track');
+    if (track) track.style.borderColor = accentColor;
+
+    var fill = el.querySelector('.object-hp-fill');
     if (fill) {
       fill.style.width = pct + "%";
       fill.style.background = pct > 60 ? "#4ecca3" : pct > 30 ? "#f0a500" : "#e94560";
     }
+
+    if (holdMs && holdMs > 0) {
+      var activeObjectId = objData && objData.id ? objData.id : null;
+      showObjectHpBar._activeObjectId = activeObjectId;
+      showObjectHpBar._hideTimer = setTimeout(function() {
+        var activeEl = document.getElementById("object-hp-bar");
+        if (activeEl && showObjectHpBar._activeObjectId === activeObjectId) {
+          activeEl.style.display = "none";
+        }
+        showObjectHpBar._hideTimer = null;
+      }, holdMs);
+    } else {
+      showObjectHpBar._activeObjectId = objData && objData.id ? objData.id : null;
+    }
   }
 
   function hideObjectHpBar() {
+    if (showObjectHpBar._hideTimer) {
+      clearTimeout(showObjectHpBar._hideTimer);
+      showObjectHpBar._hideTimer = null;
+    }
     var el = document.getElementById("object-hp-bar");
     if (el) el.style.display = "none";
   }
@@ -1352,17 +1482,76 @@ try {
       var percent = (nodeData.currentHp / nodeData.maxHp) * 100;
       var healthClass = percent > 60 ? 'healthy' : percent > 30 ? 'damaged' : 'critical';
       
+      var nodeInfo = (window.GameTerrain && GameTerrain.getNodeInfo) ? GameTerrain.getNodeInfo(nodeData.node) : null;
       var nodeType = nodeData.node.type || 'Unknown';
-      var nodeName = nodeType.replace('node.', '').replace('_', ' ');
+      var nodeName = nodeInfo ? getWorldNodeTitle(nodeData.node, nodeInfo, null) : nodeType.replace('node.', '').replace('_', ' ');
       nodeName = nodeName.charAt(0).toUpperCase() + nodeName.slice(1);
       
       // HP bar positioned directly on the node
       html += '<div class="node-hp-bar" style="position:fixed; left:' + (x - 30) + 'px; top:' + (y - 10) + 'px; width:60px; text-align:center; pointer-events:none; z-index:15;">';
+      html += '<div style="font-size:8px; color:#fff; text-shadow: 1px 1px 2px #000; margin-bottom:1px;">' + escapeHtml(nodeName) + '</div>';
       html += '<div style="font-size:9px; color:#fff; text-shadow: 1px 1px 2px #000; margin-bottom:2px;">' + Math.ceil(nodeData.currentHp) + '/' + nodeData.maxHp + '</div>';
       html += '<div style="height:4px; background:#0f3460; border-radius:2px; overflow:hidden; border:1px solid rgba(0,0,0,0.3);"><div class="hp-bar-fill ' + healthClass + '" style="width:' + percent + '%; height:100%; transition:width 0.2s;"></div></div>';
       html += '</div>';
     });
     
+    container.innerHTML = html;
+  }
+
+  function updateNodeWorldLabels() {
+    var container = document.getElementById('node-world-labels');
+    if (!container) return;
+
+    if (_modalActive || !window.GameTerrain || !GameTerrain.getNearbyObjects || !window.GamePlayer || !window.GameScene) {
+      container.innerHTML = '';
+      return;
+    }
+
+    var playerPos = GamePlayer.getPosition ? GamePlayer.getPosition() : null;
+    var camera = GameScene.getCamera();
+    var canvas = document.getElementById('game-canvas');
+    if (!playerPos || !camera || !canvas) {
+      container.innerHTML = '';
+      return;
+    }
+
+    var nearby = GameTerrain.getNearbyObjects(playerPos.x, playerPos.z, 6.5, 6);
+    if (!nearby.length) {
+      container.innerHTML = '';
+      return;
+    }
+
+    var canvasRect = canvas.getBoundingClientRect();
+    var html = '';
+
+    nearby.forEach(function(objData) {
+      if (!shouldShowWorldNodeLabel(objData)) return;
+
+      var nodeInfo = GameTerrain.getNodeInfo(objData);
+      if (!nodeInfo) return;
+
+      var worldHeight = nodeInfo.isGiant ? 2.3 : 1.35;
+      var worldPos = new THREE.Vector3(objData.worldX, worldHeight, objData.worldZ);
+      var screenPos = worldPos.clone().project(camera);
+      if (screenPos.z > 1) return;
+
+      var x = (screenPos.x * 0.5 + 0.5) * canvasRect.width + canvasRect.left;
+      var y = (-screenPos.y * 0.5 + 0.5) * canvasRect.height + canvasRect.top;
+
+      if (x < canvasRect.left - 100 || x > canvasRect.right + 100 || y < canvasRect.top - 80 || y > canvasRect.bottom + 80) {
+        return;
+      }
+
+      var accentColor = getNodeAccentColor(nodeInfo);
+      var detailText = getWorldNodeMeta(objData, nodeInfo);
+      var titleText = getWorldNodeTitle(objData, nodeInfo, null);
+
+      html += '<div class="node-world-label' + (nodeInfo.isGiant ? ' rare' : '') + '" style="left:' + x + 'px; top:' + y + 'px; border-color:' + accentColor + ';">';
+      html += '<div class="node-world-title">' + escapeHtml(titleText) + '</div>';
+      html += '<div class="node-world-meta">' + escapeHtml(detailText) + '</div>';
+      html += '</div>';
+    });
+
     container.innerHTML = html;
   }
 
@@ -1691,6 +1880,7 @@ try {
 
     if (entity.type === 'building') {
       var buildingIcons = {
+        'building.berry_gatherer': '🏠',
         'building.warehouse': '📦',
         'building.bridge': '🌉',
         'building.well': '🪣',
@@ -2039,7 +2229,9 @@ try {
     var panel = document.getElementById('modal-panel-build');
     if (!panel) return;
 
-    var buildings = GameRegistry.getEntitiesByType('building');
+    var buildings = GameRegistry.getEntitiesByType('building').filter(function(building) {
+      return !building.hiddenInBuildMenu;
+    });
     var readyCards = [];
     var blockedCards = [];
     var lockedCards = [];
@@ -2630,6 +2822,7 @@ try {
     showObjectHpBar: showObjectHpBar,
     hideObjectHpBar: hideObjectHpBar,
     updateNodeHpBars: updateNodeHpBars,
+    updateNodeWorldLabels: updateNodeWorldLabels,
     updateBuildingStorageLabels: updateBuildingStorageLabels,
     toggleProductionPanel: toggleProductionPanel,
     // Modal functions

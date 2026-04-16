@@ -129,6 +129,8 @@ window.GAME_CONTENT["base_stone_age"] = {
       name: "Wood Cutter",
       description: "Auto-gathers wood.",
       visual: { shape: "building", color: 0x8B4513, roofColor: 0x2d5a27, scale: 1.0 },
+      hiddenInBuildMenu: true,
+      legacyOnly: true,
       unlock: { age: "age.stone" }
     },
     {
@@ -137,23 +139,35 @@ window.GAME_CONTENT["base_stone_age"] = {
       name: "Stone Quarry",
       description: "Auto-mines stone.",
       visual: { shape: "building", color: 0x808080, roofColor: 0x4a4a4a, scale: 1.0 },
+      hiddenInBuildMenu: true,
+      legacyOnly: true,
       unlock: { age: "age.stone", buildings: { "building.wood_cutter": 1 } }
     },
     {
       id: "building.berry_gatherer",
       type: "building",
-      name: "Berry Gatherer",
-      description: "Auto-gathers food.",
-      visual: { shape: "building", color: 0x3a7a2e, roofColor: 0x8B4513, scale: 1.0 },
+      name: "Resident House",
+      description: "Residents gather wood, stone, flint, berries, and tend nearby farm plots.",
+      visual: { shape: "building", color: 0x8B7355, roofColor: 0x6B4E2E, scale: 1.0 },
       unlock: { age: "age.stone" }
+    },
+    {
+      id: "building.farm_plot",
+      type: "building",
+      name: "Farm Plot",
+      description: "Crop plot serviced by nearby residents.",
+      visual: { shape: "farm_plot", color: 0x8B5A2B, roofColor: 0x6B8E23, scale: 1.0 },
+      unlock: { age: "age.stone", resources: { "resource.wood": 12, "resource.food": 6 } }
     },
     {
       id: "building.flint_mine",
       type: "building",
       name: "Flint Mine",
-      description: "Auto-mines flint.",
+      description: "Legacy flint-only building kept for old saves.",
       visual: { shape: "building", color: 0x4a4a4a, roofColor: 0x808080, scale: 1.0 },
-      unlock: { age: "age.stone", buildings: { "building.stone_quarry": 1 } }
+      hiddenInBuildMenu: true,
+      legacyOnly: true,
+      unlock: { age: "age.stone", buildings: { "building.berry_gatherer": 1 } }
     },
 
     // === EQUIPMENT ===
@@ -182,7 +196,7 @@ window.GAME_CONTENT["base_stone_age"] = {
       description: "+3 Defense.",
       visual: { color: 0x808080 },
       slot: "offhand",
-      unlock: { age: "age.stone", resources: { "resource.stone": 10 }, buildings: { "building.stone_quarry": 1 } }
+      unlock: { age: "age.stone", resources: { "resource.stone": 10 }, buildings: { "building.berry_gatherer": 1 } }
     },
     {
       id: "equipment.leather_armor",
@@ -223,14 +237,14 @@ window.GAME_CONTENT["base_stone_age"] = {
       type: "recipe",
       name: "Stone Spear",
       description: "Craft a stone spear. +6 ATK.",
-      unlock: { age: "age.stone", resources: { "resource.tool": 3 }, buildings: { "building.flint_mine": 1 } }
+      unlock: { age: "age.stone", resources: { "resource.tool": 3 }, buildings: { "building.berry_gatherer": 1 } }
     },
     {
       id: "recipe.stone_shield",
       type: "recipe",
       name: "Stone Shield",
       description: "Craft a stone shield. +3 DEF.",
-      unlock: { age: "age.stone", resources: { "resource.stone": 10 }, buildings: { "building.stone_quarry": 1 } }
+      unlock: { age: "age.stone", resources: { "resource.stone": 10 }, buildings: { "building.berry_gatherer": 1 } }
     },
     {
       id: "recipe.leather_armor",
@@ -262,7 +276,7 @@ window.GAME_CONTENT["base_stone_age"] = {
       name: "Barracks",
       description: "Spawns guards to defend the area.",
       visual: { shape: "building", color: 0x5C4033, roofColor: 0x2d1f1a },
-      unlock: { age: "age.stone", resources: { "resource.tool": 5 }, buildings: { "building.wood_cutter": 2, "building.stone_quarry": 1 } }
+      unlock: { age: "age.stone", resources: { "resource.tool": 5 }, buildings: { "building.berry_gatherer": 2 } }
     },
 
     // === TECHNOLOGIES (TIER 1) ===
@@ -278,7 +292,7 @@ window.GAME_CONTENT["base_stone_age"] = {
       type: "technology",
       name: "Efficient Gathering",
       description: "All production +15%.",
-      unlock: { age: "age.stone", buildings: { "building.wood_cutter": 2, "building.stone_quarry": 1 } }
+      unlock: { age: "age.stone", buildings: { "building.berry_gatherer": 2 } }
     },
     {
       id: "tech.expanded_storage",

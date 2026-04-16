@@ -1,6 +1,6 @@
 /**
  * NPC System - Manages worker NPCs for buildings
- * NPCs automatically harvest resources and return to building storage
+ * Workers harvest nodes, transport goods, and resident workers can also service farm plots
  */
 
 window.NPCSystem = (function() {
@@ -13,7 +13,11 @@ window.NPCSystem = (function() {
     WALK_TO_NODE: 'walk_to_node',
     HARVEST: 'harvest',
     WALK_HOME: 'walk_home',
-    DEPOSIT: 'deposit'
+    DEPOSIT: 'deposit',
+    WALK_TO_SOURCE: 'walk_to_source',
+    FETCH_WATER: 'fetch_water',
+    WALK_TO_PLOT: 'walk_to_plot',
+    TEND_PLOT: 'tend_plot'
   };
 
   // NPCs array - all active NPCs
@@ -84,11 +88,18 @@ window.NPCSystem = (function() {
         buildingEntityId: instance.entityId,
         state: STATE.IDLE,
         position: { x: spawnPosition.x, z: spawnPosition.z },
+        taskType: null,
         targetNode: null,
         targetPosition: null,
         pathQueue: [],
         harvestProgress: 0,
         harvestedAmount: {},
+        farmTask: null,
+        farmPlotUid: null,
+        farmTaskProgress: 0,
+        waterSource: null,
+        carryingWater: false,
+        statusText: 'Looking for work',
         speed: 0.05, // tiles per frame (slower than player)
         mesh: null
       };
@@ -150,7 +161,7 @@ window.NPCSystem = (function() {
         npc.mesh.position.z = npc.position.z;
         
         // Simple bobbing animation when walking
-        if (npc.state === STATE.WALK_TO_NODE || npc.state === STATE.WALK_HOME) {
+        if (npc.state === STATE.WALK_TO_NODE || npc.state === STATE.WALK_HOME || npc.state === STATE.WALK_TO_SOURCE || npc.state === STATE.WALK_TO_PLOT) {
           npc.mesh.position.y = Math.abs(Math.sin(Date.now() * 0.005)) * 0.1;
         } else {
           npc.mesh.position.y = 0;
@@ -201,6 +212,18 @@ window.NPCSystem = (function() {
       case STATE.DEPOSIT:
         handleDeposit(npc);
         break;
+      case STATE.WALK_TO_SOURCE:
+        handleWalkToSource(npc, deltaTime);
+        break;
+      case STATE.FETCH_WATER:
+        handleFetchWater(npc, deltaTime);
+        break;
+      case STATE.WALK_TO_PLOT:
+        handleWalkToPlot(npc, deltaTime);
+        break;
+      case STATE.TEND_PLOT:
+        handleTendPlot(npc, deltaTime);
+        break;
     }
   }
 
@@ -208,6 +231,24 @@ window.NPCSystem = (function() {
    * IDLE state - transition to find node
    */
   function handleIdle(npc) {
+    npc.targetNode = null;
+
+    if (npc.harvestedAmount && Object.keys(npc.harvestedAmount).length > 0) {
+      const building = GameState.getInstance(npc.buildingUid);
+      if (building) {
+        const homePosition = findBuildingAccessPosition(building, npc.position) || { x: building.x, z: building.z };
+        npc.targetPosition = homePosition;
+        npc.pathQueue = findPath(npc.position, npc.targetPosition);
+        npc.state = STATE.WALK_HOME;
+        npc.statusText = 'Returning with goods';
+        return;
+      }
+    }
+
+    if (handleFindFarmTask(npc)) {
+      return;
+    }
+
     npc.state = STATE.FIND_NODE;
   }
 
@@ -220,6 +261,8 @@ window.NPCSystem = (function() {
       console.warn('[NPCSystem] Building not found for NPC:', npc.uid);
       return;
     }
+
+    npc.taskType = 'harvest';
 
     // Check if storage is full (prevent harvesting if no space)
     const storageUsed = GameState.getStorageUsed(npc.buildingUid);
@@ -239,8 +282,8 @@ window.NPCSystem = (function() {
     const searchRadius = (balance.searchRadius && balance.searchRadius[building.level]) || 5;
 
     // Determine what resource this building type harvests
-    const targetNodeType = getHarvestNodeType(building.entityId);
-    if (!targetNodeType) {
+    const targetNodeTypes = getHarvestNodeTypes(building.entityId);
+    if (!targetNodeTypes.length) {
       // Building doesn't harvest (e.g. Warehouse) - mark NPC as idle permanently
       if (!npc._noHarvestWarningShown) {
         console.warn('[NPCSystem] No harvest node type for building:', building.entityId, '- NPC will remain idle');
@@ -251,7 +294,7 @@ window.NPCSystem = (function() {
     }
 
     // Find nearest available node within radius
-    const node = findNearestNode(building.x, building.z, searchRadius, targetNodeType);
+    const node = findNearestNode(building.x, building.z, searchRadius, targetNodeTypes);
     
     if (node) {
       const approachPosition = findApproachPosition(node.x, node.z);
@@ -266,9 +309,11 @@ window.NPCSystem = (function() {
       npc.targetPosition = approachPosition;
       npc.pathQueue = findPath(npc.position, npc.targetPosition);
       npc.state = STATE.WALK_TO_NODE;
+      npc.statusText = 'Walking to resource';
     } else {
       // No nodes found - wait and try again
       npc.state = STATE.IDLE;
+      npc.statusText = npcCanServiceFarm(npc) ? 'Looking for resources or farm work' : 'Looking for work';
     }
   }
 
@@ -306,6 +351,8 @@ window.NPCSystem = (function() {
       npc.state = STATE.FIND_NODE;
       return;
     }
+
+    npc.statusText = 'Harvesting resource';
 
     const node = npc.targetNode.object;
     
@@ -347,18 +394,19 @@ window.NPCSystem = (function() {
       
       // Check if node destroyed
       if (node.hp <= 0) {
-        // Get rewards
-        const balance = GameRegistry.getBalance(node.type);
-        if (balance && balance.rewards) {
+        var harvestResult = (window.GameTerrain && GameTerrain.completeNodeHarvest) ? GameTerrain.completeNodeHarvest(node) : null;
+        var rewardMap = harvestResult && harvestResult.rewards ? harvestResult.rewards : null;
+
+        if (!rewardMap) {
+          const balance = GameRegistry.getBalance(node.type);
+          rewardMap = balance ? balance.rewards : null;
+        }
+
+        if (rewardMap) {
           // Store rewards to carry home
-          for (const [resourceId, amount] of Object.entries(balance.rewards)) {
+          for (const [resourceId, amount] of Object.entries(rewardMap)) {
             npc.harvestedAmount[resourceId] = (npc.harvestedAmount[resourceId] || 0) + amount;
           }
-        }
-        
-        // Destroy node (GameEntities will handle respawn)
-        if (window.GameEntities && GameEntities.destroyNode) {
-          GameEntities.destroyNode(node);
         }
         
         // Go home with resources
@@ -369,6 +417,7 @@ window.NPCSystem = (function() {
             npc.targetPosition = homePosition;
             npc.pathQueue = findPath(npc.position, npc.targetPosition);
             npc.state = STATE.WALK_HOME;
+            npc.statusText = 'Returning with goods';
           } else {
             npc.state = STATE.IDLE;
           }
@@ -414,13 +463,313 @@ window.NPCSystem = (function() {
       npc.targetNode = null;
       npc.targetPosition = null;
       npc.state = STATE.IDLE;
+      npc.statusText = 'Looking for work';
     } else {
       // Storage full - wait at building (idle but carrying resources)
       npc.targetNode = null;
       npc.targetPosition = null;
       npc.state = STATE.IDLE;
       npc.waitingForStorage = true;
+      npc.statusText = 'Home storage full';
     }
+  }
+
+  function cloneResourceMap(resourceMap) {
+    var copy = {};
+    if (!resourceMap) return copy;
+    for (var resId in resourceMap) {
+      copy[resId] = resourceMap[resId];
+    }
+    return copy;
+  }
+
+  function getFarmWaterSupportForNPC(instanceUid) {
+    if (!window.GameActions || !GameActions.getFarmWaterSupport) return null;
+    return GameActions.getFarmWaterSupport(instanceUid);
+  }
+
+  function getFarmYieldMapForNPC(instanceUid, farmState, farming) {
+    if (window.GameActions && GameActions.getFarmYieldMap) {
+      return GameActions.getFarmYieldMap(instanceUid, farmState);
+    }
+
+    if (farmState && farmState.watered) {
+      if (farmState.riverBoosted && farming && farming.riverYield) {
+        return cloneResourceMap(farming.riverYield);
+      }
+      return cloneResourceMap(farming ? farming.wateredYield : null);
+    }
+
+    return cloneResourceMap(farming ? farming.dryYield : null);
+  }
+
+  function canStoreFarmRewards(instanceUid, rewardMap) {
+    var totalAmount = 0;
+    for (var resId in rewardMap) {
+      totalAmount += rewardMap[resId] || 0;
+    }
+    return (GameState.getStorageUsed(instanceUid) + totalAmount) <= GameState.getStorageCapacity(instanceUid);
+  }
+
+  function npcCanServiceFarm(npc) {
+    const building = GameState.getInstance(npc.buildingUid);
+    const balance = building ? GameRegistry.getBalance(building.entityId) : null;
+    return !!(balance && balance.supportsFarmPlots);
+  }
+
+  function canWorkerServicePlot(workerBuilding, plotInstance) {
+    if (!workerBuilding || !plotInstance) return false;
+
+    const balance = GameRegistry.getBalance(workerBuilding.entityId);
+    const level = workerBuilding.level || 1;
+    const serviceRange = (balance && balance.searchRadius && balance.searchRadius[level]) ? balance.searchRadius[level] : 0;
+    if (serviceRange <= 0) return false;
+
+    const dx = plotInstance.x - workerBuilding.x;
+    const dz = plotInstance.z - workerBuilding.z;
+    return Math.sqrt(dx * dx + dz * dz) <= serviceRange;
+  }
+
+  function isFarmTaskState(state) {
+    return state === STATE.WALK_TO_SOURCE || state === STATE.FETCH_WATER || state === STATE.WALK_TO_PLOT || state === STATE.TEND_PLOT;
+  }
+
+  function isFarmPlotClaimed(plotUid, ignoreNpcUid) {
+    return npcs.some(function(otherNpc) {
+      if (!otherNpc || otherNpc.uid === ignoreNpcUid) return false;
+      if (otherNpc.farmPlotUid !== plotUid) return false;
+      return !!otherNpc.farmTask || isFarmTaskState(otherNpc.state);
+    });
+  }
+
+  function clearFarmAssignment(npc) {
+    npc.taskType = null;
+    npc.farmTask = null;
+    npc.farmPlotUid = null;
+    npc.farmTaskProgress = 0;
+    npc.waterSource = null;
+    npc.carryingWater = false;
+  }
+
+  function finishFarmTask(npc, idleText) {
+    clearFarmAssignment(npc);
+    npc.targetPosition = null;
+    npc.pathQueue = [];
+    npc.state = STATE.IDLE;
+    npc.statusText = idleText || 'Looking for work';
+  }
+
+  function findFarmTaskForWorker(npc, workerBuilding) {
+    const instances = GameState.getAllInstances();
+    let bestTask = null;
+    let bestScore = Infinity;
+
+    for (const uid in instances) {
+      const plotInstance = instances[uid];
+      if (!plotInstance || plotInstance.entityId !== 'building.farm_plot') continue;
+      if (!canWorkerServicePlot(workerBuilding, plotInstance)) continue;
+      if (isFarmPlotClaimed(uid, npc.uid)) continue;
+
+      const plotBuilding = GameState.getInstance(uid) || plotInstance;
+      const plotBalance = GameRegistry.getBalance(plotBuilding.entityId);
+      const farming = plotBalance ? plotBalance.farming : null;
+      if (!farming) continue;
+
+      const farmState = GameState.getFarmState(uid) || { planted: false, watered: false, ready: false, progress: 0, riverBoosted: false };
+      let task = null;
+      let priority = Infinity;
+      let targetPosition = null;
+      let waterSource = null;
+      let statusText = 'Walking to plot';
+
+      if (farmState.ready) {
+        const rewardMap = getFarmYieldMapForNPC(uid, farmState, farming);
+        if (!canStoreFarmRewards(uid, rewardMap)) continue;
+        task = 'harvest';
+        priority = 0;
+        targetPosition = findBuildingAccessPosition(plotBuilding, npc.position) || { x: plotBuilding.x, z: plotBuilding.z };
+        statusText = 'Walking to harvest plot';
+      } else if (farmState.planted && !farmState.watered) {
+        const support = getFarmWaterSupportForNPC(uid);
+        if (support && support.type) {
+          if (support.type === 'well' && support.sourceUid) {
+            const wellInstance = GameState.getInstance(support.sourceUid);
+            targetPosition = wellInstance ? findBuildingAccessPosition(wellInstance, npc.position) : null;
+          } else if (support.sourceX !== null && support.sourceZ !== null) {
+            targetPosition = findApproachPosition(support.sourceX, support.sourceZ);
+          }
+
+          if (targetPosition) {
+            task = 'water';
+            priority = 1;
+            waterSource = support;
+            statusText = support.type === 'river' ? 'Walking to river' : 'Walking to well';
+          }
+        }
+      } else if (!farmState.planted) {
+        task = 'plant';
+        priority = 2;
+        targetPosition = findBuildingAccessPosition(plotBuilding, npc.position) || { x: plotBuilding.x, z: plotBuilding.z };
+        statusText = 'Walking to plant plot';
+      }
+
+      if (!task || !targetPosition) continue;
+
+      const dx = plotBuilding.x - npc.position.x;
+      const dz = plotBuilding.z - npc.position.z;
+      const score = priority * 100 + Math.sqrt(dx * dx + dz * dz);
+      if (score < bestScore) {
+        bestScore = score;
+        bestTask = {
+          plotUid: uid,
+          task: task,
+          targetPosition: targetPosition,
+          waterSource: waterSource,
+          statusText: statusText
+        };
+      }
+    }
+
+    return bestTask;
+  }
+
+  function handleFindFarmTask(npc) {
+    if (!npcCanServiceFarm(npc)) {
+      return false;
+    }
+
+    const workerBuilding = GameState.getInstance(npc.buildingUid);
+    if (!workerBuilding) {
+      npc.statusText = 'Worker lost';
+      return false;
+    }
+
+    const task = findFarmTaskForWorker(npc, workerBuilding);
+    if (!task) {
+      return false;
+    }
+
+    npc.taskType = 'farm';
+    npc.farmTask = task.task;
+    npc.farmPlotUid = task.plotUid;
+    npc.farmTaskProgress = 0;
+    npc.targetNode = null;
+    npc.waterSource = task.waterSource || null;
+    npc.carryingWater = false;
+    npc.targetPosition = task.targetPosition;
+    npc.pathQueue = findPath(npc.position, npc.targetPosition);
+    npc.state = task.task === 'water' ? STATE.WALK_TO_SOURCE : STATE.WALK_TO_PLOT;
+    npc.statusText = task.statusText;
+    return true;
+  }
+
+  function handleWalkToSource(npc, deltaTime) {
+    if (!npc.farmPlotUid) {
+      finishFarmTask(npc);
+      return;
+    }
+
+    const arrived = moveNPCAlongPath(npc, deltaTime);
+    if (arrived) {
+      npc.farmTaskProgress = 0;
+      npc.state = STATE.FETCH_WATER;
+      npc.statusText = npc.waterSource && npc.waterSource.type === 'river' ? 'Drawing river water' : 'Drawing well water';
+    }
+  }
+
+  function handleFetchWater(npc, deltaTime) {
+    const plotBuilding = GameState.getInstance(npc.farmPlotUid);
+    const balance = plotBuilding ? GameRegistry.getBalance(plotBuilding.entityId) : null;
+    const farming = balance ? balance.farming : null;
+    if (!plotBuilding || !farming) {
+      finishFarmTask(npc, 'Looking for work');
+      return;
+    }
+
+    npc.farmTaskProgress += deltaTime;
+    if (npc.farmTaskProgress < (farming.waterTaskSeconds || 1.5)) {
+      return;
+    }
+
+    npc.farmTaskProgress = 0;
+    npc.carryingWater = true;
+    npc.targetPosition = findBuildingAccessPosition(plotBuilding, npc.position) || { x: plotBuilding.x, z: plotBuilding.z };
+    npc.pathQueue = findPath(npc.position, npc.targetPosition);
+    npc.state = STATE.WALK_TO_PLOT;
+    npc.statusText = 'Carrying water to plot';
+  }
+
+  function handleWalkToPlot(npc, deltaTime) {
+    if (npc.farmTask && !npc.farmPlotUid) {
+      finishFarmTask(npc);
+      return;
+    }
+
+    const arrived = moveNPCAlongPath(npc, deltaTime);
+    if (arrived) {
+      npc.farmTaskProgress = 0;
+      npc.state = STATE.TEND_PLOT;
+      if (npc.farmTask === 'plant') npc.statusText = 'Planting crop';
+      else if (npc.farmTask === 'water') npc.statusText = 'Watering crop';
+      else if (npc.farmTask === 'harvest') npc.statusText = 'Harvesting crop';
+      else npc.statusText = 'Tending plot';
+    }
+  }
+
+  function handleTendPlot(npc, deltaTime) {
+    const plotUid = npc.farmPlotUid;
+    const plotBuilding = GameState.getInstance(plotUid);
+    const balance = plotBuilding ? GameRegistry.getBalance(plotBuilding.entityId) : null;
+    const farming = balance ? balance.farming : null;
+    if (!plotBuilding || !farming) {
+      finishFarmTask(npc, 'Looking for work');
+      return;
+    }
+
+    var taskDuration = farming.plantTaskSeconds || 1.0;
+    if (npc.farmTask === 'water') taskDuration = farming.waterTaskSeconds || 1.5;
+    if (npc.farmTask === 'harvest') taskDuration = farming.harvestTaskSeconds || 1.5;
+
+    npc.farmTaskProgress += deltaTime;
+    if (npc.farmTaskProgress < taskDuration) {
+      return;
+    }
+
+    if (npc.farmTask === 'plant') {
+      GameState.setFarmState(plotUid, {
+        cropKey: farming.cropKey || 'root_crop',
+        planted: true,
+        watered: false,
+        ready: false,
+        progress: 0,
+        waterSourceType: null,
+        riverBoosted: false
+      });
+      if (window.BuildingSystem && BuildingSystem.refreshBuilding) {
+        BuildingSystem.refreshBuilding(plotUid);
+      }
+    } else if (npc.farmTask === 'water') {
+      GameState.setFarmState(plotUid, {
+        watered: true,
+        waterSourceType: npc.waterSource ? npc.waterSource.type : null,
+        riverBoosted: !!(npc.waterSource && npc.waterSource.boosted)
+      });
+      if (window.BuildingSystem && BuildingSystem.refreshBuilding) {
+        BuildingSystem.refreshBuilding(plotUid);
+      }
+    } else if (npc.farmTask === 'harvest') {
+      var farmState = GameState.getFarmState(plotUid) || { watered: false, riverBoosted: false };
+      var rewardMap = getFarmYieldMapForNPC(plotUid, farmState, farming);
+      for (const [resourceId, amount] of Object.entries(rewardMap)) {
+        GameState.addBuildingStorage(plotUid, resourceId, amount);
+      }
+      GameState.resetFarmState(plotUid);
+      if (window.BuildingSystem && BuildingSystem.refreshBuilding) {
+        BuildingSystem.refreshBuilding(plotUid);
+      }
+    }
+
+    finishFarmTask(npc, 'Looking for work');
   }
 
   /**
@@ -612,27 +961,33 @@ window.NPCSystem = (function() {
   /**
    * Get harvest node type for building
    */
-  function getHarvestNodeType(buildingEntityId) {
+  function getHarvestNodeTypes(buildingEntityId) {
+    var balance = GameRegistry.getBalance(buildingEntityId);
+    if (balance && balance.harvestNodeTypes && balance.harvestNodeTypes.length) {
+      return balance.harvestNodeTypes.slice();
+    }
+
     const map = {
-      'building.wood_cutter': 'node.tree',
-      'building.stone_quarry': 'node.rock',
-      'building.berry_gatherer': 'node.berry_bush',
-      'building.flint_mine': 'node.flint_deposit',
-      'building.copper_mine': 'node.copper_deposit',
-      'building.tin_mine': 'node.tin_deposit',
-      'building.iron_mine': 'node.iron_deposit',
-      'building.coal_mine': 'node.coal_deposit'
+      'building.wood_cutter': ['node.tree'],
+      'building.stone_quarry': ['node.rock'],
+      'building.berry_gatherer': ['node.tree', 'node.rock', 'node.berry_bush', 'node.flint_deposit'],
+      'building.flint_mine': ['node.flint_deposit'],
+      'building.copper_mine': ['node.copper_deposit'],
+      'building.tin_mine': ['node.tin_deposit'],
+      'building.iron_mine': ['node.iron_deposit'],
+      'building.coal_mine': ['node.coal_deposit']
     };
-    return map[buildingEntityId];
+    return map[buildingEntityId] ? map[buildingEntityId].slice() : [];
   }
 
   /**
    * Find nearest harvestable node
    */
-  function findNearestNode(x, z, radius, nodeType) {
+  function findNearestNode(x, z, radius, nodeTypes) {
     const chunks = GameTerrain.getAllChunks();
     let nearestNode = null;
     let nearestDistance = Infinity;
+    const targetTypes = Array.isArray(nodeTypes) ? nodeTypes : [nodeTypes];
     
     // Check chunks around building
     const chunkSize = GameTerrain.getChunkSize();
@@ -649,7 +1004,8 @@ window.NPCSystem = (function() {
         
         for (const obj of chunkData.objects) {
           // Check if correct type and harvestable
-          if (obj.type === nodeType && obj.hp > 0 && !obj._destroyed) {
+          var isHarvestable = window.GameTerrain && GameTerrain.canHarvestNode ? GameTerrain.canHarvestNode(obj) : (obj.hp > 0 && !obj._destroyed);
+          if (targetTypes.indexOf(obj.type) !== -1 && isHarvestable) {
             // Check if being harvested by another NPC
             const beingHarvested = npcs.some(npc => 
               npc.targetNode && npc.targetNode.object === obj && 
@@ -685,7 +1041,7 @@ window.NPCSystem = (function() {
     
     // Check if node still exists and has HP
     const obj = nodeData.object;
-    return obj.hp > 0;
+    return window.GameTerrain && GameTerrain.canHarvestNode ? GameTerrain.canHarvestNode(obj) : obj.hp > 0;
   }
 
   /**
@@ -854,11 +1210,11 @@ window.NPCSystem = (function() {
     npcs.forEach(npc => {
       if (npc.state === STATE.HARVEST && npc.targetNode && npc.targetNode.object) {
         const node = npc.targetNode.object;
-        const balance = GameRegistry.getBalance(node.type);
-        if (balance && balance.hp) {
+        const nodeInfo = (window.GameTerrain && GameTerrain.getNodeInfo) ? GameTerrain.getNodeInfo(node) : null;
+        if (node) {
           activeNodes.push({
             node: node,
-            maxHp: balance.hp,
+            maxHp: node.maxHp || (nodeInfo ? nodeInfo.hp : 1),
             currentHp: node.hp,
             worldX: node.worldX,
             worldZ: node.worldZ
@@ -883,6 +1239,39 @@ window.NPCSystem = (function() {
     return { harvestSpeed: 1.0, moveSpeed: 1.0 };
   }
 
+  function getFarmWorkerStatus(instanceUid) {
+    var activeWorker = npcs.find(function(npc) {
+      return npc.farmPlotUid === instanceUid && (!!npc.farmTask || isFarmTaskState(npc.state));
+    });
+
+    if (activeWorker) {
+      return {
+        state: activeWorker.state,
+        task: activeWorker.farmTask,
+        carryingWater: !!activeWorker.carryingWater,
+        text: activeWorker.statusText || 'Resident worker active'
+      };
+    }
+
+    var plotInstance = GameState.getInstance(instanceUid);
+    if (!plotInstance) return null;
+
+    var nearbyWorker = npcs.find(function(npc) {
+      if (!npcCanServiceFarm(npc)) return false;
+      var workerBuilding = GameState.getInstance(npc.buildingUid);
+      return canWorkerServicePlot(workerBuilding, plotInstance);
+    });
+
+    if (!nearbyWorker) return null;
+
+    return {
+      state: nearbyWorker.state,
+      task: nearbyWorker.farmTask,
+      carryingWater: !!nearbyWorker.carryingWater,
+      text: nearbyWorker.state === STATE.IDLE ? 'Nearby resident worker available' : 'Nearby resident worker busy'
+    };
+  }
+
   return {
     init,
     spawnWorkersForBuilding,
@@ -891,6 +1280,7 @@ window.NPCSystem = (function() {
     getAllNPCs,
     getNPCsForBuilding,
     getActiveHarvestNodes,
+    getFarmWorkerStatus,
     getNPCByUid,
     getSpecializationBonus
   };

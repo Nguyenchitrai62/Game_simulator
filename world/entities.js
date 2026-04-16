@@ -50,6 +50,11 @@ window.GameEntities = (function () {
     var group = new THREE.Group();
     var mainColor = visual ? visual.color : 0x808080;
     var scale = visual ? (visual.scale || 1.0) : 1.0;
+    var nodeInfo = (objData && typeof GameTerrain !== 'undefined' && GameTerrain.getNodeInfo) ? GameTerrain.getNodeInfo(objData) : null;
+
+    if (nodeInfo) {
+      scale *= nodeInfo.scale || 1;
+    }
 
     if (type === "node.tree") {
       var variant = objData && objData.id ? (function(id) {
@@ -63,13 +68,13 @@ window.GameEntities = (function () {
       var trunkTopR = variant === 1 ? 0.09 : 0.1;
 
       var trunkGeo = new THREE.CylinderGeometry(trunkBotR, trunkTopR, trunkH, 6);
-      var trunkMat = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+      var trunkMat = new THREE.MeshLambertMaterial({ color: nodeInfo && nodeInfo.trunkColor ? nodeInfo.trunkColor : 0x8B4513 });
       var trunk = new THREE.Mesh(trunkGeo, trunkMat);
       trunk.position.y = trunkH / 2;
       trunk.castShadow = true;
       group.add(trunk);
 
-      var leavesColor = mainColor || 0x2d5a27;
+      var leavesColor = nodeInfo && nodeInfo.leafColor ? nodeInfo.leafColor : (mainColor || 0x2d5a27);
       var leavesBaseColor = new THREE.Color(leavesColor);
       if (variant === 1) {
         leavesBaseColor.offsetHSL(0.02, 0, 0.03);
@@ -123,6 +128,17 @@ window.GameEntities = (function () {
 
       group.add(canopyGroup);
 
+      if (nodeInfo && nodeInfo.isGiant) {
+        var giantGeo = new THREE.SphereGeometry(0.35, 10, 8);
+        var giantMat = new THREE.MeshLambertMaterial({ color: leavesBaseColor.clone().offsetHSL(0, 0, -0.05).getHex() });
+        var giantCanopy = new THREE.Mesh(giantGeo, giantMat);
+        giantCanopy.position.set(-0.22, trunkH + 0.48, -0.12);
+        giantCanopy.castShadow = true;
+        canopyGroup.add(giantCanopy);
+      }
+
+      group.scale.set(scale, scale, scale);
+
       if (typeof AtmosphereSystem !== 'undefined') {
         AtmosphereSystem.registerWindTarget(group, 'tree');
       }
@@ -140,31 +156,35 @@ window.GameEntities = (function () {
       rock.castShadow = true;
       group.add(rock);
 
-      // Companion rock
-      var smallGeo = new THREE.DodecahedronGeometry(0.12 * scale, 0);
-      var small = new THREE.Mesh(smallGeo, rockMat);
-      small.position.set(0.28 * scale, 0.08 * scale, 0.18 * scale);
-      small.rotation.set(0.8, 0.2, 0);
-      group.add(small);
+      var rockChunkCount = nodeInfo && nodeInfo.chunkCount ? nodeInfo.chunkCount : 3;
+      var chunkOffsets = [
+        { size: 0.12, x: 0.28, y: 0.08, z: 0.18, rx: 0.8, ry: 0.2 },
+        { size: 0.08, x: -0.2, y: 0.06, z: -0.15, rx: 1.2, ry: 0.7 },
+        { size: 0.1, x: 0.05, y: 0.05, z: -0.26, rx: 0.5, ry: 1.1 },
+        { size: 0.07, x: -0.32, y: 0.04, z: 0.12, rx: 0.9, ry: 0.4 }
+      ];
 
-      // Third tiny rock for variety
-      var tinyGeo = new THREE.DodecahedronGeometry(0.08 * scale, 0);
-      var tiny = new THREE.Mesh(tinyGeo, rockMat);
-      tiny.position.set(-0.2 * scale, 0.06 * scale, -0.15 * scale);
-      tiny.rotation.set(1.2, 0.7, 0);
-      group.add(tiny);
+      for (var chunkIndex = 0; chunkIndex < Math.max(0, rockChunkCount - 1) && chunkIndex < chunkOffsets.length; chunkIndex++) {
+        var chunkDef = chunkOffsets[chunkIndex];
+        var chunkGeo = new THREE.DodecahedronGeometry(chunkDef.size * scale, 0);
+        var chunkMesh = new THREE.Mesh(chunkGeo, rockMat);
+        chunkMesh.position.set(chunkDef.x * scale, chunkDef.y * scale, chunkDef.z * scale);
+        chunkMesh.rotation.set(chunkDef.rx, chunkDef.ry, 0);
+        group.add(chunkMesh);
+      }
 
       // Moss patches on regular rocks
       if (type === "node.rock") {
         var mossColors = [0x4a8a3a, 0x3a7a2e, 0x5a9a4a];
-        for (var mi = 0; mi < 2; mi++) {
+        var mossCount = nodeInfo && nodeInfo.mossPatches !== undefined ? nodeInfo.mossPatches : 2;
+        for (var mi = 0; mi < mossCount; mi++) {
           var mossGeo = new THREE.SphereGeometry(0.04, 4, 3);
           var mossMat = new THREE.MeshLambertMaterial({ color: mossColors[mi % 3] });
           var moss = new THREE.Mesh(mossGeo, mossMat);
           moss.position.set(
-            (mi === 0 ? 0.15 : -0.1) * scale,
-            0.35 * scale,
-            (mi === 0 ? -0.1 : 0.12) * scale
+            (Math.cos(mi * 1.7) * 0.17) * scale,
+            (0.28 + (mi % 2) * 0.06) * scale,
+            (Math.sin(mi * 1.7) * 0.14) * scale
           );
           group.add(moss);
         }
@@ -172,17 +192,21 @@ window.GameEntities = (function () {
 
       // Ore specks for deposit types
       if (type === "node.copper_deposit") {
-        addOreSpecks(group, 0xE87520, scale, 4);
+        addOreSpecks(group, 0xE87520, scale, nodeInfo && nodeInfo.speckCount ? nodeInfo.speckCount : 4);
+        addOreSpikes(group, 0xC96A1A, scale, nodeInfo && nodeInfo.spireCount ? nodeInfo.spireCount : 1, nodeInfo && nodeInfo.spireHeight ? nodeInfo.spireHeight : 0.18);
       } else if (type === "node.tin_deposit") {
-        addOreSpecks(group, 0xE8E8E8, scale, 3);
+        addOreSpecks(group, 0xE8E8E8, scale, nodeInfo && nodeInfo.speckCount ? nodeInfo.speckCount : 3);
+        addOreSpikes(group, 0xF2F2F2, scale, nodeInfo && nodeInfo.spireCount ? nodeInfo.spireCount : 1, nodeInfo && nodeInfo.spireHeight ? nodeInfo.spireHeight : 0.16);
       } else if (type === "node.iron_deposit") {
-        addOreSpecks(group, 0xAA3333, scale, 4);
+        addOreSpecks(group, 0xAA3333, scale, nodeInfo && nodeInfo.speckCount ? nodeInfo.speckCount : 4);
+        addOreSpikes(group, 0x7A2A2A, scale, nodeInfo && nodeInfo.spireCount ? nodeInfo.spireCount : 1, nodeInfo && nodeInfo.spireHeight ? nodeInfo.spireHeight : 0.2);
       } else if (type === "node.coal_deposit") {
-        addOreSpecks(group, 0x555555, scale, 3);
+        addOreSpecks(group, 0x555555, scale, nodeInfo && nodeInfo.speckCount ? nodeInfo.speckCount : 3);
+        addOreSpikes(group, 0x242424, scale, nodeInfo && nodeInfo.spireCount ? nodeInfo.spireCount : 1, nodeInfo && nodeInfo.spireHeight ? nodeInfo.spireHeight : 0.16);
       }
 
     } else if (type === "node.berry_bush") {
-      var bushColor = mainColor || 0x3a7a2e;
+      var bushColor = nodeInfo && nodeInfo.leafColor ? nodeInfo.leafColor : (mainColor || 0x3a7a2e);
       var bushGeo = new THREE.SphereGeometry(0.3, 10, 8);
       var bushMat = new THREE.MeshLambertMaterial({ color: bushColor });
       var bush = new THREE.Mesh(bushGeo, bushMat);
@@ -190,30 +214,37 @@ window.GameEntities = (function () {
       bush.castShadow = true;
       group.add(bush);
 
-      // 8 berries instead of 5, better scatter
-      for (var i = 0; i < 8; i++) {
-        var berryGeo = new THREE.SphereGeometry(0.04, 4, 3);
-        var berryMat = new THREE.MeshLambertMaterial({ color: 0xcc3333 });
-        var berry = new THREE.Mesh(berryGeo, berryMat);
-        var bAngle = (i / 8) * Math.PI * 2 + 0.3;
-        var bRadius = 0.15 + Math.sin(i * 1.7) * 0.05;
-        berry.position.set(
-          Math.cos(bAngle) * bRadius,
-          0.28 + Math.sin(i * 0.9) * 0.08,
-          Math.sin(bAngle) * bRadius
-        );
-        group.add(berry);
-      }
-
       // Leaf clusters
       var leafClustGeo = new THREE.SphereGeometry(0.12, 6, 4);
-      var leafClustMat = new THREE.MeshLambertMaterial({ color: 0x3a8a2e });
+      var leafClustMat = new THREE.MeshLambertMaterial({ color: nodeInfo && nodeInfo.leafColor ? nodeInfo.leafColor : 0x3a8a2e });
       var leafClust1 = new THREE.Mesh(leafClustGeo, leafClustMat);
       leafClust1.position.set(0.12, 0.28, 0.08);
       group.add(leafClust1);
       var leafClust2 = new THREE.Mesh(leafClustGeo, leafClustMat);
       leafClust2.position.set(-0.08, 0.32, -0.1);
       group.add(leafClust2);
+      var leafClust3 = new THREE.Mesh(leafClustGeo, leafClustMat);
+      leafClust3.position.set(-0.14, 0.24, 0.12);
+      group.add(leafClust3);
+
+      var berryCount = nodeInfo && nodeInfo.berryCount !== undefined ? nodeInfo.berryCount : 8;
+      for (var i = 0; i < berryCount; i++) {
+        var berryGeo = new THREE.SphereGeometry(0.03, 5, 4);
+        var berryMat = new THREE.MeshLambertMaterial({ color: nodeInfo && nodeInfo.berryColor ? nodeInfo.berryColor : 0xcc3333 });
+        var berry = new THREE.Mesh(berryGeo, berryMat);
+        var divisor = berryCount > 0 ? berryCount : 1;
+        var bAngle = (i / divisor) * Math.PI * 2 + 0.3;
+        var bRadius = 0.18 + Math.sin(i * 1.9) * 0.03;
+        berry.position.set(
+          Math.cos(bAngle) * bRadius,
+          0.24 + Math.sin(i * 1.1) * 0.09 + (i % 3) * 0.015,
+          Math.sin(bAngle) * bRadius
+        );
+        berry.castShadow = true;
+        group.add(berry);
+      }
+
+      group.scale.set(scale, scale, scale);
 
       if (typeof AtmosphereSystem !== 'undefined') {
         AtmosphereSystem.registerWindTarget(group, 'bush');
@@ -229,19 +260,8 @@ window.GameEntities = (function () {
       flint.castShadow = true;
       group.add(flint);
 
-      // Sharp piece on top
-      var sharpGeo = new THREE.ConeGeometry(0.1, 0.25, 4);
-      var sharp = new THREE.Mesh(sharpGeo, flintMat);
-      sharp.position.set(0.1, 0.35, 0);
-      sharp.castShadow = true;
-      group.add(sharp);
-
-      // Second smaller flint piece
-      var sharp2Geo = new THREE.ConeGeometry(0.06, 0.15, 4);
-      var sharp2 = new THREE.Mesh(sharp2Geo, flintMat);
-      sharp2.position.set(-0.12, 0.28, 0.08);
-      sharp2.rotation.z = 0.3;
-      group.add(sharp2);
+      addOreSpikes(group, 0x6A6A6A, 1, nodeInfo && nodeInfo.shardCount ? nodeInfo.shardCount : 2, nodeInfo && nodeInfo.shardHeight ? nodeInfo.shardHeight : 0.22);
+      group.scale.set(scale, scale, scale);
 
     } else if (type === "animal.wolf" || type === "animal.boar" || type === "animal.bear" || type === "animal.lion" || type === "animal.bandit" || type === "animal.sabertooth") {
       var animalColor = mainColor || (type === "animal.wolf" ? 0x808080 : 
@@ -405,6 +425,42 @@ window.GameEntities = (function () {
     group.add(shadow);
 
     return group;
+  }
+
+  function refreshObject(objData) {
+    var existingMesh = _meshMap.get(objData.id);
+    if (!existingMesh) return false;
+
+    var wasHidden = !!existingMesh.userData._hidden || existingMesh.visible === false;
+    var nextX = objData && objData.worldX !== undefined ? objData.worldX : existingMesh.position.x;
+    var nextY = existingMesh.position && existingMesh.position.y !== undefined ? existingMesh.position.y : 0;
+    var nextZ = objData && objData.worldZ !== undefined ? objData.worldZ : existingMesh.position.z;
+
+     if (typeof AtmosphereSystem !== 'undefined' && AtmosphereSystem.unregisterWindTarget) {
+      AtmosphereSystem.unregisterWindTarget(existingMesh);
+    }
+
+    GameScene.getScene().remove(existingMesh);
+    _meshMap.delete(objData.id);
+    _dataMap.delete(existingMesh.id);
+
+    var entity = GameRegistry.getEntity(objData.type);
+    var refreshedMesh = createMesh(objData.type, entity, objData);
+    if (!refreshedMesh) return false;
+
+    refreshedMesh.position.set(nextX, nextY, nextZ);
+    refreshedMesh.userData.objectId = objData.id;
+
+    if (wasHidden) {
+      refreshedMesh.userData._hidden = true;
+      refreshedMesh.visible = false;
+    }
+
+    GameScene.getScene().add(refreshedMesh);
+    _meshMap.set(objData.id, refreshedMesh);
+    _dataMap.set(refreshedMesh.id, objData);
+
+    return true;
   }
 
   function hideObject(objData) {
@@ -728,7 +784,7 @@ window.GameEntities = (function () {
     } else if (buildingEntityId === 'building.stone_quarry') {
       bodyColor = 0x808080;
     } else if (buildingEntityId === 'building.berry_gatherer') {
-      bodyColor = 0x2d5a27;
+      bodyColor = 0x8B7355;
     } else if (buildingEntityId === 'building.flint_mine') {
       bodyColor = 0x4a4a4a;
     } else if (buildingEntityId === 'building.copper_mine') {
@@ -739,6 +795,8 @@ window.GameEntities = (function () {
       bodyColor = 0x5a5a70;
     } else if (buildingEntityId === 'building.coal_mine') {
       bodyColor = 0x333333;
+    } else if (buildingEntityId === 'building.farm_plot') {
+      bodyColor = 0x6B8E23;
     }
     
     var scale = 0.7;
@@ -816,9 +874,12 @@ window.GameEntities = (function () {
       toolGeo = new THREE.BoxGeometry(0.03 * scale, 0.22 * scale, 0.03 * scale);
       toolColor = 0xB87333;
     } else if (buildingEntityId === 'building.berry_gatherer') {
-      // Basket - small cylinder
+      // Multi-purpose resident basket
       toolGeo = new THREE.CylinderGeometry(0.05 * scale, 0.06 * scale, 0.06 * scale, 6);
       toolColor = 0xBEAA78;
+    } else if (buildingEntityId === 'building.farm_plot') {
+      toolGeo = new THREE.CylinderGeometry(0.04 * scale, 0.05 * scale, 0.08 * scale, 6);
+      toolColor = 0x6B8E9B;
     } else if (buildingEntityId === 'building.coal_mine') {
       toolGeo = new THREE.BoxGeometry(0.03 * scale, 0.2 * scale, 0.03 * scale);
       toolColor = 0x333333;
@@ -827,13 +888,35 @@ window.GameEntities = (function () {
     if (toolGeo) {
       var toolMat = new THREE.MeshLambertMaterial({ color: toolColor });
       var toolMesh = new THREE.Mesh(toolGeo, toolMat);
-      if (buildingEntityId === 'building.berry_gatherer') {
+      if (buildingEntityId === 'building.berry_gatherer' || buildingEntityId === 'building.farm_plot') {
         toolMesh.position.set(0.12 * scale, 0.25 * scale, 0);
       } else {
         toolMesh.position.set(0, 0.3 * scale, -0.1 * scale);
         toolMesh.rotation.z = -0.3;
       }
       group.add(toolMesh);
+    }
+
+    if (buildingEntityId === 'building.berry_gatherer') {
+      var hoeHandleGeo = new THREE.BoxGeometry(0.025 * scale, 0.24 * scale, 0.025 * scale);
+      var hoeHandleMat = new THREE.MeshLambertMaterial({ color: 0x8B6914 });
+      var hoeHandle = new THREE.Mesh(hoeHandleGeo, hoeHandleMat);
+      hoeHandle.position.set(-0.02 * scale, 0.31 * scale, -0.11 * scale);
+      hoeHandle.rotation.z = -0.35;
+      group.add(hoeHandle);
+
+      var hoeHeadGeo = new THREE.BoxGeometry(0.09 * scale, 0.03 * scale, 0.02 * scale);
+      var hoeHeadMat = new THREE.MeshLambertMaterial({ color: 0x6f767d });
+      var hoeHead = new THREE.Mesh(hoeHeadGeo, hoeHeadMat);
+      hoeHead.position.set(-0.09 * scale, 0.41 * scale, -0.11 * scale);
+      hoeHead.rotation.z = -0.35;
+      group.add(hoeHead);
+
+      var pickHeadGeo = new THREE.BoxGeometry(0.08 * scale, 0.025 * scale, 0.02 * scale);
+      var pickHead = new THREE.Mesh(pickHeadGeo, hoeHeadMat);
+      pickHead.position.set(0.12 * scale, 0.38 * scale, -0.11 * scale);
+      pickHead.rotation.z = -0.2;
+      group.add(pickHead);
     }
     
     // Shadow circle
@@ -851,39 +934,11 @@ window.GameEntities = (function () {
    * Destroy a node (called when NPC finishes harvesting)
    */
   function destroyNode(nodeData) {
-    if (!nodeData) return;
-
-    // Mark as destroyed
-    nodeData._destroyed = true;
-    nodeData.hp = 0;
-
-    // Hide mesh
-    hideObject(nodeData);
-
-    // Schedule respawn with player collision check
-    var balance = GameRegistry.getBalance(nodeData.type);
-    var respawnTime = (balance && balance.respawnTime) || 30;
-
-    function tryRespawn() {
-      if (!nodeData._destroyed) return;
-      // Check if player is too close - delay respawn if so
-      if (window.GamePlayer) {
-        var playerPos = GamePlayer.getPosition();
-        var dx = Math.abs(nodeData.worldX - playerPos.x);
-        var dz = Math.abs(nodeData.worldZ - playerPos.z);
-        if (dx < 2 && dz < 2) {
-          // Player is standing on this spot, retry in 5 seconds
-          setTimeout(tryRespawn, 5000);
-          return;
-        }
-      }
-      nodeData._destroyed = false;
-      var maxHp = nodeData.maxHp || (balance && balance.hp) || 10;
-      nodeData.hp = maxHp;
-      showObject(nodeData);
+    if (!nodeData) return { rewards: {}, info: null, persistent: false };
+    if (typeof GameTerrain !== 'undefined' && GameTerrain.completeNodeHarvest) {
+      return GameTerrain.completeNodeHarvest(nodeData);
     }
-
-    setTimeout(tryRespawn, respawnTime * 1000);
+    return { rewards: {}, info: null, persistent: false };
   }
 
   function addOreSpecks(group, color, scale, count) {
@@ -900,12 +955,29 @@ window.GameEntities = (function () {
     }
   }
 
+  function addOreSpikes(group, color, scale, count, height) {
+    var spikeMat = new THREE.MeshLambertMaterial({ color: color });
+    for (var si = 0; si < count; si++) {
+      var spikeGeo = new THREE.ConeGeometry(0.045 * scale, (height || 0.18) * scale, 5);
+      var spike = new THREE.Mesh(spikeGeo, spikeMat);
+      spike.position.set(
+        Math.cos(si * 1.9) * 0.18 * scale,
+        (0.2 + Math.sin(si * 0.8) * 0.06) * scale,
+        Math.sin(si * 1.9) * 0.18 * scale
+      );
+      spike.rotation.z = 0.2 + Math.sin(si * 0.9) * 0.25;
+      spike.rotation.x = 0.1 * si;
+      group.add(spike);
+    }
+  }
+
   return {
     init: init,
     createObjectForChunk: createObjectForChunk,
     createMesh: createMesh,
     createNPCMesh: createNPCMesh,
     destroyNode: destroyNode,
+    refreshObject: refreshObject,
     hideObject: hideObject,
     showObject: showObject,
     update: update,

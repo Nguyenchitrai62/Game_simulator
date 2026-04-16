@@ -1,5 +1,59 @@
 window.CraftSystem = (function () {
 
+  function getEquipmentData(equipmentId) {
+    var entity = GameRegistry.getEntity(equipmentId) || {};
+    var balance = GameRegistry.getBalance(equipmentId) || {};
+    return {
+      id: equipmentId,
+      slot: entity.slot || balance.slot || null,
+      stats: entity.stats || balance.stats || {}
+    };
+  }
+
+  function getStatValue(stats, key) {
+    return stats && stats[key] ? stats[key] : 0;
+  }
+
+  function getSlotPriority(slot) {
+    if (slot === 'weapon') return ['attack', 'defense', 'maxHp', 'speed'];
+    if (slot === 'offhand') return ['defense', 'maxHp', 'attack', 'speed'];
+    if (slot === 'armor') return ['defense', 'maxHp', 'speed', 'attack'];
+    if (slot === 'boots') return ['speed', 'defense', 'maxHp', 'attack'];
+    return ['attack', 'defense', 'maxHp', 'speed'];
+  }
+
+  function isEquipmentUpgrade(newEquipmentId, equippedEquipmentId) {
+    if (!newEquipmentId) return false;
+    if (!equippedEquipmentId) return true;
+
+    var nextItem = getEquipmentData(newEquipmentId);
+    var currentItem = getEquipmentData(equippedEquipmentId);
+    var priority = getSlotPriority(nextItem.slot);
+
+    for (var i = 0; i < priority.length; i++) {
+      var statKey = priority[i];
+      var nextValue = getStatValue(nextItem.stats, statKey);
+      var currentValue = getStatValue(currentItem.stats, statKey);
+      if (nextValue > currentValue) return true;
+      if (nextValue < currentValue) return false;
+    }
+
+    return false;
+  }
+
+  function tryAutoEquipCraftedEquipment(equipmentId) {
+    var item = GameRegistry.getEntity(equipmentId);
+    if (!item || item.type !== 'equipment' || !item.slot) return false;
+
+    var player = GameState.getPlayer();
+    var equippedId = player && player.equipped ? player.equipped[item.slot] : null;
+    if (!equippedId || isEquipmentUpgrade(equipmentId, equippedId)) {
+      return GameState.equipItem(equipmentId);
+    }
+
+    return false;
+  }
+
   function craft(recipeId) {
     if (!GameState.isUnlocked(recipeId)) {
       if (typeof GameHUD !== 'undefined') GameHUD.showError("This recipe is locked.");
@@ -47,6 +101,10 @@ window.CraftSystem = (function () {
         GameState.addToInventory(resourceId, produced);
       } else {
         GameState.addResource(resourceId, produced);
+      }
+
+      if (item && item.type === 'equipment' && produced > 0) {
+        tryAutoEquipCraftedEquipment(resourceId);
       }
     }
 
@@ -97,6 +155,7 @@ window.CraftSystem = (function () {
     canCraft: canCraft,
     getAvailableRecipes: getAvailableRecipes,
     getAllRecipes: getAllRecipes,
-    getRecipeInfo: getRecipeInfo
+    getRecipeInfo: getRecipeInfo,
+    isEquipmentUpgrade: isEquipmentUpgrade
   };
 })();

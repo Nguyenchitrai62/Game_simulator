@@ -430,6 +430,69 @@ window.GamePlayer = (function () {
     _torchMesh = null;
   }
 
+  function formatRewardPreview(rewardMap) {
+    if (!rewardMap) return "";
+
+    var parts = [];
+    for (var resId in rewardMap) {
+      if (!rewardMap[resId]) continue;
+      var entity = GameRegistry.getEntity(resId);
+      parts.push(rewardMap[resId] + " " + (entity ? entity.name : resId));
+    }
+
+    return parts.join(", ");
+  }
+
+  function buildFarmPrompt(status) {
+    if (!status) return null;
+
+    if (status.storedAmount > 0) {
+      return 'Collect Farm Plot [' + status.storedAmount + ' stored]';
+    }
+
+    if (!status.hasWorkerSupport && !status.planted) {
+      return 'Farm Plot [Needs worker]';
+    }
+
+    var parts = ['Farm Plot'];
+    parts.push('[' + status.statusText + ']');
+
+    if (status.planted && !status.ready) {
+      parts.push(status.progressPercent + '%');
+    }
+
+    return parts.join(' ');
+  }
+
+  function useGenericNodeName(objData) {
+    return !!(objData && (objData.type === 'node.tree' || objData.type === 'node.rock' || objData.type === 'node.berry_bush'));
+  }
+
+  function getNodePromptName(objData, nodeInfo, entity) {
+    if (nodeInfo) {
+      return useGenericNodeName(objData) ? (nodeInfo.name || (entity ? entity.name : objData.type)) : nodeInfo.label;
+    }
+    return entity ? entity.name : objData.type;
+  }
+
+  function getNodePromptDetail(objData, nodeInfo) {
+    if (!nodeInfo) return '';
+
+    var rewardPreview = formatRewardPreview(nodeInfo.rewards);
+    if (objData.type === 'node.tree' || objData.type === 'node.rock') {
+      return rewardPreview;
+    }
+    if (objData.type === 'node.berry_bush') {
+      return rewardPreview || 'No berries yet';
+    }
+
+    var detail = nodeInfo.stateLabel || '';
+    if (rewardPreview) {
+      detail = detail ? detail + ' • ' + rewardPreview : rewardPreview;
+    }
+    return detail;
+  }
+
   function updateContextAction() {
     var nearObj = GameTerrain.findNearestObject(_x, _z, 2.5);
     var el = document.getElementById('context-action');
@@ -450,20 +513,40 @@ window.GamePlayer = (function () {
       if (hasResources) {
         var entity = GameRegistry.getEntity(nearBuilding.entityId);
         var name = entity ? entity.name : nearBuilding.entityId;
-        textEl.textContent = "Collect from " + name + " (" + totalAmount + " items)";
+        textEl.textContent = 'Collect from ' + name + ' (' + totalAmount + ' items)';
         el.classList.add('show');
         GameHUD.hideObjectHpBar();
         return;
+      }
+
+      if (nearBuilding.entityId === 'building.farm_plot' && window.GameActions && GameActions.getFarmPlotStatus) {
+        var farmStatus = GameActions.getFarmPlotStatus(nearBuilding.uid);
+        if (farmStatus) {
+          textEl.textContent = buildFarmPrompt(farmStatus);
+          el.classList.add('show');
+          GameHUD.hideObjectHpBar();
+          return;
+        }
       }
     }
 
     if (nearObj && nearObj.hp > 0) {
       var entity = GameRegistry.getEntity(nearObj.type);
-      var name = entity ? entity.name : nearObj.type;
+      var nodeInfo = (nearObj.type.indexOf("node.") === 0 && typeof GameTerrain !== 'undefined' && GameTerrain.getNodeInfo) ? GameTerrain.getNodeInfo(nearObj) : null;
+      var name = getNodePromptName(nearObj, nodeInfo, entity);
       var action = nearObj.type.startsWith("animal.") ? "Fight" : nearObj.type === "node.berry_bush" ? "Gather" : nearObj.type.startsWith("node.") ? "Harvest" : "Interact";
-      textEl.textContent = action + " " + name + " (" + nearObj.hp + "/" + nearObj.maxHp + ")";
+      var detail = getNodePromptDetail(nearObj, nodeInfo);
+      var showHpInPrompt = !!(nearObj.type && nearObj.type.indexOf('animal.') === 0);
+      textEl.textContent = action + " " + name + (detail ? " [" + detail + "]" : "") + (showHpInPrompt ? (" (" + nearObj.hp + "/" + nearObj.maxHp + ")") : "");
       el.classList.add('show');
-      if (typeof GameHUD !== 'undefined' && GameHUD.showObjectHpBar) GameHUD.showObjectHpBar(nearObj);
+
+      // Resource nodes should not auto-open the popup on proximity,
+      // but direct interactions can still show it briefly.
+      if (typeof GameHUD !== 'undefined' && GameHUD.hideObjectHpBar) {
+        if (!(nearObj.type && nearObj.type.indexOf('node.') === 0) && GameHUD.showObjectHpBar) {
+          GameHUD.showObjectHpBar(nearObj);
+        }
+      }
     } else {
       el.classList.remove('show');
       if (typeof GameHUD !== 'undefined' && GameHUD.hideObjectHpBar) GameHUD.hideObjectHpBar();
@@ -473,6 +556,11 @@ window.GamePlayer = (function () {
   function interactNearby() {
     var nearBuilding = findNearestBuilding(_x, _z, 2.5);
     if (nearBuilding) {
+      if (nearBuilding.entityId === 'building.farm_plot' && window.GameActions && GameActions.interactWithFarmPlot) {
+        GameActions.interactWithFarmPlot(nearBuilding.uid);
+        return;
+      }
+
       var storage = GameState.getBuildingStorage(nearBuilding.uid);
       var hasResources = false;
       for (var resId in storage) {
@@ -548,6 +636,16 @@ window.GamePlayer = (function () {
     var balance = GameRegistry.getBalance(objData.type);
     if (!balance) return;
 
+    if (typeof GameTerrain !== 'undefined' && GameTerrain.canHarvestNode && !GameTerrain.canHarvestNode(objData)) {
+      var blockedInfo = GameTerrain.getNodeInfo ? GameTerrain.getNodeInfo(objData) : null;
+      if (objData.type === 'node.berry_bush') {
+        GameHUD.showNotification('This berry bush has no ripe fruit yet.');
+      } else {
+        GameHUD.showNotification((blockedInfo ? blockedInfo.name || blockedInfo.label : 'This node') + ' is not ready yet.');
+      }
+      return;
+    }
+
     if (window.NPCSystem && NPCSystem.getActiveHarvestNodes) {
       var activeNodes = NPCSystem.getActiveHarvestNodes();
       var isBeingHarvested = activeNodes.some(function(activeNode) {
@@ -576,33 +674,24 @@ window.GamePlayer = (function () {
     }
 
     GameHUD.showDamageNumber(objData.worldX, 0.5, objData.worldZ, "HIT (" + Math.max(0, objData.hp) + "/" + objData.maxHp + ")", "damage");
-    GameHUD.showObjectHpBar(objData);
+    GameHUD.showObjectHpBar(objData, 1200);
 
     if (objData.hp <= 0 && !objData._destroyed) {
-      objData._destroyed = true;
+      GameHUD.hideObjectHpBar();
+      var harvestResult = (typeof GameTerrain !== 'undefined' && GameTerrain.completeNodeHarvest) ? GameTerrain.completeNodeHarvest(objData) : null;
+      var rewardMap = harvestResult && harvestResult.rewards ? harvestResult.rewards : balance.rewards;
 
-      if (balance.rewards) {
-        for (var resId in balance.rewards) {
-          var amount = balance.rewards[resId];
+      if (rewardMap) {
+        for (var resId in rewardMap) {
+          var amount = rewardMap[resId];
           GameState.addResource(resId, amount);
           var resEntity = GameRegistry.getEntity(resId);
           var resName = resEntity ? resEntity.name : resId;
           GameHUD.showDamageNumber(objData.worldX, 1.2, objData.worldZ, "+" + amount + " " + resName, "loot");
         }
       }
-
-      GameEntities.hideObject(objData);
       UnlockSystem.checkAll();
       GameHUD.renderAll();
-
-      var respawnTime = balance.respawnTime || 30;
-      setTimeout(function () {
-        if (objData && objData._destroyed) {
-          objData.hp = objData.maxHp;
-          objData._destroyed = false;
-          GameEntities.showObject(objData);
-        }
-      }, respawnTime * 1000);
     }
 
     GameHUD.renderAll();

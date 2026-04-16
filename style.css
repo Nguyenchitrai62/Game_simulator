@@ -214,6 +214,80 @@ body { overflow: hidden; background: var(--bg-primary); font-family: 'Segoe UI',
   color: #ffd700;
 }
 
+#object-hp-bar {
+  position: fixed;
+  width: 104px;
+  z-index: 20;
+  pointer-events: none;
+  text-align: center;
+}
+
+.object-hp-title {
+  font-size: 10px;
+  color: #fff;
+  font-weight: 700;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+}
+
+.object-hp-meta {
+  margin: 2px 0 4px;
+  font-size: 9px;
+  color: #b8c7d9;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+}
+
+.object-hp-track {
+  height: 4px;
+  background: rgba(15,52,96,0.95);
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.12);
+}
+
+.object-hp-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.2s ease, background 0.2s ease;
+}
+
+#node-world-labels {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 14;
+}
+
+.node-world-label {
+  position: fixed;
+  transform: translate(-50%, -100%);
+  min-width: 92px;
+  max-width: 170px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(78,204,163,0.4);
+  background: rgba(15,52,96,0.92);
+  box-shadow: 0 8px 18px rgba(0,0,0,0.22);
+  text-align: center;
+}
+
+.node-world-label.rare {
+  box-shadow: 0 10px 22px rgba(240,165,0,0.2);
+}
+
+.node-world-title {
+  font-size: 10px;
+  color: #fff;
+  font-weight: 700;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+}
+
+.node-world-meta {
+  margin-top: 2px;
+  font-size: 9px;
+  color: #c0cfe2;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+}
+
 .resource-bar { display: flex; gap: 10px; flex-wrap: wrap; }
 .resource-item {
   display: flex; align-items: center; gap: 4px;

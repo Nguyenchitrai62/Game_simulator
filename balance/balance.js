@@ -19,9 +19,9 @@ window.GAME_BALANCE = {
     respawnTime: 45
   },
   "node.berry_bush": {
-    // Bùm mâm xôi - hp thấp nhất, respawn nhanh nhất, cho 2 thức ăn
+    // Bụi berry - chỉ cho food khi đang có quả
     hp: 1,
-    rewards: { "resource.food": 2 },
+    rewards: { "resource.food": 3 },
     respawnTime: 20
   },
   "node.flint_deposit": {
@@ -62,7 +62,7 @@ window.GAME_BALANCE = {
 
   // === CÔNG TRÌNH (thời Đá) ===
   "building.wood_cutter": {
-    // Trạm chặt gỗ - giá rẻ, sản xuất 2 gỗ/giây, 1-3 công nhân
+    // Công trình legacy - giữ lại để tương thích save cũ
     cost: { "resource.wood": 10 },
     searchRadius: { 1: 5, 2: 8, 3: 12 }, // bán kính tìm node (ô)
     workerCount: { 1: 1, 2: 2, 3: 3 },    // số công nhân theo level
@@ -76,7 +76,7 @@ window.GAME_BALANCE = {
     }
   },
   "building.stone_quarry": {
-    // Mỏ đá - sản xuất 1 đá/giây
+    // Công trình legacy - giữ lại để tương thích save cũ
     cost: { "resource.wood": 15, "resource.stone": 5 },
     searchRadius: { 1: 5, 2: 8, 3: 12 },
     workerCount: { 1: 1, 2: 2, 3: 3 },
@@ -90,17 +90,45 @@ window.GAME_BALANCE = {
     }
   },
   "building.berry_gatherer": {
-    // Trạm hái mâm xôi - rẻ nhất, 2 thức ăn/giây
-    cost: { "resource.wood": 8 },
-    searchRadius: { 1: 5, 2: 8, 3: 12 },
-    workerCount: { 1: 1, 2: 2, 3: 3 },
-    storageCapacity: { 1: 40, 2: 80, 3: 160 },
-    productionSpeed: { 1: 1.0, 2: 1.2, 3: 1.5 },
-    produces: { "resource.food": 2 },
+    // Resident House - workers gather nearby wood, stone, flint, berries, and tend farm plots
+    cost: { "resource.wood": 12, "resource.stone": 4 },
+    searchRadius: { 1: 6, 2: 9, 3: 12 },
+    workerCount: { 1: 2, 2: 3, 3: 4 },
+    storageCapacity: { 1: 60, 2: 110, 3: 180 },
+    productionSpeed: { 1: 1.0, 2: 1.15, 3: 1.3 },
+    produces: {},
+    harvestNodeTypes: ["node.tree", "node.rock", "node.berry_bush", "node.flint_deposit"],
+    supportsFarmPlots: true,
     synergyFrom: {},
     upgrades: {
-      2: { cost: { "resource.wood": 25, "resource.food": 15 }, productionMultiplier: 1.5 },
-      3: { cost: { "resource.wood": 60, "resource.food": 40, "resource.flint": 5 }, productionMultiplier: 2.0 }
+      2: { cost: { "resource.wood": 30, "resource.stone": 15, "resource.food": 10 }, productionMultiplier: 1.25 },
+      3: { cost: { "resource.wood": 70, "resource.stone": 35, "resource.food": 25, "resource.flint": 8 }, productionMultiplier: 1.5 }
+    }
+  },
+  "building.farm_plot": {
+    // Auto-tended crop plot serviced by nearby resident workers
+    cost: { "resource.wood": 12, "resource.stone": 4 },
+    searchRadius: { 1: 0 },
+    workerCount: { 1: 0 },
+    storageCapacity: { 1: 24 },
+    productionSpeed: { 1: 1.0 },
+    produces: {},
+    upgrades: {},
+    farming: {
+      cropKey: "root_crop",
+      cropName: "Root Crop",
+      dryGrowthSeconds: 45,
+      wateredGrowthSeconds: 24,
+      riverGrowthSeconds: 18,
+      dryYield: { "resource.food": 2 },
+      wateredYield: { "resource.food": 4 },
+      riverYield: { "resource.food": 6 },
+      wellRange: 6,
+      waterSearchRadius: 6,
+      riverBoostRadius: 3,
+      plantTaskSeconds: 1.2,
+      waterTaskSeconds: 1.8,
+      harvestTaskSeconds: 1.5
     }
   },
   "building.flint_mine": {
@@ -242,7 +270,7 @@ window.GAME_BALANCE = {
     }
   },
   "age.bronze": {
-    // Thời Đồng - cần 10 công cụ + 50 thức ăn + công trình yêu cầu
+    // Bronze Age - requires 10 tools, 50 food, and the listed buildings
     startResources: {
       "resource.copper": 0,
       "resource.tin": 0,
@@ -255,8 +283,7 @@ window.GAME_BALANCE = {
         "resource.food": 50
       },
       buildings: {
-        "building.wood_cutter": 3,
-        "building.stone_quarry": 2
+        "building.berry_gatherer": 4
       }
     }
   },
@@ -558,17 +585,18 @@ window.GAME_BALANCE = {
 
   // === CÔNG TRÌNH NƯỚC ===
   "building.well": {
-    // Giếng - sản xuất 1 thức ăn/giây không cần công nhân
+    // Well - supports nearby farm plots and provides a small passive food income
     cost: { "resource.stone": 10, "resource.wood": 5 },
     searchRadius: { 1: 0 },
     workerCount: { 1: 0 },
     storageCapacity: { 1: 50 },
     productionSpeed: { 1: 1.0 },
     produces: { "resource.food": 1 },
+    waterRadius: 6,
     upgrades: {}
   },
   "building.bridge": {
-    // Cầu - cho phép đi qua nước, không sản xuất
+    // Bridge - allows crossing water and does not produce resources
     cost: { "resource.wood": 15, "resource.stone": 5 },
     searchRadius: { 1: 0 },
     workerCount: { 1: 0 },
@@ -577,5 +605,190 @@ window.GAME_BALANCE = {
     isBridge: true,
     produces: {},
     upgrades: {}
+  }
+};
+
+window.GAME_NODE_CONFIG = {
+  "node.tree": {
+    kind: "growth",
+    stages: [
+      {
+        key: "sapling",
+        label: "Sapling Tree",
+        stateLabel: "Sapling",
+        weight: 0.28,
+        hp: 1,
+        rewards: { "resource.wood": 1 },
+        scale: 0.72,
+        growAfter: 45,
+        leafColor: 0x69A84D,
+        trunkColor: 0x8A5A2B
+      },
+      {
+        key: "young",
+        label: "Young Tree",
+        stateLabel: "Young",
+        weight: 0.36,
+        hp: 2,
+        rewards: { "resource.wood": 2 },
+        scale: 0.9,
+        growAfter: 60,
+        leafColor: 0x3F7F30,
+        trunkColor: 0x7B4A1F
+      },
+      {
+        key: "mature",
+        label: "Mature Tree",
+        stateLabel: "Mature",
+        weight: 0.36,
+        hp: 3,
+        rewards: { "resource.wood": 4 },
+        scale: 1.08,
+        growAfter: 0,
+        leafColor: 0x2D5A27,
+        trunkColor: 0x6F3E18
+      }
+    ],
+    giantVariant: {
+      key: "giant",
+      chance: 0.015,
+      label: "Giant Tree",
+      stateLabel: "Ancient",
+      hp: 6,
+      rewards: { "resource.wood": 10 },
+      scale: 1.6,
+      leafColor: 0x24461D,
+      trunkColor: 0x5B2F12
+    }
+  },
+  "node.rock": {
+    kind: "variant",
+    useVariantLabel: true,
+    variants: [
+      {
+        key: "small",
+        label: "Small Rock",
+        stateLabel: "Small",
+        weight: 0.34,
+        hp: 3,
+        rewards: { "resource.stone": 1 },
+        scale: 0.78,
+        chunkCount: 2,
+        mossPatches: 1
+      },
+      {
+        key: "medium",
+        label: "Rock",
+        stateLabel: "Medium",
+        weight: 0.44,
+        hp: 5,
+        rewards: { "resource.stone": 2, "resource.flint": 1 },
+        scale: 1.0,
+        chunkCount: 3,
+        mossPatches: 2
+      },
+      {
+        key: "large",
+        label: "Large Rock",
+        stateLabel: "Large",
+        weight: 0.18,
+        hp: 7,
+        rewards: { "resource.stone": 4, "resource.flint": 1 },
+        scale: 1.24,
+        chunkCount: 4,
+        mossPatches: 3
+      },
+      {
+        key: "giant",
+        label: "Giant Boulder",
+        stateLabel: "Giant",
+        weight: 0.015,
+        hp: 10,
+        rewards: { "resource.stone": 8, "resource.flint": 3 },
+        scale: 1.78,
+        chunkCount: 5,
+        mossPatches: 4,
+        isGiant: true
+      }
+    ]
+  },
+  "node.berry_bush": {
+    kind: "growth",
+    persistOnHarvest: true,
+    postHarvestStage: 0,
+    stages: [
+      {
+        key: "sparse",
+        label: "Berry Bush",
+        stateLabel: "No Fruit",
+        weight: 0.48,
+        hp: 1,
+        rewards: {},
+        harvestable: false,
+        scale: 0.9,
+        growAfter: 35,
+        leafColor: 0x527A30,
+        berryColor: 0xB85A5A,
+        berryCount: 0
+      },
+      {
+        key: "ripe",
+        label: "Ripe Berry Bush",
+        stateLabel: "Fruiting",
+        weight: 0.52,
+        hp: 1,
+        rewards: { "resource.food": 3 },
+        scale: 1.04,
+        growAfter: 0,
+        leafColor: 0x3A7A2E,
+        berryColor: 0xE33B3B,
+        berryCount: 14
+      }
+    ]
+  },
+  "node.flint_deposit": {
+    kind: "visual",
+    useVariantLabel: false,
+    variants: [
+      { key: "shardbed", stateLabel: "Shardbed", weight: 0.42, scale: 0.96, shardCount: 2, shardHeight: 0.22 },
+      { key: "needle", stateLabel: "Needle", weight: 0.33, scale: 1.06, shardCount: 3, shardHeight: 0.28 },
+      { key: "cluster", stateLabel: "Cluster", weight: 0.25, scale: 1.14, shardCount: 4, shardHeight: 0.24 }
+    ]
+  },
+  "node.copper_deposit": {
+    kind: "visual",
+    useVariantLabel: false,
+    variants: [
+      { key: "vein", stateLabel: "Vein", weight: 0.4, scale: 1.0, speckCount: 4, spireCount: 1, spireHeight: 0.18 },
+      { key: "cluster", stateLabel: "Cluster", weight: 0.35, scale: 1.08, speckCount: 6, spireCount: 2, spireHeight: 0.2 },
+      { key: "rich", stateLabel: "Rich", weight: 0.25, scale: 1.18, speckCount: 8, spireCount: 3, spireHeight: 0.24 }
+    ]
+  },
+  "node.tin_deposit": {
+    kind: "visual",
+    useVariantLabel: false,
+    variants: [
+      { key: "pale", stateLabel: "Pale", weight: 0.42, scale: 0.94, speckCount: 3, spireCount: 1, spireHeight: 0.14 },
+      { key: "layered", stateLabel: "Layered", weight: 0.34, scale: 1.04, speckCount: 5, spireCount: 2, spireHeight: 0.18 },
+      { key: "gleaming", stateLabel: "Gleaming", weight: 0.24, scale: 1.12, speckCount: 7, spireCount: 3, spireHeight: 0.2 }
+    ]
+  },
+  "node.iron_deposit": {
+    kind: "visual",
+    useVariantLabel: false,
+    variants: [
+      { key: "seam", stateLabel: "Seam", weight: 0.38, scale: 1.0, speckCount: 4, spireCount: 1, spireHeight: 0.18 },
+      { key: "dense", stateLabel: "Dense", weight: 0.37, scale: 1.1, speckCount: 6, spireCount: 2, spireHeight: 0.22 },
+      { key: "lode", stateLabel: "Lode", weight: 0.25, scale: 1.2, speckCount: 8, spireCount: 3, spireHeight: 0.26 }
+    ]
+  },
+  "node.coal_deposit": {
+    kind: "visual",
+    useVariantLabel: false,
+    variants: [
+      { key: "broken", stateLabel: "Broken", weight: 0.42, scale: 0.98, speckCount: 3, spireCount: 1, spireHeight: 0.16 },
+      { key: "dense", stateLabel: "Dense", weight: 0.34, scale: 1.08, speckCount: 5, spireCount: 2, spireHeight: 0.18 },
+      { key: "deep", stateLabel: "Deep", weight: 0.24, scale: 1.16, speckCount: 7, spireCount: 3, spireHeight: 0.22 }
+    ]
   }
 };

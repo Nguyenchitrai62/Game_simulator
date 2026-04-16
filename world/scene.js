@@ -140,6 +140,9 @@ window.GameScene = (function () {
         // Update building storage labels
         if (typeof GameHUD !== 'undefined' && GameHUD.updateBuildingStorageLabels) GameHUD.updateBuildingStorageLabels();
 
+        // Update nearby node labels
+        if (typeof GameHUD !== 'undefined' && GameHUD.updateNodeWorldLabels) GameHUD.updateNodeWorldLabels();
+
         // Update combat
         if (typeof GameCombat !== 'undefined') GameCombat.update(effectiveDt);
 

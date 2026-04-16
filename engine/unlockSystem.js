@@ -15,6 +15,7 @@ window.UnlockSystem = (function () {
       for (var id in entities) {
         var entity = entities[id];
         if (entity.type === "age") continue;
+        if (entity.legacyOnly) continue;
         if (GameState.isUnlocked(id)) continue;
         if (!entity.unlock) continue;
 
@@ -72,6 +73,7 @@ window.UnlockSystem = (function () {
     for (var id in entities) {
       var entity = entities[id];
       if (entity.type === "age") continue;
+      if (entity.legacyOnly) continue;
       if (GameState.isUnlocked(id)) continue;
       if (!entity.unlock) continue;
 

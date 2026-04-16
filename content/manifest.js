@@ -1,5 +1,5 @@
 window.GAME_MANIFEST = {
-  version: "2.2.0",
+  version: "3.0.0",
   packs: [
     "base_stone_age",
     "expansion_bronze_age",

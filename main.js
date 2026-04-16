@@ -12,6 +12,9 @@ window.GameActions = (function () {
       GameStorage.save();
       var name = recipeEntity ? recipeEntity.name : recipeId;
       GameHUD.showSuccess(`Crafted: ${name}`);
+      if (typeof GamePlayer !== 'undefined' && GamePlayer.updateEquipmentVisuals) {
+        GamePlayer.updateEquipmentVisuals();
+      }
     }
 
     GameHUD.renderAll();
@@ -145,6 +148,339 @@ window.GameActions = (function () {
     GameHUD.selectInstance(instanceUid);
   }
 
+  function isFarmPlot(instance) {
+    return !!(instance && instance.entityId === 'building.farm_plot');
+  }
+
+  function getFarmConfig(instanceUid) {
+    var instance = GameState.getInstance(instanceUid);
+    if (!isFarmPlot(instance)) return null;
+    var balance = GameRegistry.getBalance(instance.entityId);
+    return balance ? balance.farming : null;
+  }
+
+  function formatYieldMap(yieldMap) {
+    if (!yieldMap) return '';
+
+    var parts = [];
+    for (var resId in yieldMap) {
+      var entity = GameRegistry.getEntity(resId);
+      parts.push(yieldMap[resId] + ' ' + (entity ? entity.name : resId));
+    }
+
+    return parts.join(', ');
+  }
+
+  function cloneYieldMap(yieldMap) {
+    var copy = {};
+    if (!yieldMap) return copy;
+    for (var resId in yieldMap) {
+      copy[resId] = yieldMap[resId];
+    }
+    return copy;
+  }
+
+  function scaleYieldMap(yieldMap, multiplier) {
+    var scaled = {};
+    multiplier = multiplier || 1;
+    if (!yieldMap) return scaled;
+
+    for (var resId in yieldMap) {
+      var amount = yieldMap[resId] || 0;
+      if (amount <= 0) continue;
+      scaled[resId] = Math.max(1, Math.round(amount * multiplier));
+    }
+
+    return scaled;
+  }
+
+  function findNearbyRiverSource(instance, rangeOverride, boostRadiusOverride) {
+    if (!instance || typeof WaterSystem === 'undefined' || !WaterSystem.isWaterTile) return null;
+
+    var searchRadius = Math.max(0, rangeOverride || 0);
+    if (searchRadius <= 0) return null;
+
+    var boostRadius = Math.max(0, boostRadiusOverride || 0);
+    var nearest = null;
+    var minX = Math.floor(instance.x - searchRadius);
+    var maxX = Math.ceil(instance.x + searchRadius);
+    var minZ = Math.floor(instance.z - searchRadius);
+    var maxZ = Math.ceil(instance.z + searchRadius);
+
+    for (var wx = minX; wx <= maxX; wx++) {
+      for (var wz = minZ; wz <= maxZ; wz++) {
+        if (!WaterSystem.isWaterTile(wx, wz)) continue;
+
+        var dx = wx - instance.x;
+        var dz = wz - instance.z;
+        var distance = Math.sqrt(dx * dx + dz * dz);
+        if (distance > searchRadius) continue;
+
+        if (!nearest || distance < nearest.distance) {
+          nearest = {
+            type: 'river',
+            sourceX: wx,
+            sourceZ: wz,
+            distance: distance,
+            boosted: boostRadius > 0 && distance <= boostRadius
+          };
+        }
+      }
+    }
+
+    return nearest;
+  }
+
+  function findSupportingWell(instance, rangeOverride) {
+    if (!instance) return null;
+
+    var instances = GameState.getAllInstances();
+    var bestWell = null;
+    var bestDistance = Infinity;
+
+    for (var uid in instances) {
+      var candidate = instances[uid];
+      if (!candidate || candidate.entityId !== 'building.well') continue;
+
+      var balance = GameRegistry.getBalance(candidate.entityId) || {};
+      var supportRange = rangeOverride || balance.waterRadius || 0;
+      if (supportRange <= 0) continue;
+
+      var dx = candidate.x - instance.x;
+      var dz = candidate.z - instance.z;
+      var distance = Math.sqrt(dx * dx + dz * dz);
+      if (distance <= supportRange && distance < bestDistance) {
+        bestDistance = distance;
+        bestWell = candidate;
+      }
+    }
+
+    return bestWell;
+  }
+
+  function getFarmWaterSupport(instanceUid) {
+    var instance = GameState.getInstance(instanceUid);
+    var farming = getFarmConfig(instanceUid);
+    if (!isFarmPlot(instance) || !farming) {
+      return {
+        type: null,
+        boosted: false,
+        label: 'No nearby water source',
+        sourceX: null,
+        sourceZ: null,
+        sourceUid: null,
+        distance: Infinity
+      };
+    }
+
+    var riverSource = findNearbyRiverSource(instance, farming.waterSearchRadius || farming.wellRange || 0, farming.riverBoostRadius || 0);
+    if (riverSource) {
+      riverSource.label = riverSource.boosted ? 'River boost active' : 'River in worker range';
+      riverSource.sourceUid = null;
+      return riverSource;
+    }
+
+    var supportWell = findSupportingWell(instance, farming.wellRange || farming.waterSearchRadius);
+    if (supportWell) {
+      var dx = supportWell.x - instance.x;
+      var dz = supportWell.z - instance.z;
+      return {
+        type: 'well',
+        boosted: false,
+        label: 'Well in worker range',
+        sourceX: supportWell.x,
+        sourceZ: supportWell.z,
+        sourceUid: supportWell.uid,
+        distance: Math.sqrt(dx * dx + dz * dz)
+      };
+    }
+
+    return {
+      type: null,
+      boosted: false,
+      label: 'No nearby water source',
+      sourceX: null,
+      sourceZ: null,
+      sourceUid: null,
+      distance: Infinity
+    };
+  }
+
+  function getFarmGrowthSeconds(instanceUid, farmStateOverride) {
+    var farming = getFarmConfig(instanceUid);
+    if (!farming) return 1;
+
+    var farmState = farmStateOverride || GameState.getFarmState(instanceUid) || {};
+    if (farmState.watered) {
+      if (farmState.riverBoosted && farming.riverGrowthSeconds) {
+        return Math.max(1, farming.riverGrowthSeconds);
+      }
+      return Math.max(1, farming.wateredGrowthSeconds || farming.dryGrowthSeconds || 1);
+    }
+
+    return Math.max(1, farming.dryGrowthSeconds || 1);
+  }
+
+  function getFarmYieldMap(instanceUid, farmStateOverride) {
+    var farming = getFarmConfig(instanceUid);
+    if (!farming) return {};
+
+    var farmState = farmStateOverride || GameState.getFarmState(instanceUid) || {};
+    if (farmState.watered) {
+      if (farmState.riverBoosted) {
+        if (farming.riverYield) return cloneYieldMap(farming.riverYield);
+        if (farming.riverYieldMultiplier) return scaleYieldMap(farming.wateredYield, farming.riverYieldMultiplier);
+      }
+      return cloneYieldMap(farming.wateredYield);
+    }
+
+    return cloneYieldMap(farming.dryYield);
+  }
+
+  function getStoredResourceSummary(instanceUid) {
+    var storage = GameState.getBuildingStorage(instanceUid);
+    var totalAmount = 0;
+    var parts = [];
+
+    for (var resId in storage) {
+      var amount = storage[resId] || 0;
+      if (amount <= 0) continue;
+      totalAmount += amount;
+      var entity = GameRegistry.getEntity(resId);
+      parts.push(amount + ' ' + (entity ? entity.name : resId));
+    }
+
+    return {
+      totalAmount: totalAmount,
+      text: parts.join(', ')
+    };
+  }
+
+  function getFarmPlotStatus(instanceUid) {
+    var instance = GameState.getInstance(instanceUid);
+    var farming = getFarmConfig(instanceUid);
+    if (!isFarmPlot(instance) || !farming) return null;
+
+    var farmState = GameState.getFarmState(instanceUid) || { planted: false, watered: false, ready: false, progress: 0, waterSourceType: null, riverBoosted: false };
+    var progressPercent = Math.max(0, Math.min(100, Math.floor((farmState.progress || 0) * 100)));
+    var cropName = farming.cropName || 'Crop';
+    var support = getFarmWaterSupport(instanceUid);
+    if (farmState.watered && !support.type && farmState.waterSourceType) {
+      support = {
+        type: farmState.waterSourceType,
+        boosted: !!farmState.riverBoosted,
+        label: farmState.riverBoosted ? 'River boost applied' : (farmState.waterSourceType === 'river' ? 'River water applied' : 'Well water applied'),
+        sourceX: null,
+        sourceZ: null,
+        sourceUid: null,
+        distance: Infinity
+      };
+    }
+
+    var hasWaterSupport = !!support.type;
+    var workerStatus = (window.NPCSystem && NPCSystem.getFarmWorkerStatus) ? NPCSystem.getFarmWorkerStatus(instanceUid) : null;
+    var hasWorkerSupport = !!workerStatus;
+    var currentYieldMap = getFarmYieldMap(instanceUid, farmState);
+    var storedSummary = getStoredResourceSummary(instanceUid);
+    var currentYieldText = formatYieldMap(currentYieldMap);
+    var dryYieldText = formatYieldMap(farming.dryYield);
+    var wateredYieldText = formatYieldMap(farming.wateredYield);
+    var riverYieldText = formatYieldMap(farming.riverYield || getFarmYieldMap(instanceUid, { watered: true, riverBoosted: true }));
+    var growthSeconds = getFarmGrowthSeconds(instanceUid, farmState);
+    var statusText = 'Idle';
+    var action = storedSummary.totalAmount > 0 ? 'collect' : 'auto';
+    var actionLabel = storedSummary.totalAmount > 0 ? 'Collect' : 'Auto';
+    var detailText = 'Needs a nearby resident worker.';
+
+    if (farmState.planted && farmState.ready) {
+      statusText = 'Ready';
+      detailText = 'Worker is about to harvest ' + currentYieldText + '.';
+    } else if (farmState.planted && farmState.watered) {
+      statusText = farmState.riverBoosted ? 'River-fed' : 'Watered';
+      detailText = 'Growing ' + progressPercent + '% • ' + growthSeconds + 's cycle • ' + currentYieldText;
+    } else if (farmState.planted) {
+      statusText = hasWaterSupport ? 'Needs Water' : 'Dry';
+      detailText = hasWaterSupport ? ('Waiting for water • ' + progressPercent + '%') : ('No water source • ' + progressPercent + '%');
+    } else if (hasWorkerSupport) {
+      detailText = 'Nearby resident will plant automatically.';
+    } else {
+      statusText = 'Needs Worker';
+    }
+
+    if (workerStatus && workerStatus.text) {
+      detailText = workerStatus.text;
+      if (farmState.planted && !farmState.ready) {
+        detailText += ' • ' + progressPercent + '%';
+      }
+    } else if (!hasWorkerSupport && storedSummary.totalAmount <= 0) {
+      if (farmState.ready) {
+        detailText = 'Crop is ready, but no nearby resident can harvest it.';
+      } else if (farmState.planted) {
+        detailText = 'Crop is waiting for a nearby resident worker.';
+      }
+    }
+
+    return {
+      uid: instanceUid,
+      cropName: cropName,
+      planted: !!farmState.planted,
+      watered: !!farmState.watered,
+      ready: !!farmState.ready,
+      progress: farmState.progress || 0,
+      progressPercent: progressPercent,
+      waterSourceType: farmState.waterSourceType || null,
+      riverBoosted: !!farmState.riverBoosted,
+      statusText: statusText,
+      action: action,
+      actionLabel: actionLabel,
+      detailText: detailText,
+      canPlant: false,
+      canWater: false,
+      canHarvest: false,
+      hasWorkerSupport: hasWorkerSupport,
+      hasWaterSupport: hasWaterSupport,
+      supportSourceType: support.type,
+      supportSourceName: support.label,
+      dryYieldText: dryYieldText,
+      wateredYieldText: wateredYieldText,
+      riverYieldText: riverYieldText,
+      currentYieldText: currentYieldText,
+      growthSeconds: growthSeconds,
+      storedAmount: storedSummary.totalAmount,
+      storedSummaryText: storedSummary.text,
+      workerStatusText: workerStatus ? workerStatus.text : 'No nearby resident worker'
+    };
+  }
+
+  function plantCrop(instanceUid) {
+    GameHUD.showNotification('Residents handle planting automatically.');
+    return false;
+  }
+
+  function waterCrop(instanceUid) {
+    GameHUD.showNotification('Residents fetch water automatically.');
+    return false;
+  }
+
+  function harvestCrop(instanceUid) {
+    GameHUD.showNotification('Residents harvest crops automatically.');
+    return false;
+  }
+
+  function interactWithFarmPlot(instanceUid) {
+    var storedSummary = getStoredResourceSummary(instanceUid);
+    if (storedSummary.totalAmount > 0) {
+      collectFromBuilding(instanceUid);
+      return true;
+    }
+
+    var status = getFarmPlotStatus(instanceUid);
+    if (!status) return false;
+
+    GameHUD.showNotification(status.detailText || 'Worker is tending this plot.');
+    return false;
+  }
+
   function advanceAge(ageId) {
     var ageEntity = GameRegistry.getEntity(ageId);
     if (!ageEntity || ageEntity.type !== 'age') {
@@ -223,6 +559,14 @@ window.GameActions = (function () {
     upgrade: upgrade,
     collectFromBuilding: collectFromBuilding,
     refuel: refuel,
+    getFarmWaterSupport: getFarmWaterSupport,
+    getFarmGrowthSeconds: getFarmGrowthSeconds,
+    getFarmYieldMap: getFarmYieldMap,
+    getFarmPlotStatus: getFarmPlotStatus,
+    interactWithFarmPlot: interactWithFarmPlot,
+    plantCrop: plantCrop,
+    waterCrop: waterCrop,
+    harvestCrop: harvestCrop,
     researchTech: function(techId) {
       if (!window.ResearchSystem) return;
       if (ResearchSystem.research(techId)) {
@@ -304,7 +648,7 @@ window.GameActions = (function () {
     var entity = GameRegistry.getEntity(inst.entityId);
     if (entity) {
       var buildingLevel = inst.level || 1;
-      var mesh = BuildingSystem.createBuildingMesh(entity, buildingLevel, false);
+      var mesh = BuildingSystem.createBuildingMesh(entity, buildingLevel, false, inst);
       if (mesh) {
         mesh.position.set(inst.x, 0, inst.z);
         mesh.userData.instanceUid = uid;

@@ -137,7 +137,7 @@ window.BuildingSystem = (function () {
 
     // Create 3D mesh
     var entity = GameRegistry.getEntity(buildingId);
-    var mesh = createBuildingMeshOrSpecial(entity, 1, false);
+    var mesh = createBuildingMeshOrSpecial(entity, 1, false, instanceData);
     if (mesh) {
       mesh.position.set(snapX, 0, snapZ);
       mesh.userData.instanceUid = uid;
@@ -207,7 +207,79 @@ window.BuildingSystem = (function () {
     return true;
   }
 
-  function createBuildingMesh(entity, level, isPreview) {
+  function getFarmPlotVisualState(instanceOrUid) {
+    var instance = typeof instanceOrUid === 'string' ? GameState.getInstance(instanceOrUid) : instanceOrUid;
+    var visualState = {
+      phase: 'empty',
+      progress: 0,
+      planted: false,
+      watered: false,
+      ready: false,
+      riverBoosted: false
+    };
+
+    if (!instance || !window.GameState || !GameState.getFarmState) {
+      return visualState;
+    }
+
+    var farmState = GameState.getFarmState(instance.uid);
+    if (!farmState) return visualState;
+
+    visualState.progress = Math.max(0, Math.min(1, farmState.progress || 0));
+    visualState.planted = !!farmState.planted;
+    visualState.watered = !!farmState.watered;
+    visualState.ready = !!farmState.ready;
+    visualState.riverBoosted = !!farmState.riverBoosted;
+
+    if (!visualState.planted) {
+      return visualState;
+    }
+
+    if (visualState.ready) {
+      visualState.phase = visualState.riverBoosted ? 'ready_river' : 'ready';
+      return visualState;
+    }
+
+    var growthBand = visualState.progress >= 0.68 ? 'late' : (visualState.progress >= 0.34 ? 'mid' : 'early');
+    if (visualState.watered) {
+      visualState.phase = (visualState.riverBoosted ? 'river_' : 'watered_') + growthBand;
+    } else {
+      visualState.phase = 'dry_' + growthBand;
+    }
+
+    return visualState;
+  }
+
+  function addFarmPlant(group, x, z, scale, style, isPreview) {
+    var stemMat = new THREE.MeshLambertMaterial({ color: style.stemColor, transparent: isPreview, opacity: isPreview ? 0.5 : 1.0 });
+    var leafMat = new THREE.MeshLambertMaterial({ color: style.leafColor, transparent: isPreview, opacity: isPreview ? 0.45 : 1.0 });
+    var stemGeo = new THREE.CylinderGeometry(0.01 * scale, 0.015 * scale, style.height * scale, 5);
+    var stem = new THREE.Mesh(stemGeo, stemMat);
+    stem.position.set(x, (0.14 + style.height * 0.5) * scale, z);
+    stem.castShadow = !isPreview;
+    group.add(stem);
+
+    for (var leafIndex = 0; leafIndex < 2; leafIndex++) {
+      var leafGeo = new THREE.ConeGeometry(style.leafRadius * scale, style.leafHeight * scale, 5);
+      var leaf = new THREE.Mesh(leafGeo, leafMat);
+      leaf.position.set(x + (leafIndex === 0 ? -0.02 : 0.02) * scale, (0.18 + style.height * 0.7) * scale, z + (leafIndex === 0 ? -0.01 : 0.01) * scale);
+      leaf.rotation.z = leafIndex === 0 ? -0.45 : 0.45;
+      leaf.rotation.x = leafIndex === 0 ? 0.18 : -0.18;
+      leaf.castShadow = !isPreview;
+      group.add(leaf);
+    }
+
+    if (style.hasBulb) {
+      var bulbGeo = new THREE.SphereGeometry(style.bulbRadius * scale, 6, 5);
+      var bulbMat = new THREE.MeshLambertMaterial({ color: style.bulbColor, transparent: isPreview, opacity: isPreview ? 0.5 : 1.0 });
+      var bulb = new THREE.Mesh(bulbGeo, bulbMat);
+      bulb.position.set(x, (0.1 + style.bulbRadius * 0.7) * scale, z);
+      bulb.castShadow = !isPreview;
+      group.add(bulb);
+    }
+  }
+
+  function createBuildingMesh(entity, level, isPreview, instanceData) {
     if (!entity || !entity.visual) return null;
 
     level = level || 1;
@@ -386,6 +458,184 @@ window.BuildingSystem = (function () {
       return group;
     }
 
+    // === WELL ===
+    if (shape === 'well') {
+      var stoneMat = new THREE.MeshLambertMaterial({ color: 0x7f8891, transparent: isPreview, opacity: isPreview ? 0.6 : 1.0 });
+      var woodMat = new THREE.MeshLambertMaterial({ color: 0x7b532d, transparent: isPreview, opacity: isPreview ? 0.6 : 1.0 });
+      var roofMatWell = new THREE.MeshLambertMaterial({ color: roofColor || 0x5b3d21, transparent: isPreview, opacity: isPreview ? 0.6 : 1.0 });
+
+      var baseGeo = new THREE.CylinderGeometry(0.42 * scale, 0.46 * scale, 0.24 * scale, 12);
+      var baseMesh = new THREE.Mesh(baseGeo, stoneMat);
+      baseMesh.position.y = 0.12 * scale;
+      baseMesh.castShadow = !isPreview;
+      baseMesh.receiveShadow = !isPreview;
+      group.add(baseMesh);
+
+      var innerGeo = new THREE.CylinderGeometry(0.28 * scale, 0.31 * scale, 0.18 * scale, 12);
+      var innerMat = new THREE.MeshLambertMaterial({ color: 0x4e5560, transparent: isPreview, opacity: isPreview ? 0.45 : 1.0 });
+      var innerMesh = new THREE.Mesh(innerGeo, innerMat);
+      innerMesh.position.y = 0.11 * scale;
+      group.add(innerMesh);
+
+      var waterGeo = new THREE.CircleGeometry(0.25 * scale, 18);
+      var waterMat = new THREE.MeshBasicMaterial({ color: 0x57c7ff, transparent: true, opacity: isPreview ? 0.2 : 0.55 });
+      var waterMesh = new THREE.Mesh(waterGeo, waterMat);
+      waterMesh.rotation.x = -Math.PI / 2;
+      waterMesh.position.y = 0.21 * scale;
+      group.add(waterMesh);
+
+      var lipGeo = new THREE.TorusGeometry(0.34 * scale, 0.04 * scale, 8, 16);
+      var lipMesh = new THREE.Mesh(lipGeo, stoneMat);
+      lipMesh.rotation.x = Math.PI / 2;
+      lipMesh.position.y = 0.24 * scale;
+      group.add(lipMesh);
+
+      [-0.22, 0.22].forEach(function(postX) {
+        var postGeo = new THREE.BoxGeometry(0.07 * scale, 0.8 * scale, 0.07 * scale);
+        var post = new THREE.Mesh(postGeo, woodMat);
+        post.position.set(postX * scale, 0.58 * scale, 0);
+        post.castShadow = !isPreview;
+        group.add(post);
+      });
+
+      var beamGeo = new THREE.BoxGeometry(0.56 * scale, 0.06 * scale, 0.08 * scale);
+      var beam = new THREE.Mesh(beamGeo, woodMat);
+      beam.position.set(0, 0.94 * scale, 0);
+      group.add(beam);
+
+      var roofGeoWell = new THREE.ConeGeometry(0.42 * scale, 0.28 * scale, 4);
+      var roofWell = new THREE.Mesh(roofGeoWell, roofMatWell);
+      roofWell.position.y = 1.14 * scale;
+      roofWell.rotation.y = Math.PI / 4;
+      roofWell.castShadow = !isPreview;
+      group.add(roofWell);
+
+      var crankGeo = new THREE.CylinderGeometry(0.025 * scale, 0.025 * scale, 0.38 * scale, 6);
+      var crank = new THREE.Mesh(crankGeo, woodMat);
+      crank.rotation.z = Math.PI / 2;
+      crank.position.set(0, 0.84 * scale, 0);
+      group.add(crank);
+
+      var bucketGeo = new THREE.CylinderGeometry(0.05 * scale, 0.06 * scale, 0.08 * scale, 8);
+      var bucketMat = new THREE.MeshLambertMaterial({ color: 0x8e6b43, transparent: isPreview, opacity: isPreview ? 0.55 : 1.0 });
+      var bucket = new THREE.Mesh(bucketGeo, bucketMat);
+      bucket.position.set(0.1 * scale, 0.55 * scale, 0.08 * scale);
+      group.add(bucket);
+
+      var shadowGeoWell = new THREE.CircleGeometry(0.55 * scale, 16);
+      var shadowMatWell = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: isPreview ? 0.08 : 0.14 });
+      var shadowWell = new THREE.Mesh(shadowGeoWell, shadowMatWell);
+      shadowWell.rotation.x = -Math.PI / 2;
+      shadowWell.position.y = 0.02;
+      group.add(shadowWell);
+
+      return group;
+    }
+
+    // === FARM PLOT ===
+    if (shape === 'farm_plot') {
+      var plotState = isPreview ? {
+        phase: 'empty',
+        progress: 0,
+        planted: false,
+        watered: false,
+        ready: false,
+        riverBoosted: false
+      } : getFarmPlotVisualState(instanceData);
+      var soilColor = plotState.watered ? (plotState.riverBoosted ? 0x3E3321 : 0x493220) : (plotState.planted ? 0x61401D : 0x5B3A1A);
+      var borderColor = plotState.riverBoosted ? 0x658c41 : 0x7A4B20;
+      var borderMat = new THREE.MeshLambertMaterial({ color: borderColor, transparent: isPreview, opacity: isPreview ? 0.6 : 1.0 });
+      var soilMat = new THREE.MeshLambertMaterial({ color: soilColor, transparent: isPreview, opacity: isPreview ? 0.55 : 1.0 });
+
+      var soilGeo = new THREE.BoxGeometry(0.9 * scale, 0.12 * scale, 0.9 * scale);
+      var soil = new THREE.Mesh(soilGeo, soilMat);
+      soil.position.y = 0.06 * scale;
+      soil.receiveShadow = !isPreview;
+      group.add(soil);
+
+      var frameGeoLong = new THREE.BoxGeometry(0.95 * scale, 0.1 * scale, 0.08 * scale);
+      var frameGeoShort = new THREE.BoxGeometry(0.08 * scale, 0.1 * scale, 0.95 * scale);
+      [[0, -0.44], [0, 0.44]].forEach(function(pos) {
+        var plank = new THREE.Mesh(frameGeoLong, borderMat);
+        plank.position.set(pos[0], 0.08 * scale, pos[1] * scale);
+        group.add(plank);
+      });
+      [[-0.44, 0], [0.44, 0]].forEach(function(pos) {
+        var plank = new THREE.Mesh(frameGeoShort, borderMat);
+        plank.position.set(pos[0] * scale, 0.08 * scale, pos[1]);
+        group.add(plank);
+      });
+
+      for (var row = -1; row <= 1; row++) {
+        var furrowGeo = new THREE.BoxGeometry(0.8 * scale, 0.03 * scale, 0.04 * scale);
+        var furrow = new THREE.Mesh(furrowGeo, new THREE.MeshLambertMaterial({ color: 0x4A2D12, transparent: isPreview, opacity: isPreview ? 0.45 : 1.0 }));
+        furrow.position.set(0, 0.13 * scale, row * 0.22 * scale);
+        group.add(furrow);
+      }
+
+      if (plotState.watered || plotState.riverBoosted) {
+        var waterMat = new THREE.MeshBasicMaterial({ color: plotState.riverBoosted ? 0x6bd6ff : 0x57c7ff, transparent: true, opacity: isPreview ? 0.18 : 0.42 });
+        for (var channelIndex = -1; channelIndex <= 1; channelIndex++) {
+          var waterGeo = new THREE.BoxGeometry(0.78 * scale, 0.012 * scale, 0.05 * scale);
+          var waterStrip = new THREE.Mesh(waterGeo, waterMat);
+          waterStrip.position.set(0, 0.145 * scale, channelIndex * 0.22 * scale);
+          group.add(waterStrip);
+        }
+      }
+
+      if (!plotState.planted) {
+        var seedMat = new THREE.MeshLambertMaterial({ color: 0xc49a6c, transparent: isPreview, opacity: isPreview ? 0.4 : 0.9 });
+        for (var seedIndex = 0; seedIndex < 6; seedIndex++) {
+          var seedGeo = new THREE.SphereGeometry(0.012 * scale, 4, 3);
+          var seed = new THREE.Mesh(seedGeo, seedMat);
+          seed.position.set(((seedIndex % 3) - 1) * 0.22 * scale, 0.14 * scale, (Math.floor(seedIndex / 3) - 0.5) * 0.28 * scale);
+          group.add(seed);
+        }
+      } else {
+        var plantStyle = {
+          stemColor: plotState.watered ? 0x4f7b2c : 0x6f7a2f,
+          leafColor: plotState.riverBoosted ? 0x66b84c : (plotState.ready ? 0x86bf48 : (plotState.watered ? 0x5ba93f : 0x789245)),
+          height: plotState.ready ? 0.34 : (0.12 + plotState.progress * (plotState.watered ? 0.2 : 0.14)),
+          leafRadius: plotState.ready ? 0.04 : (plotState.progress >= 0.5 ? 0.034 : 0.028),
+          leafHeight: plotState.ready ? 0.18 : (plotState.progress >= 0.5 ? 0.15 : 0.12),
+          bulbColor: plotState.riverBoosted ? 0xffb347 : 0xf59e42,
+          bulbRadius: plotState.ready ? 0.028 : 0.02,
+          hasBulb: plotState.ready
+        };
+
+        for (var plantIndex = 0; plantIndex < 6; plantIndex++) {
+          addFarmPlant(
+            group,
+            ((plantIndex % 3) - 1) * 0.22 * scale,
+            (Math.floor(plantIndex / 3) - 0.5) * 0.28 * scale,
+            scale,
+            plantStyle,
+            isPreview
+          );
+        }
+
+        if (plotState.ready) {
+          var harvestMat = new THREE.MeshLambertMaterial({ color: plotState.riverBoosted ? 0xffc867 : 0xf5b04c, transparent: isPreview, opacity: isPreview ? 0.45 : 1.0 });
+          for (var readyIndex = 0; readyIndex < 3; readyIndex++) {
+            var harvestGeo = new THREE.DodecahedronGeometry(0.035 * scale, 0);
+            var harvestPile = new THREE.Mesh(harvestGeo, harvestMat);
+            harvestPile.position.set(-0.2 * scale + readyIndex * 0.18 * scale, 0.12 * scale, 0.33 * scale);
+            harvestPile.rotation.set(readyIndex * 0.4, readyIndex * 0.2, 0);
+            group.add(harvestPile);
+          }
+        }
+      }
+
+      var plotShadowGeo = new THREE.CircleGeometry(0.58 * scale, 16);
+      var plotShadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: isPreview ? 0.08 : 0.14 });
+      var plotShadow = new THREE.Mesh(plotShadowGeo, plotShadowMat);
+      plotShadow.rotation.x = -Math.PI / 2;
+      plotShadow.position.y = 0.02;
+      group.add(plotShadow);
+
+      return group;
+    }
+
     // === LEVEL 2+ : Foundation/Platform ===
     if (!isPreview && level >= 2) {
       var platSize = level >= 3 ? 1.2 : 1.0;
@@ -470,12 +720,32 @@ window.BuildingSystem = (function () {
           group.add(pileStone);
         }
       } else if (buildingId === 'building.berry_gatherer') {
-        // Basket + tiny bush icon on roof
+        // Multi-purpose house supplies
         var basketGeo = new THREE.CylinderGeometry(0.05 * scale, 0.06 * scale, 0.06 * scale, 6);
         var basketMat = new THREE.MeshLambertMaterial({ color: 0xBEAA78 });
         var basket = new THREE.Mesh(basketGeo, basketMat);
         basket.position.set(0.4 * scale, 0.05 * scale, 0.2 * scale);
         group.add(basket);
+
+        var logGeo = new THREE.CylinderGeometry(0.035 * scale, 0.035 * scale, 0.16 * scale, 6);
+        var logMat = new THREE.MeshLambertMaterial({ color: 0x8B5A2B });
+        var logPile = new THREE.Mesh(logGeo, logMat);
+        logPile.position.set(0.3 * scale, 0.08 * scale, 0.28 * scale);
+        logPile.rotation.z = Math.PI / 2;
+        group.add(logPile);
+
+        var stoneGeo = new THREE.DodecahedronGeometry(0.05 * scale, 0);
+        var stoneMat = new THREE.MeshLambertMaterial({ color: 0x7f7f7f });
+        var sideStone = new THREE.Mesh(stoneGeo, stoneMat);
+        sideStone.position.set(0.48 * scale, 0.05 * scale, 0.28 * scale);
+        group.add(sideStone);
+
+        var flintGeo = new THREE.ConeGeometry(0.05 * scale, 0.12 * scale, 4);
+        var flintMat = new THREE.MeshLambertMaterial({ color: 0x4a4a4a });
+        var flintShard = new THREE.Mesh(flintGeo, flintMat);
+        flintShard.position.set(0.38 * scale, 0.08 * scale, 0.12 * scale);
+        flintShard.rotation.z = -0.35;
+        group.add(flintShard);
       } else if (buildingId === 'building.flint_mine') {
         // Sharp flint piece on side
         var flintGeo = new THREE.ConeGeometry(0.06 * scale, 0.15 * scale, 4);
@@ -588,7 +858,7 @@ window.BuildingSystem = (function () {
   }
 
   // === BRIDGE MESH ===
-  function createBridgeMesh(entity, level, isPreview) {
+  function createBridgeMesh(entity, level, isPreview, instanceData) {
     if (!entity || !entity.visual) return null;
     level = level || 1;
     var levelScale = 1.0 + (level - 1) * 0.20;
@@ -637,13 +907,46 @@ window.BuildingSystem = (function () {
     return group;
   }
 
-  function createBuildingMeshOrSpecial(entity, level, isPreview) {
+  function createBuildingMeshOrSpecial(entity, level, isPreview, instanceData) {
     if (!entity || !entity.visual) return null;
     var shape = entity.visual.shape || 'building';
     if (shape === 'bridge') {
-      return createBridgeMesh(entity, level, isPreview);
+      return createBridgeMesh(entity, level, isPreview, instanceData);
     }
-    return createBuildingMesh(entity, level, isPreview);
+    return createBuildingMesh(entity, level, isPreview, instanceData);
+  }
+
+  function refreshBuilding(uid) {
+    var instance = GameState.getInstance(uid);
+    if (!instance) return false;
+
+    var entity = GameRegistry.getEntity(instance.entityId);
+    if (!entity) return false;
+
+    var scene = GameScene.getScene();
+    var existingMesh = null;
+    for (var index = scene.children.length - 1; index >= 0; index--) {
+      var candidate = scene.children[index];
+      if (candidate && candidate.userData && candidate.userData.instanceUid === uid) {
+        existingMesh = candidate;
+        break;
+      }
+    }
+
+    var mesh = createBuildingMeshOrSpecial(entity, instance.level || 1, false, instance);
+    if (!mesh) return false;
+
+    var position = existingMesh ? existingMesh.position : { x: instance.x, y: 0, z: instance.z };
+    var currentScale = existingMesh ? existingMesh.scale : { x: 1, y: 1, z: 1 };
+    mesh.position.set(position.x, position.y, position.z);
+    mesh.scale.set(currentScale.x, currentScale.y, currentScale.z);
+    mesh.userData.instanceUid = uid;
+
+    if (existingMesh) {
+      scene.remove(existingMesh);
+    }
+    scene.add(mesh);
+    return true;
   }
 
   function isBuildMode() { return _buildMode.active; }
@@ -788,7 +1091,7 @@ window.BuildingSystem = (function () {
 
     // Create 3D mesh
     var entity = GameRegistry.getEntity(buildingId);
-    var mesh = createBuildingMeshOrSpecial(entity, 1, false);
+    var mesh = createBuildingMeshOrSpecial(entity, 1, false, instanceData);
     if (mesh) {
       mesh.position.set(worldX, 0, worldZ);
       mesh.userData.instanceUid = uid;
@@ -900,6 +1203,8 @@ window.BuildingSystem = (function () {
     placeBuildingAt: placeBuildingAt,
     canPlaceAt: canPlaceAt,
     createBuildingMesh: createBuildingMeshOrSpecial,
+    refreshBuilding: refreshBuilding,
+    getFarmPlotVisualState: getFarmPlotVisualState,
     isBuildMode: isBuildMode,
     enterBuildMode: enterBuildMode,
     updateBuildPreview: updateBuildPreview,
