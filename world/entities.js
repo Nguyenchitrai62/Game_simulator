@@ -207,41 +207,107 @@ window.GameEntities = (function () {
 
     } else if (type === "node.berry_bush") {
       var bushColor = nodeInfo && nodeInfo.leafColor ? nodeInfo.leafColor : (mainColor || 0x3a7a2e);
-      var bushGeo = new THREE.SphereGeometry(0.3, 10, 8);
+      var berryStage = Math.max(0, Math.min(2, typeof objData.growthStage === "number" ? objData.growthStage : 0));
       var bushMat = new THREE.MeshLambertMaterial({ color: bushColor });
-      var bush = new THREE.Mesh(bushGeo, bushMat);
-      bush.position.y = 0.25;
-      bush.castShadow = true;
-      group.add(bush);
+      var stemMat = new THREE.MeshLambertMaterial({ color: 0x6F4A25 });
+      var canopyLayouts = [
+        [
+          { r: 0.22, x: 0.00, y: 0.20, z: 0.00 },
+          { r: 0.14, x: 0.13, y: 0.18, z: 0.08 },
+          { r: 0.12, x: -0.11, y: 0.17, z: -0.06 }
+        ],
+        [
+          { r: 0.2, x: -0.02, y: 0.22, z: 0.00 },
+          { r: 0.16, x: 0.16, y: 0.21, z: 0.09 },
+          { r: 0.15, x: -0.15, y: 0.20, z: -0.08 },
+          { r: 0.13, x: 0.03, y: 0.33, z: 0.12 }
+        ],
+        [
+          { r: 0.21, x: 0.00, y: 0.24, z: 0.00 },
+          { r: 0.17, x: 0.18, y: 0.22, z: 0.10 },
+          { r: 0.17, x: -0.18, y: 0.22, z: -0.08 },
+          { r: 0.15, x: 0.08, y: 0.36, z: 0.14 },
+          { r: 0.15, x: -0.08, y: 0.34, z: -0.12 }
+        ]
+      ];
+      var stemLayouts = [
+        [ { h: 0.18, x: 0.00, z: 0.00 } ],
+        [ { h: 0.2, x: -0.04, z: -0.03 }, { h: 0.18, x: 0.06, z: 0.04 } ],
+        [ { h: 0.22, x: -0.05, z: -0.04 }, { h: 0.2, x: 0.06, z: 0.05 }, { h: 0.18, x: 0.01, z: -0.07 } ]
+      ];
+      var berryBunchLayouts = [
+        [
+          { x: 0.13, y: 0.28, z: 0.08, extras: 0 },
+          { x: -0.12, y: 0.27, z: -0.06, extras: 0 },
+          { x: 0.02, y: 0.23, z: 0.14, extras: 0 }
+        ],
+        [
+          { x: 0.15, y: 0.31, z: 0.09, extras: 1 },
+          { x: -0.15, y: 0.29, z: -0.08, extras: 1 },
+          { x: 0.03, y: 0.35, z: 0.13, extras: 1 },
+          { x: 0.11, y: 0.22, z: -0.14, extras: 1 },
+          { x: -0.05, y: 0.24, z: 0.17, extras: 1 }
+        ],
+        [
+          { x: 0.16, y: 0.33, z: 0.10, extras: 2 },
+          { x: -0.16, y: 0.31, z: -0.09, extras: 2 },
+          { x: 0.05, y: 0.39, z: 0.15, extras: 2 },
+          { x: -0.04, y: 0.36, z: -0.14, extras: 2 },
+          { x: 0.13, y: 0.24, z: -0.15, extras: 1 },
+          { x: -0.14, y: 0.24, z: 0.13, extras: 1 },
+          { x: 0.01, y: 0.21, z: 0.19, extras: 1 }
+        ]
+      ];
 
-      // Leaf clusters
-      var leafClustGeo = new THREE.SphereGeometry(0.12, 6, 4);
-      var leafClustMat = new THREE.MeshLambertMaterial({ color: nodeInfo && nodeInfo.leafColor ? nodeInfo.leafColor : 0x3a8a2e });
-      var leafClust1 = new THREE.Mesh(leafClustGeo, leafClustMat);
-      leafClust1.position.set(0.12, 0.28, 0.08);
-      group.add(leafClust1);
-      var leafClust2 = new THREE.Mesh(leafClustGeo, leafClustMat);
-      leafClust2.position.set(-0.08, 0.32, -0.1);
-      group.add(leafClust2);
-      var leafClust3 = new THREE.Mesh(leafClustGeo, leafClustMat);
-      leafClust3.position.set(-0.14, 0.24, 0.12);
-      group.add(leafClust3);
+      var stemDefs = stemLayouts[berryStage];
+      for (var stemIndex = 0; stemIndex < stemDefs.length; stemIndex++) {
+        var stemDef = stemDefs[stemIndex];
+        var stemGeo = new THREE.CylinderGeometry(0.025, 0.04, stemDef.h, 5);
+        var stem = new THREE.Mesh(stemGeo, stemMat);
+        stem.position.set(stemDef.x, stemDef.h / 2, stemDef.z);
+        stem.rotation.z = stemIndex === 0 ? 0 : (stemIndex % 2 === 0 ? -0.22 : 0.18);
+        stem.castShadow = true;
+        group.add(stem);
+      }
 
-      var berryCount = nodeInfo && nodeInfo.berryCount !== undefined ? nodeInfo.berryCount : 8;
-      for (var i = 0; i < berryCount; i++) {
-        var berryGeo = new THREE.SphereGeometry(0.03, 5, 4);
-        var berryMat = new THREE.MeshLambertMaterial({ color: nodeInfo && nodeInfo.berryColor ? nodeInfo.berryColor : 0xcc3333 });
-        var berry = new THREE.Mesh(berryGeo, berryMat);
-        var divisor = berryCount > 0 ? berryCount : 1;
-        var bAngle = (i / divisor) * Math.PI * 2 + 0.3;
-        var bRadius = 0.18 + Math.sin(i * 1.9) * 0.03;
-        berry.position.set(
-          Math.cos(bAngle) * bRadius,
-          0.24 + Math.sin(i * 1.1) * 0.09 + (i % 3) * 0.015,
-          Math.sin(bAngle) * bRadius
-        );
-        berry.castShadow = true;
-        group.add(berry);
+      var canopyDefs = canopyLayouts[berryStage];
+      for (var canopyIndex = 0; canopyIndex < canopyDefs.length; canopyIndex++) {
+        var canopyDef = canopyDefs[canopyIndex];
+        var canopyGeo = new THREE.SphereGeometry(canopyDef.r, 10, 8);
+        var canopy = new THREE.Mesh(canopyGeo, bushMat);
+        canopy.position.set(canopyDef.x, canopyDef.y, canopyDef.z);
+        canopy.castShadow = true;
+        group.add(canopy);
+      }
+
+      var berryBaseColor = new THREE.Color(nodeInfo && nodeInfo.berryColor ? nodeInfo.berryColor : 0xcc3333);
+      var berryMat = new THREE.MeshLambertMaterial({ color: berryBaseColor.getHex() });
+      var berryMatDark = new THREE.MeshLambertMaterial({ color: berryBaseColor.clone().offsetHSL(0, 0, -0.1).getHex() });
+      var mainBerryRadius = berryStage === 0 ? 0.075 : (berryStage === 1 ? 0.07 : 0.066);
+      var berryBunches = berryBunchLayouts[berryStage];
+
+      for (var bunchIndex = 0; bunchIndex < berryBunches.length; bunchIndex++) {
+        var bunchDef = berryBunches[bunchIndex];
+        var mainBerryGeo = new THREE.SphereGeometry(mainBerryRadius, 10, 8);
+        var mainBerry = new THREE.Mesh(mainBerryGeo, bunchIndex % 2 === 0 ? berryMat : berryMatDark);
+        mainBerry.position.set(bunchDef.x, bunchDef.y, bunchDef.z);
+        mainBerry.castShadow = true;
+        group.add(mainBerry);
+
+        for (var extraIndex = 0; extraIndex < bunchDef.extras; extraIndex++) {
+          var extraRadius = mainBerryRadius * (0.62 - extraIndex * 0.08);
+          var extraBerryGeo = new THREE.SphereGeometry(extraRadius, 8, 6);
+          var extraBerry = new THREE.Mesh(extraBerryGeo, extraIndex % 2 === 0 ? berryMatDark : berryMat);
+          var offsetAngle = (bunchIndex * 1.45) + (extraIndex * 2.1);
+          var offsetRadius = mainBerryRadius * (0.95 + extraIndex * 0.15);
+          extraBerry.position.set(
+            bunchDef.x + Math.cos(offsetAngle) * offsetRadius,
+            bunchDef.y - mainBerryRadius * (0.18 + extraIndex * 0.12),
+            bunchDef.z + Math.sin(offsetAngle) * offsetRadius
+          );
+          extraBerry.castShadow = true;
+          group.add(extraBerry);
+        }
       }
 
       group.scale.set(scale, scale, scale);

@@ -446,15 +446,17 @@ window.GamePlayer = (function () {
   function buildFarmPrompt(status) {
     if (!status) return null;
 
+    var plotName = status.plotName || 'Farm Plot';
+
     if (status.storedAmount > 0) {
-      return 'Collect Farm Plot [' + status.storedAmount + ' stored]';
+      return 'Collect ' + plotName + ' [' + status.storedAmount + ' stored]';
     }
 
     if (!status.hasWorkerSupport && !status.planted) {
-      return 'Farm Plot [Needs worker]';
+      return plotName + ' [Needs worker]';
     }
 
-    var parts = ['Farm Plot'];
+    var parts = [plotName];
     parts.push('[' + status.statusText + ']');
 
     if (status.planted && !status.ready) {
@@ -483,7 +485,7 @@ window.GamePlayer = (function () {
       return rewardPreview;
     }
     if (objData.type === 'node.berry_bush') {
-      return rewardPreview || 'No berries yet';
+      return rewardPreview || 'Food';
     }
 
     var detail = nodeInfo.stateLabel || '';
@@ -519,7 +521,7 @@ window.GamePlayer = (function () {
         return;
       }
 
-      if (nearBuilding.entityId === 'building.farm_plot' && window.GameActions && GameActions.getFarmPlotStatus) {
+      if (window.GameActions && GameActions.getFarmPlotStatus) {
         var farmStatus = GameActions.getFarmPlotStatus(nearBuilding.uid);
         if (farmStatus) {
           textEl.textContent = buildFarmPrompt(farmStatus);
@@ -556,7 +558,7 @@ window.GamePlayer = (function () {
   function interactNearby() {
     var nearBuilding = findNearestBuilding(_x, _z, 2.5);
     if (nearBuilding) {
-      if (nearBuilding.entityId === 'building.farm_plot' && window.GameActions && GameActions.interactWithFarmPlot) {
+      if (window.GameActions && GameActions.interactWithFarmPlot && window.GameActions.getFarmPlotStatus && GameActions.getFarmPlotStatus(nearBuilding.uid)) {
         GameActions.interactWithFarmPlot(nearBuilding.uid);
         return;
       }
@@ -638,11 +640,7 @@ window.GamePlayer = (function () {
 
     if (typeof GameTerrain !== 'undefined' && GameTerrain.canHarvestNode && !GameTerrain.canHarvestNode(objData)) {
       var blockedInfo = GameTerrain.getNodeInfo ? GameTerrain.getNodeInfo(objData) : null;
-      if (objData.type === 'node.berry_bush') {
-        GameHUD.showNotification('This berry bush has no ripe fruit yet.');
-      } else {
-        GameHUD.showNotification((blockedInfo ? blockedInfo.name || blockedInfo.label : 'This node') + ' is not ready yet.');
-      }
+      GameHUD.showNotification((blockedInfo ? blockedInfo.name || blockedInfo.label : 'This node') + ' is not ready yet.');
       return;
     }
 

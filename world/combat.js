@@ -82,6 +82,13 @@ window.GameCombat = (function () {
 
     GameHUD.showDamageNumber(target.worldX, 1.0, target.worldZ, "-" + damageToTarget, "damage");
 
+    if (target.hp <= 0) {
+      target.hp = 0;
+      GameHUD.renderAll();
+      endCombat(true);
+      return;
+    }
+
     // Target attacks player
     var targetAtk = target.attack || 0;
     var playerDef = GameState.getPlayerDefense();
@@ -229,6 +236,10 @@ window.GameCombat = (function () {
       setTimeout(tryAnimalRespawn, respawnTime * 1000);
 
       GameHUD.showNotification("Victory! Loot collected.");
+    }
+
+    if (playerWon && target.hp <= 0 && GameHUD.hideObjectHpBar) {
+      GameHUD.hideObjectHpBar();
     }
 
     _activeCombat = null;

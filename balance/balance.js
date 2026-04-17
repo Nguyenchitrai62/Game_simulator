@@ -19,9 +19,9 @@ window.GAME_BALANCE = {
     respawnTime: 45
   },
   "node.berry_bush": {
-    // Bụi berry - chỉ cho food khi đang có quả
+    // Bụi berry - luôn thu hoạch được, cấp cao cho nhiều quả hơn
     hp: 1,
-    rewards: { "resource.food": 3 },
+    rewards: { "resource.food": 2 },
     respawnTime: 20
   },
   "node.flint_deposit": {
@@ -99,6 +99,14 @@ window.GAME_BALANCE = {
     produces: {},
     harvestNodeTypes: ["node.tree", "node.rock", "node.berry_bush", "node.flint_deposit"],
     supportsFarmPlots: true,
+    treeCare: {
+      harvestOnlyMaxStage: true,
+      waterSearchRadius: 6,
+      riverBoostRadius: 3,
+      waterTaskSeconds: 1.8,
+      growthTimeMultiplier: 0.55,
+      minRemainingSeconds: 8
+    },
     synergyFrom: {},
     upgrades: {
       2: { cost: { "resource.wood": 30, "resource.stone": 15, "resource.food": 10 }, productionMultiplier: 1.25 },
@@ -129,6 +137,37 @@ window.GAME_BALANCE = {
       plantTaskSeconds: 1.2,
       waterTaskSeconds: 1.8,
       harvestTaskSeconds: 1.5
+    }
+  },
+  "building.tree_nursery": {
+    // Sapling beds that high-level residents replant for renewable wood
+    cost: { "resource.wood": 18, "resource.stone": 6, "resource.food": 4 },
+    searchRadius: { 1: 0 },
+    workerCount: { 1: 0 },
+    storageCapacity: { 1: 32 },
+    productionSpeed: { 1: 1.0 },
+    produces: {},
+    upgrades: {},
+    farming: {
+      cropKey: "sapling_bed",
+      cropName: "Sapling Bed",
+      workerCropLabel: "saplings",
+      workerHint: "Needs a Level 2 Resident House nearby.",
+      requiredWorkerBuildingIds: ["building.berry_gatherer"],
+      requiredWorkerLevel: 2,
+      visualKind: "sapling",
+      dryGrowthSeconds: 80,
+      wateredGrowthSeconds: 48,
+      riverGrowthSeconds: 38,
+      dryYield: { "resource.wood": 4 },
+      wateredYield: { "resource.wood": 7 },
+      riverYield: { "resource.wood": 10 },
+      wellRange: 6,
+      waterSearchRadius: 6,
+      riverBoostRadius: 3,
+      plantTaskSeconds: 1.6,
+      waterTaskSeconds: 2.0,
+      harvestTaskSeconds: 1.8
     }
   },
   "building.flint_mine": {
@@ -714,35 +753,45 @@ window.GAME_NODE_CONFIG = {
   },
   "node.berry_bush": {
     kind: "growth",
-    persistOnHarvest: true,
-    postHarvestStage: 0,
     stages: [
       {
-        key: "sparse",
+        key: "few",
         label: "Berry Bush",
-        stateLabel: "No Fruit",
-        weight: 0.48,
+        stateLabel: "Few Berries",
+        weight: 0.42,
         hp: 1,
-        rewards: {},
-        harvestable: false,
+        rewards: { "resource.food": 1 },
         scale: 0.9,
-        growAfter: 35,
-        leafColor: 0x527A30,
-        berryColor: 0xB85A5A,
-        berryCount: 0
+        growAfter: 18,
+        leafColor: 0x5A8235,
+        berryColor: 0xC85C5C,
+        berryCount: 5
       },
       {
-        key: "ripe",
-        label: "Ripe Berry Bush",
-        stateLabel: "Fruiting",
-        weight: 0.52,
+        key: "berrying",
+        label: "Berry Bush",
+        stateLabel: "Berrying",
+        weight: 0.36,
         hp: 1,
-        rewards: { "resource.food": 3 },
-        scale: 1.04,
+        rewards: { "resource.food": 2 },
+        scale: 1.0,
+        growAfter: 28,
+        leafColor: 0x468036,
+        berryColor: 0xE33B3B,
+        berryCount: 12
+      },
+      {
+        key: "loaded",
+        label: "Berry Bush",
+        stateLabel: "Loaded",
+        weight: 0.22,
+        hp: 1,
+        rewards: { "resource.food": 4 },
+        scale: 1.08,
         growAfter: 0,
         leafColor: 0x3A7A2E,
-        berryColor: 0xE33B3B,
-        berryCount: 14
+        berryColor: 0xF03B3B,
+        berryCount: 26
       }
     ]
   },

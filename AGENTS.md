@@ -124,7 +124,7 @@ Game_simulator/
 
 - Trees use growth stages: sapling -> young -> mature.
 - Rocks use size variants: small -> medium -> large -> giant.
-- Berry bushes only give food while in the fruiting state.
+- Berry bushes now have 3 harvestable fruit levels; harvesting removes the bush until it respawns and grows again.
 - Tree / rock giant variants are intentionally rarer in the current release.
 - Tree / rock giant variants no longer use glow effects; size is the main visual tell.
 - Tree / rock respawns can relocate within the same chunk, so rare-node farming is less predictable.

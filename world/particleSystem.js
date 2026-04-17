@@ -9,6 +9,7 @@ window.ParticleSystem = (function () {
     woodChip: { color: 0x8B6914, size: 0.03, gravity: -2, lifetime: 0.5, spread: 0.5, count: 6 },
     rockDust: { color: 0x999999, size: 0.02, gravity: -1, lifetime: 0.3, spread: 0.3, count: 8 },
     berryBurst: { color: 0xcc3333, size: 0.04, gravity: -3, lifetime: 0.4, spread: 0.4, count: 5 },
+    waterBoost: { color: 0x57c7ff, size: 0.06, gravity: -2.4, lifetime: 0.65, spread: 0.35, count: 8 },
     spark: { color: 0xFFAA00, size: 0.02, gravity: -4, lifetime: 0.3, spread: 0.2, count: 6 },
     combatHit: { color: 0xFF4444, size: 0.04, gravity: -5, lifetime: 0.5, spread: 0.8, count: 8 },
     combatBlock: { color: 0x888888, size: 0.03, gravity: -2, lifetime: 0.4, spread: 0.6, count: 5 },

@@ -24,6 +24,10 @@ try {
     renderObjectiveTracker();
     renderActivePanel();
     renderQuickbar();
+
+    if (_selectedInstance && GameState.getInstance && GameState.getInstance(_selectedInstance)) {
+      showBuildingInspector(_selectedInstance);
+    }
   }
 
   var _showProductionPanel = true;
@@ -391,11 +395,8 @@ try {
           var slot = primaryOutputEntity.slot || '';
           meta = slot ? slot : 'gear';
 
-          if (player && player.equipped[slot] === primaryOutputId) {
-            actionType = 'none';
-            ready = false;
-            status = 'Using';
-            sortOrder = 3;
+          if (player && player.equipped && player.equipped[slot] === primaryOutputId && inventoryCount <= 0) {
+            return null;
           } else if (inventoryCount > 0) {
             actionType = 'equip';
             actionId = primaryOutputId;
@@ -417,6 +418,9 @@ try {
           sortOrder: sortOrder,
           sourceIndex: index
         };
+      })
+      .filter(function(item) {
+        return !!item;
       })
       .sort(function(a, b) {
         if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
@@ -908,7 +912,7 @@ try {
     }
 
     html += '<div style="margin-top:8px">';
-    html += '<button class="btn btn-secondary" onclick="GameActions.saveGame()">Save</button> ';
+    html += '<button class="btn btn-secondary" onclick="GameActions.saveGame()">Save Now</button> ';
     html += '<button class="btn btn-secondary" onclick="GameActions.resetGame()">Reset</button>';
     html += '</div>';
 
@@ -1122,6 +1126,10 @@ try {
 
       fuelHtml = '<div class="inspector-section">' +
         '<div style="font-size:11px;">🔥 Fuel: <span style="color:' + fuelColor + '; font-weight:bold;">' + Math.floor(currentFuel) + '/' + maxFuel + '</span> (' + fuelPct + '%)</div>';
+      fuelHtml += '<div style="height:8px; background:rgba(15,52,96,0.9); border-radius:5px; overflow:hidden; border:1px solid rgba(255,255,255,0.08); margin-top:5px; box-shadow:inset 0 1px 2px rgba(0,0,0,0.28);">';
+      fuelHtml += '<div style="width:' + fuelPct + '%; height:100%; background:linear-gradient(90deg, ' + fuelColor + ', #ffd166); border-radius:4px; transition:width 0.3s linear;"></div>';
+      fuelHtml += '</div>';
+      fuelHtml += '<div style="color:#888; font-size:10px; margin-top:3px;">Burning down through the night. Refuel fills the bar back to max.</div>';
 
       if (balance.refuelCost) {
         var refuelParts = [];
@@ -1144,7 +1152,7 @@ try {
 
     // --- Auto farming section ---
     var farmHtml = "";
-    if (instance.entityId === 'building.farm_plot' && window.GameActions && GameActions.getFarmPlotStatus) {
+    if (balance && balance.farming && window.GameActions && GameActions.getFarmPlotStatus) {
       var farmStatus = GameActions.getFarmPlotStatus(uid);
       if (farmStatus) {
         var progressColor = farmStatus.ready ? '#4ecca3' : (farmStatus.riverBoosted ? '#66d9ff' : (farmStatus.watered ? '#57c7ff' : '#f0a500'));
@@ -1200,7 +1208,7 @@ try {
       var tR = balance.transferRange || 0;
       var wR = balance.waterRadius || 0;
       var rangeParts = [];
-      if (sR > 0) rangeParts.push('<span style="color:#00ff88;">' + (instance.entityId === 'building.farm_plot' ? 'Worker: ' : 'Harvest: ') + sR + '</span>');
+      if (sR > 0) rangeParts.push('<span style="color:#00ff88;">' + (balance.farming ? 'Worker: ' : 'Harvest: ') + sR + '</span>');
       if (tR > 0) rangeParts.push('<span style="color:#4488ff;">Transfer: ' + tR + '</span>');
       if (wR > 0) rangeParts.push('<span style="color:#57c7ff;">Water: ' + wR + '</span>');
       if (rangeParts.length > 0) {
@@ -1325,9 +1333,9 @@ try {
   function getNodeAccentColor(nodeInfo) {
     if (!nodeInfo) return '#4ecca3';
     if (nodeInfo.isGiant) return '#f0a500';
-    if (nodeInfo.stateLabel === 'Fruiting' || nodeInfo.stateLabel === 'Mature') return '#4ecca3';
-    if (nodeInfo.stateLabel === 'No Fruit' || nodeInfo.stateLabel === 'Sapling') return '#7db4ff';
-    if (nodeInfo.stateLabel === 'Young' || nodeInfo.stateLabel === 'Large') return '#f0a500';
+    if (nodeInfo.stateLabel === 'Loaded' || nodeInfo.stateLabel === 'Mature') return '#4ecca3';
+    if (nodeInfo.stateLabel === 'Few Berries' || nodeInfo.stateLabel === 'Sapling') return '#7db4ff';
+    if (nodeInfo.stateLabel === 'Berrying' || nodeInfo.stateLabel === 'Young' || nodeInfo.stateLabel === 'Large') return '#f0a500';
     return '#4ecca3';
   }
 
@@ -1347,7 +1355,7 @@ try {
       return rewardText;
     }
     if (objData.type === 'node.berry_bush') {
-      return rewardText || 'No fruit';
+      return rewardText || 'Food';
     }
 
     return (nodeInfo.stateLabel ? nodeInfo.stateLabel + ' • ' : '') + rewardText;
@@ -1369,7 +1377,7 @@ try {
       return rewardText || 'Stone';
     }
     if (objData.type === 'node.berry_bush') {
-      return rewardText || 'No ripe fruit';
+      return rewardText || 'Food';
     }
 
     return (nodeInfo.stateLabel ? nodeInfo.stateLabel + ' • ' : '') + rewardText;
@@ -1575,12 +1583,21 @@ try {
     for (var uid in instances) {
       var inst = instances[uid];
       var balance = GameRegistry.getBalance(inst.entityId);
-      if (!balance || !balance.storageCapacity) continue;
+      if (!balance) continue;
 
       var storageCapacity = GameState.getStorageCapacity(uid);
-      if (storageCapacity <= 0) continue;
+      var storageUsed = storageCapacity > 0 ? GameState.getStorageUsed(uid) : 0;
+      var showStorage = storageCapacity > 0 && (!balance.lightRadius || storageUsed > 0);
 
-      var storageUsed = GameState.getStorageUsed(uid);
+      var fuelData = (balance.lightRadius && GameState.getFireFuelData) ? GameState.getFireFuelData(uid) : null;
+      var maxFuel = balance.fuelCapacity || 0;
+      var currentFuel = maxFuel > 0 ? (fuelData ? fuelData.current : maxFuel) : 0;
+      var fuelPct = maxFuel > 0 ? Math.floor((currentFuel / maxFuel) * 100) : 0;
+      var fuelBarColor = fuelPct >= 60 ? '#4ecca3' : fuelPct >= 30 ? '#f0a500' : '#e94560';
+      var showFuel = maxFuel > 0;
+
+      if (!showStorage && !showFuel) continue;
+
       var pct = storageCapacity > 0 ? Math.floor((storageUsed / storageCapacity) * 100) : 0;
       var barColor = pct >= 90 ? '#e94560' : pct >= 70 ? '#f0a500' : '#4ecca3';
 
@@ -1595,18 +1612,32 @@ try {
 
       html += '<div style="position:fixed; left:' + x + 'px; top:' + y + 'px; transform:translate(-50%, -50%); pointer-events:none; z-index:15; text-align:center;">';
 
-      // Storage bar - larger and more visible
-      html += '<div style="width:56px; height:8px; background:rgba(15,52,96,0.9); border-radius:4px; overflow:hidden; border:1px solid rgba(78,204,163,0.4); margin:0 auto; box-shadow:0 1px 4px rgba(0,0,0,0.3);">';
-      html += '<div style="width:' + pct + '%; height:100%; background:' + barColor + '; border-radius:3px; transition:width 0.3s;"></div>';
-      html += '</div>';
+      if (showFuel) {
+        html += '<div style="width:62px; padding:3px 5px 4px; border-radius:7px; background:rgba(8,18,35,0.72); border:1px solid rgba(255,170,0,0.28); box-shadow:0 1px 4px rgba(0,0,0,0.35); margin:0 auto 4px;">';
+        html += '<div style="font-size:8px; color:#ffd8a8; text-shadow:0 1px 3px #000; margin-bottom:2px; font-weight:bold; letter-spacing:0.04em;">FIRE</div>';
+        html += '<div style="height:7px; background:rgba(15,52,96,0.9); border-radius:4px; overflow:hidden; border:1px solid rgba(255,170,0,0.22);">';
+        html += '<div style="width:' + fuelPct + '%; height:100%; background:' + fuelBarColor + '; border-radius:3px; transition:width 0.25s linear;"></div>';
+        html += '</div>';
+        if (fuelPct <= 0) {
+          html += '<div style="font-size:9px; color:#e94560; text-shadow:0 1px 3px #000; margin-top:2px; font-weight:bold;">OUT</div>';
+        } else {
+          html += '<div style="font-size:9px; color:#f5f5f5; text-shadow:0 1px 3px #000; margin-top:2px; font-weight:bold;">' + Math.ceil(currentFuel) + '/' + maxFuel + '</div>';
+        }
+        html += '</div>';
+      }
 
-      // Text - bigger and bolder
-      if (pct >= 100) {
-        html += '<div style="font-size:9px; color:#e94560; text-shadow:0 1px 3px #000; margin-top:2px; font-weight:bold;">FULL</div>';
-      } else if (pct > 0) {
-        html += '<div style="font-size:9px; color:#ddd; text-shadow:0 1px 3px #000; margin-top:2px; font-weight:bold;">' + storageUsed + '/' + storageCapacity + '</div>';
-      } else {
-        html += '<div style="font-size:8px; color:#888; text-shadow:0 1px 3px #000; margin-top:2px;">0/' + storageCapacity + '</div>';
+      if (showStorage) {
+        html += '<div style="width:56px; height:8px; background:rgba(15,52,96,0.9); border-radius:4px; overflow:hidden; border:1px solid rgba(78,204,163,0.4); margin:0 auto; box-shadow:0 1px 4px rgba(0,0,0,0.3);">';
+        html += '<div style="width:' + pct + '%; height:100%; background:' + barColor + '; border-radius:3px; transition:width 0.3s;"></div>';
+        html += '</div>';
+
+        if (pct >= 100) {
+          html += '<div style="font-size:9px; color:#e94560; text-shadow:0 1px 3px #000; margin-top:2px; font-weight:bold;">FULL</div>';
+        } else if (pct > 0) {
+          html += '<div style="font-size:9px; color:#ddd; text-shadow:0 1px 3px #000; margin-top:2px; font-weight:bold;">' + storageUsed + '/' + storageCapacity + '</div>';
+        } else {
+          html += '<div style="font-size:8px; color:#888; text-shadow:0 1px 3px #000; margin-top:2px;">0/' + storageCapacity + '</div>';
+        }
       }
 
       html += '</div>';
@@ -1881,6 +1912,8 @@ try {
     if (entity.type === 'building') {
       var buildingIcons = {
         'building.berry_gatherer': '🏠',
+        'building.farm_plot': '🌾',
+        'building.tree_nursery': '🌲',
         'building.warehouse': '📦',
         'building.bridge': '🌉',
         'building.well': '🪣',
@@ -2671,10 +2704,10 @@ try {
 
     html += '<div class="panel-section">';
     html += '<div class="section-header">';
-    html += '<div><div class="section-kicker">Session</div><div class="section-title">Utility Actions</div><div class="section-copy">Manage your save without leaving the journal.</div></div>';
+    html += '<div><div class="section-kicker">Session</div><div class="section-title">Utility Actions</div><div class="section-copy">Autosave is always active. Use Save Now only when you want an immediate checkpoint.</div></div>';
     html += '</div>';
     html += '<div class="management-actions">';
-    html += '<button class="btn btn-secondary" onclick="GameActions.saveGame()">Save Game</button>';
+    html += '<button class="btn btn-secondary" onclick="GameActions.saveGame()">Save Now</button>';
     html += '<button class="btn btn-danger" onclick="GameActions.resetGame()">Reset Progress</button>';
     html += '</div>';
     html += '</div>';

@@ -57,6 +57,24 @@ window.GameTerrain = (function () {
     return false;
   }
 
+  function overlapsNPCPosition(npcs, worldX, worldZ, clearance) {
+    if (!npcs || !npcs.length) return false;
+
+    var minDistance = clearance || 1.0;
+    for (var i = 0; i < npcs.length; i++) {
+      var npc = npcs[i];
+      if (!npc || !npc.position) continue;
+
+      var dx = npc.position.x - worldX;
+      var dz = npc.position.z - worldZ;
+      if (Math.sqrt(dx * dx + dz * dz) < minDistance) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   function overlapsWater(worldX, worldZ) {
     if (typeof WaterSystem === 'undefined') return false;
     return WaterSystem.isDeepWater(worldX, worldZ) || WaterSystem.isShallowWater(worldX, worldZ);
@@ -75,6 +93,8 @@ window.GameTerrain = (function () {
     var currentWorldX = options.currentWorldX;
     var currentWorldZ = options.currentWorldZ;
     var minDistanceFromCurrent = options.minDistanceFromCurrent || 0;
+    var npcPositions = options.npcPositions || null;
+    var npcClearance = options.npcClearance || clearance;
 
     for (var attempt = 0; attempt < attempts; attempt++) {
       var localX = Math.floor(seededRandom(chunkData.seed + seedX + index * 53 + attempt * 97) * CHUNK_SIZE);
@@ -91,6 +111,7 @@ window.GameTerrain = (function () {
       if (isNearPlayerSpawn(worldX, worldZ, playerPos, playerClearance)) continue;
       if (overlapsPlacedBuilding(instances, worldX, worldZ, buildingClearance)) continue;
       if (overlapsChunkObject(chunkData.objects, worldX, worldZ, clearance, skipObjectId)) continue;
+      if (overlapsNPCPosition(npcPositions, worldX, worldZ, npcClearance)) continue;
       if (avoidWater && overlapsWater(worldX, worldZ)) continue;
 
       return {
@@ -295,6 +316,99 @@ window.GameTerrain = (function () {
     objData.worldZ = position.worldZ;
   }
 
+  function syncNodeWorldPosition(objData) {
+    if (!objData) return;
+
+    var chunkX = Math.floor((objData.worldX !== undefined ? objData.worldX : 0) / CHUNK_SIZE);
+    var chunkZ = Math.floor((objData.worldZ !== undefined ? objData.worldZ : 0) / CHUNK_SIZE);
+
+    objData.worldX = chunkX * CHUNK_SIZE + objData.x;
+    objData.worldZ = chunkZ * CHUNK_SIZE + objData.z;
+  }
+
+  function captureNodePersistState(objData) {
+    return {
+      x: objData.x,
+      z: objData.z,
+      hp: typeof objData.hp === "number" ? objData.hp : null,
+      destroyed: !!objData._destroyed,
+      nodeVariant: objData.nodeVariant !== undefined ? objData.nodeVariant : null,
+      growthStage: objData.growthStage !== undefined ? objData.growthStage : null,
+      wateredGrowthStage: objData.wateredGrowthStage !== undefined ? objData.wateredGrowthStage : null,
+      nextGrowthAt: objData.nextGrowthAt || 0,
+      respawnAt: objData.respawnAt || 0,
+      spawnCycle: objData.spawnCycle || 0,
+      rollSeed: objData.rollSeed || 0
+    };
+  }
+
+  function getSavedNodeField(savedData, longKey, shortKey) {
+    if (!savedData) return undefined;
+    if (savedData.hasOwnProperty(longKey)) return savedData[longKey];
+    if (shortKey && savedData.hasOwnProperty(shortKey)) return savedData[shortKey];
+    return undefined;
+  }
+
+  function getSavedNodeId(savedData) {
+    return getSavedNodeField(savedData, "id", "i");
+  }
+
+  function buildSavedNodeState(objData) {
+    if (!isResourceNode(objData)) return null;
+
+    var base = objData._persistBase || captureNodePersistState(objData);
+    var current = captureNodePersistState(objData);
+    var saved = { i: objData.id };
+    var hasChanges = false;
+
+    if (current.x !== base.x) {
+      saved.x = current.x;
+      hasChanges = true;
+    }
+    if (current.z !== base.z) {
+      saved.z = current.z;
+      hasChanges = true;
+    }
+    if (current.hp !== base.hp) {
+      saved.h = current.hp;
+      hasChanges = true;
+    }
+    if (current.destroyed !== base.destroyed) {
+      saved.d = current.destroyed ? 1 : 0;
+      hasChanges = true;
+    }
+    if (current.nodeVariant !== base.nodeVariant) {
+      saved.v = current.nodeVariant;
+      hasChanges = true;
+    }
+    if (current.growthStage !== base.growthStage) {
+      saved.g = current.growthStage;
+      hasChanges = true;
+    }
+    if (current.wateredGrowthStage !== base.wateredGrowthStage) {
+      saved.wg = current.wateredGrowthStage;
+      hasChanges = true;
+    }
+    if (current.nextGrowthAt !== base.nextGrowthAt) {
+      saved.n = current.nextGrowthAt;
+      hasChanges = true;
+    }
+    if (current.respawnAt !== base.respawnAt) {
+      saved.r = current.respawnAt;
+      hasChanges = true;
+    }
+    if (current.spawnCycle !== base.spawnCycle) {
+      saved.c = current.spawnCycle;
+      hasChanges = true;
+    }
+    if (current.rollSeed !== base.rollSeed) {
+      saved.s = current.rollSeed;
+      hasChanges = true;
+    }
+
+    return hasChanges ? saved : null;
+  }
+
   function initializeNodeState(objData, now) {
     if (!isResourceNode(objData)) return;
 
@@ -310,6 +424,9 @@ window.GameTerrain = (function () {
 
     if (objData.respawnAt === undefined || objData.respawnAt === null) {
       objData.respawnAt = 0;
+    }
+    if (objData.wateredGrowthStage === undefined) {
+      objData.wateredGrowthStage = null;
     }
 
     if (config.kind === "growth") {
@@ -346,19 +463,36 @@ window.GameTerrain = (function () {
   function restoreSavedNodeState(objData, savedData, now) {
     if (!savedData) return;
 
-    var savedHp = savedData.hp;
-    objData._destroyed = !!savedData._destroyed;
+    var savedHp = getSavedNodeField(savedData, "hp", "h");
+    var savedDestroyed = getSavedNodeField(savedData, "_destroyed", "d");
+    var savedX = getSavedNodeField(savedData, "x", "x");
+    var savedZ = getSavedNodeField(savedData, "z", "z");
+    var savedWorldX = getSavedNodeField(savedData, "worldX", "wx");
+    var savedWorldZ = getSavedNodeField(savedData, "worldZ", "wz");
+    var savedNodeVariant = getSavedNodeField(savedData, "nodeVariant", "v");
+    var savedGrowthStage = getSavedNodeField(savedData, "growthStage", "g");
+    var savedWateredGrowthStage = getSavedNodeField(savedData, "wateredGrowthStage", "wg");
+    var savedNextGrowthAt = getSavedNodeField(savedData, "nextGrowthAt", "n");
+    var savedRespawnAt = getSavedNodeField(savedData, "respawnAt", "r");
+    var savedSpawnCycle = getSavedNodeField(savedData, "spawnCycle", "c");
+    var savedRollSeed = getSavedNodeField(savedData, "rollSeed", "s");
 
-    if (savedData.hasOwnProperty("x")) objData.x = savedData.x;
-    if (savedData.hasOwnProperty("z")) objData.z = savedData.z;
-    if (savedData.hasOwnProperty("worldX")) objData.worldX = savedData.worldX;
-    if (savedData.hasOwnProperty("worldZ")) objData.worldZ = savedData.worldZ;
-    if (savedData.hasOwnProperty("nodeVariant")) objData.nodeVariant = savedData.nodeVariant;
-    if (savedData.hasOwnProperty("growthStage")) objData.growthStage = savedData.growthStage;
-    if (savedData.hasOwnProperty("nextGrowthAt")) objData.nextGrowthAt = savedData.nextGrowthAt;
-    if (savedData.hasOwnProperty("respawnAt")) objData.respawnAt = savedData.respawnAt;
-    if (savedData.hasOwnProperty("spawnCycle")) objData.spawnCycle = savedData.spawnCycle;
-    if (savedData.hasOwnProperty("rollSeed")) objData.rollSeed = savedData.rollSeed;
+    objData._destroyed = !!savedDestroyed;
+
+    if (savedX !== undefined) objData.x = savedX;
+    if (savedZ !== undefined) objData.z = savedZ;
+    if (savedWorldX !== undefined) objData.worldX = savedWorldX;
+    if (savedWorldZ !== undefined) objData.worldZ = savedWorldZ;
+    if ((savedX !== undefined || savedZ !== undefined) && savedWorldX === undefined && savedWorldZ === undefined) {
+      syncNodeWorldPosition(objData);
+    }
+    if (savedNodeVariant !== undefined) objData.nodeVariant = savedNodeVariant;
+    if (savedGrowthStage !== undefined) objData.growthStage = savedGrowthStage;
+    if (savedWateredGrowthStage !== undefined) objData.wateredGrowthStage = savedWateredGrowthStage;
+    if (savedNextGrowthAt !== undefined) objData.nextGrowthAt = savedNextGrowthAt;
+    if (savedRespawnAt !== undefined) objData.respawnAt = savedRespawnAt;
+    if (savedSpawnCycle !== undefined) objData.spawnCycle = savedSpawnCycle;
+    if (savedRollSeed !== undefined) objData.rollSeed = savedRollSeed;
 
     initializeNodeState(objData, now);
 
@@ -368,6 +502,8 @@ window.GameTerrain = (function () {
 
     if (typeof savedHp === "number") {
       objData.hp = Math.max(0, Math.min(savedHp, maxHp));
+    } else if (objData._destroyed) {
+      objData.hp = 0;
     } else if (!objData._destroyed) {
       objData.hp = maxHp;
     }
@@ -381,8 +517,12 @@ window.GameTerrain = (function () {
       objData.respawnAt = now + ((balance.respawnTime || 30) * 1000);
     }
 
-    if (savedData.hasOwnProperty("x") || savedData.hasOwnProperty("z") || savedData.hasOwnProperty("worldX") || savedData.hasOwnProperty("worldZ") || savedData.hasOwnProperty("nodeVariant") || savedData.hasOwnProperty("growthStage") || savedData.hasOwnProperty("nextGrowthAt")) {
+    if (savedX !== undefined || savedZ !== undefined || savedWorldX !== undefined || savedWorldZ !== undefined || savedNodeVariant !== undefined || savedGrowthStage !== undefined || savedNextGrowthAt !== undefined) {
       objData._needsMeshRefresh = true;
+    }
+
+    if (!objData._destroyed && !objData.nextGrowthAt) {
+      objData._persistBase = captureNodePersistState(objData);
     }
   }
 
@@ -430,6 +570,46 @@ window.GameTerrain = (function () {
     objData.hp = Math.max(1, Math.min(nextMaxHp, Math.round(nextMaxHp * hpRatio)));
     objData._needsMeshRefresh = true;
 
+    if (!objData.nextGrowthAt) {
+      objData._persistBase = captureNodePersistState(objData);
+    }
+
+    return true;
+  }
+
+  function isNodeAtMaxGrowth(objData) {
+    var config = getNodeConfig(objData && objData.type);
+    if (!config || config.kind !== "growth") return true;
+    if (objData.nodeVariant === "giant" && config.giantVariant) return true;
+    if (!config.stages || !config.stages.length) return true;
+
+    var stageIndex = typeof objData.growthStage === "number" ? objData.growthStage : 0;
+    return stageIndex >= config.stages.length - 1;
+  }
+
+  function canWaterGrowthNode(objData) {
+    var config = getNodeConfig(objData && objData.type);
+    if (!isResourceNode(objData) || objData._destroyed) return false;
+    if (!config || config.kind !== "growth") return false;
+    if (objData.nodeVariant === "giant" && config.giantVariant) return false;
+    if (isNodeAtMaxGrowth(objData)) return false;
+    if (!objData.nextGrowthAt) return false;
+    return objData.wateredGrowthStage !== objData.growthStage;
+  }
+
+  function applyGrowthWaterBoost(objData, options) {
+    if (!canWaterGrowthNode(objData)) return false;
+
+    options = options || {};
+
+    var now = Date.now();
+    var remainingMs = Math.max(0, (objData.nextGrowthAt || 0) - now);
+    var remainingTimeMultiplier = Math.min(0.95, Math.max(0.1, options.remainingTimeMultiplier || 0.55));
+    var minRemainingMs = Math.max(1000, Math.floor((options.minRemainingSeconds || 6) * 1000));
+    var boostedNextGrowthAt = now + Math.max(minRemainingMs, Math.floor(remainingMs * remainingTimeMultiplier));
+
+    objData.nextGrowthAt = Math.min(objData.nextGrowthAt, boostedNextGrowthAt);
+    objData.wateredGrowthStage = objData.growthStage;
     return true;
   }
 
@@ -440,6 +620,7 @@ window.GameTerrain = (function () {
     var nextCycle = (objData.spawnCycle || 0) + 1;
     objData.spawnCycle = nextCycle;
     objData.rollSeed = hashString((objData.id || "node") + "|" + now + "|" + nextCycle);
+    objData.wateredGrowthStage = null;
 
     if (config.kind === "growth") {
       if (config.giantVariant && getNodeRoll(objData, "giant") < (config.giantVariant.chance || 0)) {
@@ -448,7 +629,7 @@ window.GameTerrain = (function () {
         objData.nextGrowthAt = 0;
       } else {
         objData.nodeVariant = "default";
-        objData.growthStage = 0;
+        objData.growthStage = config.randomRespawnStage ? chooseInitialGrowthStage(objData, config) : 0;
         var growthDelay = getGrowthDelayMs(objData, objData.growthStage);
         objData.nextGrowthAt = growthDelay > 0 ? now + growthDelay : 0;
       }
@@ -470,6 +651,7 @@ window.GameTerrain = (function () {
 
     var playerPos = (typeof GamePlayer !== 'undefined' && GamePlayer.getPosition) ? GamePlayer.getPosition() : { x: 8, z: 8 };
     var placedInstances = (typeof GameState !== 'undefined' && GameState.getAllInstances) ? GameState.getAllInstances() : null;
+    var activeNPCs = (typeof NPCSystem !== 'undefined' && NPCSystem.getAllNPCs) ? NPCSystem.getAllNPCs() : null;
     var seedHash = hashString(objData.id || objData.type || "node");
     var clearance = objData.type === "node.tree" ? 1.35 : 1.25;
     var buildingClearance = objData.type === "node.tree" ? 1.15 : 1.1;
@@ -477,6 +659,8 @@ window.GameTerrain = (function () {
       clearance: clearance,
       buildingClearance: buildingClearance,
       playerClearance: 2.4,
+      npcPositions: activeNPCs,
+      npcClearance: Math.max(0.9, clearance),
       maxAttempts: 40,
       instances: placedInstances,
       skipObjectId: objData.id,
@@ -519,6 +703,8 @@ window.GameTerrain = (function () {
     if (typeof GameEntities !== "undefined" && GameEntities.showObject) {
       GameEntities.showObject(objData);
     }
+
+    objData._persistBase = captureNodePersistState(objData);
   }
 
   function updateLoadedNodeState(objData, now, playerX, playerZ) {
@@ -648,7 +834,8 @@ window.GameTerrain = (function () {
         var cz = pcz + dz;
         var key = cx + "," + cz;
         if (!chunks[key]) {
-          generateChunk(cx, cz);
+          var savedData = GameState.getChunkData(key);
+          generateChunk(cx, cz, savedData);
 
           // Mark chunk as explored
           if (GameState.markChunkExplored) {
@@ -656,10 +843,12 @@ window.GameTerrain = (function () {
           }
 
           // Restore saved object states from previous visit
-          var savedData = GameState.getChunkData(key);
           if (savedData && savedData.objects) {
             var savedMap = {};
-            savedData.objects.forEach(function (obj) { savedMap[obj.id] = obj; });
+            savedData.objects.forEach(function (obj) {
+              var savedId = getSavedNodeId(obj);
+              if (savedId) savedMap[savedId] = obj;
+            });
             if (chunks[key] && chunks[key].objects) {
               chunks[key].objects.forEach(function (obj) {
                 if (savedMap[obj.id]) {
@@ -687,23 +876,14 @@ window.GameTerrain = (function () {
         if (chunkToUnload.objects) {
           var savedObjects = [];
           chunkToUnload.objects.forEach(function (obj) {
-            savedObjects.push({
-              id: obj.id,
-              x: obj.x,
-              z: obj.z,
-              worldX: obj.worldX,
-              worldZ: obj.worldZ,
-              hp: obj.hp,
-              _destroyed: !!obj._destroyed,
-              nodeVariant: obj.nodeVariant,
-              growthStage: obj.growthStage,
-              nextGrowthAt: obj.nextGrowthAt,
-              respawnAt: obj.respawnAt,
-              spawnCycle: obj.spawnCycle,
-              rollSeed: obj.rollSeed
-            });
+            var savedNode = buildSavedNodeState(obj);
+            if (savedNode) savedObjects.push(savedNode);
           });
-          GameState.saveChunkData(key, { cx: cx, cz: cz, objects: savedObjects });
+          GameState.saveChunkData(key, savedObjects.length ? {
+            cx: cx,
+            cz: cz,
+            objects: savedObjects
+          } : null);
         }
 
         if (chunkToUnload.mesh) {
@@ -722,7 +902,7 @@ window.GameTerrain = (function () {
     updateLoadedChunkNodeStates(now, playerX, playerZ);
   }
 
-  function generateChunk(cx, cz) {
+  function generateChunk(cx, cz, savedChunkData) {
     var key = cx + "," + cz;
     var seed = chunkSeed(cx, cz) + worldSeed;
     var distFromHome = Math.sqrt(cx * cx + cz * cz);
@@ -733,6 +913,7 @@ window.GameTerrain = (function () {
       objects: [],
       buildings: [],
       generated: true,
+      generatedAt: (savedChunkData && typeof savedChunkData.generatedAt === "number") ? savedChunkData.generatedAt : Date.now(),
       mesh: null
     };
 
@@ -807,8 +988,9 @@ window.GameTerrain = (function () {
     else treeCount = 2 + Math.floor(rng(10) * 4);
 
     // Get player position to avoid spawning on player
-    var playerPos = (typeof GamePlayer !== 'undefined' && GamePlayer.getPosition) ? GamePlayer.getPosition() : { x: 8, z: 8 };
-    var placedInstances = (typeof GameState !== 'undefined' && GameState.getAllInstances) ? GameState.getAllInstances() : null;
+    var hasSavedChunkData = !!savedChunkData;
+    var playerPos = hasSavedChunkData ? null : ((typeof GamePlayer !== 'undefined' && GamePlayer.getPosition) ? GamePlayer.getPosition() : { x: 8, z: 8 });
+    var placedInstances = hasSavedChunkData ? null : ((typeof GameState !== 'undefined' && GameState.getAllInstances) ? GameState.getAllInstances() : null);
 
     for (var i = 0; i < treeCount; i++) {
       var treePos = findChunkSpawnPosition(chunkData, playerPos, 100, 101, i, {
@@ -1019,9 +1201,12 @@ window.GameTerrain = (function () {
       }
     }
 
-    var generationTime = Date.now();
+    var generationTime = chunkData.generatedAt;
     chunkData.objects.forEach(function (obj) {
       initializeNodeState(obj, generationTime);
+      if (isResourceNode(obj)) {
+        obj._persistBase = captureNodePersistState(obj);
+      }
     });
 
     chunkData.mesh = group;
@@ -1139,13 +1324,14 @@ window.GameTerrain = (function () {
     if (chunks[key]) return;
 
     // Re-generate mesh, but keep saved object states
-    generateChunk(chunkData.cx, chunkData.cz);
+    generateChunk(chunkData.cx, chunkData.cz, chunkData);
 
     // Restore saved HP states
     if (chunkData.objects) {
       var savedMap = {};
       chunkData.objects.forEach(function (obj) {
-        savedMap[obj.id] = obj;
+        var savedId = getSavedNodeId(obj);
+        if (savedId) savedMap[savedId] = obj;
       });
       if (chunks[key]) {
         var now = Date.now();
@@ -1249,6 +1435,9 @@ window.GameTerrain = (function () {
     findNearestObject: findNearestObject,
     getNearbyObjects: getNearbyObjects,
     getNodeInfo: getNodeInfo,
+    isNodeAtMaxGrowth: isNodeAtMaxGrowth,
+    canWaterGrowthNode: canWaterGrowthNode,
+    applyGrowthWaterBoost: applyGrowthWaterBoost,
     canHarvestNode: canHarvestNode,
     completeNodeHarvest: completeNodeHarvest,
     restoreChunk: restoreChunk,

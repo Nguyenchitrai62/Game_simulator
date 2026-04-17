@@ -19,7 +19,11 @@ window.GameStorage = (function () {
       var raw = localStorage.getItem(SAVE_KEY);
       if (!raw) return false;
       var data = JSON.parse(raw);
-      return GameState.importState(data);
+      var loaded = GameState.importState(data);
+      if (loaded && data.chunks) {
+        save();
+      }
+      return loaded;
     } catch (e) {
       console.error("[Storage] Load failed:", e);
       return false;

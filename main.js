@@ -41,7 +41,7 @@ window.GameActions = (function () {
 
   function saveGame() {
     GameStorage.save();
-    GameHUD.showNotification("Game saved!");
+    GameHUD.showNotification("Saved now. Autosave remains active.");
   }
 
   function resetGame() {
@@ -149,14 +149,20 @@ window.GameActions = (function () {
   }
 
   function isFarmPlot(instance) {
-    return !!(instance && instance.entityId === 'building.farm_plot');
+    if (!instance) return false;
+    var balance = GameRegistry.getBalance(instance.entityId);
+    return !!(balance && balance.farming);
   }
 
   function getFarmConfig(instanceUid) {
     var instance = GameState.getInstance(instanceUid);
-    if (!isFarmPlot(instance)) return null;
-    var balance = GameRegistry.getBalance(instance.entityId);
-    return balance ? balance.farming : null;
+    var balance = instance ? GameRegistry.getBalance(instance.entityId) : null;
+    return balance && balance.farming ? balance.farming : null;
+  }
+
+  function getFarmWorkerHint(instanceUid, farming) {
+    if (farming && farming.workerHint) return farming.workerHint;
+    return 'Needs a nearby resident worker.';
   }
 
   function formatYieldMap(yieldMap) {
@@ -364,6 +370,8 @@ window.GameActions = (function () {
     var farmState = GameState.getFarmState(instanceUid) || { planted: false, watered: false, ready: false, progress: 0, waterSourceType: null, riverBoosted: false };
     var progressPercent = Math.max(0, Math.min(100, Math.floor((farmState.progress || 0) * 100)));
     var cropName = farming.cropName || 'Crop';
+    var plotEntity = GameRegistry.getEntity(instance.entityId);
+    var plotName = plotEntity ? plotEntity.name : 'Farm Plot';
     var support = getFarmWaterSupport(instanceUid);
     if (farmState.watered && !support.type && farmState.waterSourceType) {
       support = {
@@ -387,10 +395,11 @@ window.GameActions = (function () {
     var wateredYieldText = formatYieldMap(farming.wateredYield);
     var riverYieldText = formatYieldMap(farming.riverYield || getFarmYieldMap(instanceUid, { watered: true, riverBoosted: true }));
     var growthSeconds = getFarmGrowthSeconds(instanceUid, farmState);
+    var workerHint = getFarmWorkerHint(instanceUid, farming);
     var statusText = 'Idle';
     var action = storedSummary.totalAmount > 0 ? 'collect' : 'auto';
     var actionLabel = storedSummary.totalAmount > 0 ? 'Collect' : 'Auto';
-    var detailText = 'Needs a nearby resident worker.';
+    var detailText = workerHint;
 
     if (farmState.planted && farmState.ready) {
       statusText = 'Ready';
@@ -414,14 +423,15 @@ window.GameActions = (function () {
       }
     } else if (!hasWorkerSupport && storedSummary.totalAmount <= 0) {
       if (farmState.ready) {
-        detailText = 'Crop is ready, but no nearby resident can harvest it.';
+        detailText = cropName + ' is ready, but ' + workerHint.toLowerCase();
       } else if (farmState.planted) {
-        detailText = 'Crop is waiting for a nearby resident worker.';
+        detailText = cropName + ' is waiting for worker support.';
       }
     }
 
     return {
       uid: instanceUid,
+      plotName: plotName,
       cropName: cropName,
       planted: !!farmState.planted,
       watered: !!farmState.watered,
@@ -446,9 +456,10 @@ window.GameActions = (function () {
       riverYieldText: riverYieldText,
       currentYieldText: currentYieldText,
       growthSeconds: growthSeconds,
+      workerHint: workerHint,
       storedAmount: storedSummary.totalAmount,
       storedSummaryText: storedSummary.text,
-      workerStatusText: workerStatus ? workerStatus.text : 'No nearby resident worker'
+      workerStatusText: workerStatus ? workerStatus.text : workerHint
     };
   }
 

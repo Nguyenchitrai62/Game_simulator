@@ -534,6 +534,7 @@ window.BuildingSystem = (function () {
 
     // === FARM PLOT ===
     if (shape === 'farm_plot') {
+      var isTreeNursery = entity.id === 'building.tree_nursery';
       var plotState = isPreview ? {
         phase: 'empty',
         progress: 0,
@@ -542,8 +543,10 @@ window.BuildingSystem = (function () {
         ready: false,
         riverBoosted: false
       } : getFarmPlotVisualState(instanceData);
-      var soilColor = plotState.watered ? (plotState.riverBoosted ? 0x3E3321 : 0x493220) : (plotState.planted ? 0x61401D : 0x5B3A1A);
-      var borderColor = plotState.riverBoosted ? 0x658c41 : 0x7A4B20;
+      var soilColor = isTreeNursery
+        ? (plotState.watered ? (plotState.riverBoosted ? 0x334422 : 0x3B4B24) : (plotState.planted ? 0x4B5A2D : 0x465427))
+        : (plotState.watered ? (plotState.riverBoosted ? 0x3E3321 : 0x493220) : (plotState.planted ? 0x61401D : 0x5B3A1A));
+      var borderColor = isTreeNursery ? (plotState.riverBoosted ? 0x5B8F45 : 0x537437) : (plotState.riverBoosted ? 0x658c41 : 0x7A4B20);
       var borderMat = new THREE.MeshLambertMaterial({ color: borderColor, transparent: isPreview, opacity: isPreview ? 0.6 : 1.0 });
       var soilMat = new THREE.MeshLambertMaterial({ color: soilColor, transparent: isPreview, opacity: isPreview ? 0.55 : 1.0 });
 
@@ -584,7 +587,7 @@ window.BuildingSystem = (function () {
       }
 
       if (!plotState.planted) {
-        var seedMat = new THREE.MeshLambertMaterial({ color: 0xc49a6c, transparent: isPreview, opacity: isPreview ? 0.4 : 0.9 });
+        var seedMat = new THREE.MeshLambertMaterial({ color: isTreeNursery ? 0x7f5a32 : 0xc49a6c, transparent: isPreview, opacity: isPreview ? 0.4 : 0.9 });
         for (var seedIndex = 0; seedIndex < 6; seedIndex++) {
           var seedGeo = new THREE.SphereGeometry(0.012 * scale, 4, 3);
           var seed = new THREE.Mesh(seedGeo, seedMat);
@@ -592,36 +595,71 @@ window.BuildingSystem = (function () {
           group.add(seed);
         }
       } else {
-        var plantStyle = {
-          stemColor: plotState.watered ? 0x4f7b2c : 0x6f7a2f,
-          leafColor: plotState.riverBoosted ? 0x66b84c : (plotState.ready ? 0x86bf48 : (plotState.watered ? 0x5ba93f : 0x789245)),
-          height: plotState.ready ? 0.34 : (0.12 + plotState.progress * (plotState.watered ? 0.2 : 0.14)),
-          leafRadius: plotState.ready ? 0.04 : (plotState.progress >= 0.5 ? 0.034 : 0.028),
-          leafHeight: plotState.ready ? 0.18 : (plotState.progress >= 0.5 ? 0.15 : 0.12),
-          bulbColor: plotState.riverBoosted ? 0xffb347 : 0xf59e42,
-          bulbRadius: plotState.ready ? 0.028 : 0.02,
-          hasBulb: plotState.ready
-        };
+        if (isTreeNursery) {
+          var saplingStyle = {
+            stemColor: plotState.ready ? 0x755128 : 0x6a4a22,
+            leafColor: plotState.riverBoosted ? 0x5fbe59 : (plotState.ready ? 0x4a9b44 : (plotState.watered ? 0x4f9f47 : 0x648b3f)),
+            height: plotState.ready ? 0.42 : (0.14 + plotState.progress * (plotState.watered ? 0.24 : 0.18)),
+            leafRadius: plotState.ready ? 0.055 : (plotState.progress >= 0.5 ? 0.045 : 0.032),
+            leafHeight: plotState.ready ? 0.24 : (plotState.progress >= 0.5 ? 0.18 : 0.14),
+            bulbColor: 0x8B5A2B,
+            bulbRadius: 0.01,
+            hasBulb: false
+          };
 
-        for (var plantIndex = 0; plantIndex < 6; plantIndex++) {
-          addFarmPlant(
-            group,
-            ((plantIndex % 3) - 1) * 0.22 * scale,
-            (Math.floor(plantIndex / 3) - 0.5) * 0.28 * scale,
-            scale,
-            plantStyle,
-            isPreview
-          );
-        }
+          for (var saplingIndex = 0; saplingIndex < 4; saplingIndex++) {
+            addFarmPlant(
+              group,
+              ((saplingIndex % 2) - 0.5) * 0.36 * scale,
+              (Math.floor(saplingIndex / 2) - 0.5) * 0.38 * scale,
+              scale,
+              saplingStyle,
+              isPreview
+            );
+          }
 
-        if (plotState.ready) {
-          var harvestMat = new THREE.MeshLambertMaterial({ color: plotState.riverBoosted ? 0xffc867 : 0xf5b04c, transparent: isPreview, opacity: isPreview ? 0.45 : 1.0 });
-          for (var readyIndex = 0; readyIndex < 3; readyIndex++) {
-            var harvestGeo = new THREE.DodecahedronGeometry(0.035 * scale, 0);
-            var harvestPile = new THREE.Mesh(harvestGeo, harvestMat);
-            harvestPile.position.set(-0.2 * scale + readyIndex * 0.18 * scale, 0.12 * scale, 0.33 * scale);
-            harvestPile.rotation.set(readyIndex * 0.4, readyIndex * 0.2, 0);
-            group.add(harvestPile);
+          if (plotState.ready) {
+            var logMat = new THREE.MeshLambertMaterial({ color: 0x8B5A2B, transparent: isPreview, opacity: isPreview ? 0.45 : 1.0 });
+            for (var logIndex = 0; logIndex < 3; logIndex++) {
+              var logGeo = new THREE.CylinderGeometry(0.035 * scale, 0.04 * scale, 0.18 * scale, 6);
+              var logMesh = new THREE.Mesh(logGeo, logMat);
+              logMesh.rotation.z = Math.PI / 2;
+              logMesh.position.set(-0.18 * scale + logIndex * 0.18 * scale, 0.12 * scale, 0.3 * scale);
+              group.add(logMesh);
+            }
+          }
+        } else {
+          var plantStyle = {
+            stemColor: plotState.watered ? 0x4f7b2c : 0x6f7a2f,
+            leafColor: plotState.riverBoosted ? 0x66b84c : (plotState.ready ? 0x86bf48 : (plotState.watered ? 0x5ba93f : 0x789245)),
+            height: plotState.ready ? 0.34 : (0.12 + plotState.progress * (plotState.watered ? 0.2 : 0.14)),
+            leafRadius: plotState.ready ? 0.04 : (plotState.progress >= 0.5 ? 0.034 : 0.028),
+            leafHeight: plotState.ready ? 0.18 : (plotState.progress >= 0.5 ? 0.15 : 0.12),
+            bulbColor: plotState.riverBoosted ? 0xffb347 : 0xf59e42,
+            bulbRadius: plotState.ready ? 0.028 : 0.02,
+            hasBulb: plotState.ready
+          };
+
+          for (var plantIndex = 0; plantIndex < 6; plantIndex++) {
+            addFarmPlant(
+              group,
+              ((plantIndex % 3) - 1) * 0.22 * scale,
+              (Math.floor(plantIndex / 3) - 0.5) * 0.28 * scale,
+              scale,
+              plantStyle,
+              isPreview
+            );
+          }
+
+          if (plotState.ready) {
+            var harvestMat = new THREE.MeshLambertMaterial({ color: plotState.riverBoosted ? 0xffc867 : 0xf5b04c, transparent: isPreview, opacity: isPreview ? 0.45 : 1.0 });
+            for (var readyIndex = 0; readyIndex < 3; readyIndex++) {
+              var harvestGeo = new THREE.DodecahedronGeometry(0.035 * scale, 0);
+              var harvestPile = new THREE.Mesh(harvestGeo, harvestMat);
+              harvestPile.position.set(-0.2 * scale + readyIndex * 0.18 * scale, 0.12 * scale, 0.33 * scale);
+              harvestPile.rotation.set(readyIndex * 0.4, readyIndex * 0.2, 0);
+              group.add(harvestPile);
+            }
           }
         }
       }

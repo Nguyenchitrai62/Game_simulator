@@ -554,7 +554,13 @@ window.GameState = (function () {
   }
 
   // === Chunks ===
-  function saveChunkData(key, data) { _state.chunks[key] = data; }
+  function saveChunkData(key, data) {
+    if (!data || !data.objects || !data.objects.length) {
+      delete _state.chunks[key];
+      return;
+    }
+    _state.chunks[key] = data;
+  }
   function getChunkData(key) { return _state.chunks[key] || null; }
   function getAllChunkData() { return _state.chunks; }
   function getChunks() { return _state.chunks; }
@@ -569,7 +575,31 @@ window.GameState = (function () {
   }
 
   // === Serialization ===
-  function exportState() { return JSON.parse(JSON.stringify(_state)); }
+  function exportState() {
+    return {
+      resources: _state.resources,
+      buildings: _state.buildings,
+      unlocked: _state.unlocked.slice(),
+      techState: _state.techState,
+      age: _state.age,
+      version: _state.version,
+      showLockedItems: _state.showLockedItems,
+      player: _state.player,
+      inventory: _state.inventory,
+      instances: _state.instances,
+      buildingStorage: _state.buildingStorage,
+      worldSeed: _state.worldSeed,
+      fractionalAccumulator: _state.fractionalAccumulator,
+      gameSpeed: _state.gameSpeed,
+      isPaused: _state.isPaused,
+      researched: _state.researched.slice(),
+      hunger: _state.hunger,
+      maxHunger: _state.maxHunger,
+      timeOfDay: _state.timeOfDay,
+      fireFuel: _state.fireFuel,
+      exploredChunks: _state.exploredChunks
+    };
+  }
 
   function importState(data) {
     if (!data) return false;
@@ -592,7 +622,7 @@ window.GameState = (function () {
     _state.inventory = data.inventory || {};
     _state.instances = data.instances || {};
     _state.buildingStorage = data.buildingStorage || {};
-    _state.chunks = data.chunks || {};
+    _state.chunks = {};
     _state.worldSeed = data.worldSeed || 42;
     _state.fractionalAccumulator = data.fractionalAccumulator || {};
     _state.gameSpeed = data.gameSpeed || 1.0;
