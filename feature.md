@@ -2,6 +2,8 @@
 
 Status legend: `todo`, `doing`, `test`, `done`, or `blocked`.
 
+Release note: worker-targeting AI and worker-danger HUD/minimap warnings are temporarily disabled. Threat animals still chase the player, but treat worker-threat checklist items as blocked until that system is intentionally re-enabled.
+
 ## Resource And Nodes
 - [done] F01 Tree has 3 growth stages and higher stages yield more wood.
 - [done] F02 Player can still chop young trees for less wood.

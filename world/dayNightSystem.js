@@ -1,5 +1,5 @@
 window.DayNightSystem = (function () {
-  var _timeOfDay = 6; // 0-24, start at early morning
+  var _timeOfDay = 0; // 0-24, initialized from balance-backed game state
   var _isRunning = false;
 
   var _lightState = {
@@ -105,7 +105,9 @@ window.DayNightSystem = (function () {
   }
 
   function init() {
-    _timeOfDay = 6;
+    if (typeof GameState !== 'undefined' && GameState.getTimeOfDay) {
+      _timeOfDay = Number(GameState.getTimeOfDay()) || 0;
+    }
     _isRunning = true;
     console.log('[DayNight] Initialized - using lighting-only darkness (no fog)');
   }
@@ -114,7 +116,7 @@ window.DayNightSystem = (function () {
     var gameSpeed = (typeof GameState !== 'undefined' && GameState.getGameSpeed) ? GameState.getGameSpeed() : 1.0;
     var balance = window.GAME_BALANCE || {};
     var config = balance.dayNight || {};
-    var hoursPerSecond = config.hoursPerSecond || 0.0667;
+    var hoursPerSecond = Number(config.hoursPerSecond) || 0;
 
     _timeOfDay += hoursPerSecond * dt * gameSpeed;
     if (_timeOfDay >= 24) _timeOfDay -= 24;
@@ -174,7 +176,12 @@ window.DayNightSystem = (function () {
   function getTimeOfDay() { return _timeOfDay; }
   function setTimeOfDay(t) { _timeOfDay = t % 24; }
   function getDarkness() { return _lightState.darkness; }
-  function isNight() { return _lightState.darkness >= 0.5; }
+  function isNight() {
+    var balance = window.GAME_BALANCE || {};
+    var config = balance.dayNight || {};
+    var threshold = Number(config.nightDarknessThreshold) || 0;
+    return _lightState.darkness >= threshold;
+  }
   function isDay() { return _lightState.darkness < 0.3; }
 
   function getTimeString() {

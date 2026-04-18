@@ -1,7 +1,44 @@
 window.GameCombat = (function () {
   var _activeCombat = null;
   var _attackTimer = 0;
-  var ATTACK_INTERVAL = 0.5;  // Faster combat - was 1.0
+
+  function getCombatConfig() {
+    return (window.GAME_BALANCE && GAME_BALANCE.combat) || {};
+  }
+
+  function getAnimalRespawnConfig() {
+    return (window.GAME_BALANCE && GAME_BALANCE.animalRespawn) || {};
+  }
+
+  function getAttackInterval() {
+    return Number(getCombatConfig().playerAttackIntervalSeconds) || 0;
+  }
+
+  function getDisengageDistance() {
+    return Number(getCombatConfig().disengageDistance) || 0;
+  }
+
+  function getMinimumDamage() {
+    return Number(getCombatConfig().minimumDamage) || 0;
+  }
+
+  function getAnimalRespawnRetryDelayMs() {
+    return Number(getAnimalRespawnConfig().retryDelayMs) || 0;
+  }
+
+  function getEntityRespawnTimeSeconds(balance) {
+    return Number(balance && balance.respawnTime) || 0;
+  }
+
+  function isPlayerTooCloseForRespawn(target) {
+    if (!target || !window.GamePlayer || !GamePlayer.getPosition) return false;
+
+    var playerPos = GamePlayer.getPosition();
+    var safeDistance = Number(getAnimalRespawnConfig().playerSafeDistance) || 0;
+    var dx = Math.abs(target.worldX - playerPos.x);
+    var dz = Math.abs(target.worldZ - playerPos.z);
+    return dx < safeDistance && dz < safeDistance;
+  }
 
   function getTargetMesh(target) {
     if (!target || typeof GameEntities === 'undefined' || !GameEntities.getMeshForObjectId) return null;
@@ -67,22 +104,13 @@ window.GameCombat = (function () {
     var dz = target.worldZ - playerPos.z;
     var dist = Math.sqrt(dx * dx + dz * dz);
 
-    var targetMesh = getTargetMesh(target);
-    if (targetMesh) {
-      var desiredAngle = Math.atan2(playerPos.x - target.worldX, playerPos.z - target.worldZ);
-      var angleDiff = desiredAngle - targetMesh.rotation.y;
-      while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-      while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-      targetMesh.rotation.y += angleDiff * 0.28;
-    }
-
-    if (dist > 3) {
+    if (dist > getDisengageDistance()) {
       endCombat(false);
       return;
     }
 
     _activeCombat.timer += dt;
-    if (_activeCombat.timer >= ATTACK_INTERVAL) {
+    if (_activeCombat.timer >= getAttackInterval()) {
       _activeCombat.timer = 0;
       doAttackRound(target);
     }
@@ -94,7 +122,7 @@ window.GameCombat = (function () {
     // Player attacks target
     var playerAtk = GameState.getPlayerAttack();
     var targetDef = target.defense || 0;
-    var damageToTarget = Math.max(1, playerAtk - targetDef);
+    var damageToTarget = Math.max(getMinimumDamage(), playerAtk - targetDef);
     target.hp -= damageToTarget;
 
     GameHUD.showDamageNumber(target.worldX, 1.0, target.worldZ, "-" + damageToTarget, "damage");
@@ -231,7 +259,7 @@ window.GameCombat = (function () {
       GameHUD.renderAll();
 
       // Respawn with player collision check
-      var respawnTime = balance ? (balance.respawnTime || 60) : 60;
+      var respawnTime = getEntityRespawnTimeSeconds(balance);
       function tryAnimalRespawn() {
         if (!target || !target._destroyed) return;
 
@@ -241,16 +269,11 @@ window.GameCombat = (function () {
         }
 
         // Check if player is too close when no new spawn point was found
-        if (!relocated && window.GamePlayer) {
-          var playerPos = GamePlayer.getPosition();
-          var dx = Math.abs(target.worldX - playerPos.x);
-          var dz = Math.abs(target.worldZ - playerPos.z);
-          if (dx < 2 && dz < 2) {
-            setTimeout(tryAnimalRespawn, 5000);
-            return;
-          }
+        if (!relocated && isPlayerTooCloseForRespawn(target)) {
+          setTimeout(tryAnimalRespawn, getAnimalRespawnRetryDelayMs());
+          return;
         }
-        target.hp = target.maxHp || (balance ? balance.hp : 1) || 1;
+        target.hp = target.maxHp || Number(balance && balance.hp) || 0;
         target._destroyed = false;
         target.respawnAt = 0;
         GameEntities.showObject(target);
@@ -276,17 +299,19 @@ window.GameCombat = (function () {
   }
 
   function playerDied() {
+    var spawn = GameState.getPlayerSpawnPosition();
+    var resourceLossFraction = GameState.getPlayerDeathResourceLossFraction();
     GameState.setPlayerHP(GameState.getPlayerMaxHp());
-    GamePlayer.setPosition(8, 8);
+    GamePlayer.setPosition(spawn.x, spawn.z);
 
     // Lose some resources
     var resources = GameState.getAllResources();
     for (var id in resources) {
-      var lost = Math.floor(resources[id] * 0.3);
+      var lost = Math.floor(resources[id] * resourceLossFraction);
       if (lost > 0) GameState.addResource(id, -lost);
     }
 
-    GameHUD.showNotification("You died! Lost 30% resources. Respawned at home.");
+    GameHUD.showNotification("You died! Lost " + Math.round(resourceLossFraction * 100) + "% resources. Respawned at home.");
   }
 
   function updateCombatUI() {

@@ -3,6 +3,8 @@
 This checklist is focused on the features added since the latest commit.
 Run it on a fresh save first, then repeat the save/load section on an existing save.
 
+Current release note: threat animals still chase the player, but worker-targeting AI plus worker-danger HUD/minimap warnings are temporarily disabled. Do not fail this release because worker-threat alerts stay empty.
+
 ## Recommended Setup
 
 1. Start a new save.
@@ -96,17 +98,17 @@ Steps:
 3. Check the context prompt and inspect popup text.
 4. Hunt them.
 5. Explore farther out until you find Wolves, Boars, Bears, Lions, Bandits, or Sabertooths.
-6. Let threat animals approach exposed workers.
+6. Let threat animals aggro onto the player and observe their behavior.
 
 Expected:
 1. Deer and Rabbit are labeled and treated as prey.
 2. Threat animals are labeled and treated as threats.
 3. Prey should flee and not damage the player.
-4. Threat animals should pressure exposed workers and interrupt work.
+4. Threat animals should chase or pressure the player.
 
 Pay extra attention:
-1. Workers under threat should visibly stop normal production flow.
-2. Objective tracker should warn about nearby or active threats.
+1. Worker-targeting and worker-danger warnings are currently disabled for this release, so the objective tracker and minimap should stay quiet about worker attacks.
+2. Prey should still flee and threats should still feel distinct and aggressive toward the player.
 
 ## 5. Predator Zones And Minimap
 
@@ -116,16 +118,16 @@ Steps:
 1. Open the full world map after exploring several chunks.
 2. Hover chunks near home and farther away.
 3. Compare chunks with prey only vs chunks with predators.
-4. Trigger a worker threat event and open the map again.
+4. Compare predator-zone chunks near home versus deeper explored chunks after moving farther into danger areas.
 
 Expected:
 1. Threat animals and prey use different icons.
 2. Dangerous chunks show stronger danger overlays than safe chunks.
 3. Hover text includes danger information when relevant.
-4. Worker-threat pressure makes danger areas easier to identify.
+4. Danger readability should come from predator-zone overlays and threat icons rather than worker-threat warnings.
 
 Pay extra attention:
-1. Confirm that danger coverage is understandable enough for planning worker defense.
+1. Confirm that danger coverage is understandable enough for route planning and defense placement.
 2. Check that defense coverage and light coverage rings are readable on the world map.
 
 ## 6. Save And Load Regression
@@ -154,7 +156,7 @@ Mark each item PASS or FAIL:
 1. Workers pause correctly at night outside active campfire light.
 2. Campfire placement/radius is readable enough for night planning.
 3. Barracks queue and reserve UI are understandable.
-4. Watchtower reliably protects workers from threat animals.
+4. Watchtower reliably protects the nearby area from threat animals.
 5. Deer and Rabbit behave like prey, not threats.
 6. Dangerous chunks are readable on the map.
 7. Save/load keeps the new Barracks and Watchtower state.

@@ -1,8 +1,9 @@
 window.GameEntities = (function () {
+  var _simulationConfig = ((window.GAME_BALANCE || {}).simulation) || {};
   var _meshMap = new Map();
   var _dataMap = new Map();
   var _meshCounter = 0;
-  var ACTIVE_CULLED_ANIMAL_DISTANCE = 18;
+  var ACTIVE_CULLED_ANIMAL_DISTANCE = Number(_simulationConfig.animalCullDistance) || 0;
   var ACTIVE_CULLED_ANIMAL_DISTANCE_SQ = ACTIVE_CULLED_ANIMAL_DISTANCE * ACTIVE_CULLED_ANIMAL_DISTANCE;
 
   function init() {
@@ -244,9 +245,9 @@ window.GameEntities = (function () {
       addAnimalLeg(group, furDarkMat, 0.055, 0.62, 0.055, 0.22, 0.23, -0.09);
       addAnimalEyePair(group, 0x20140d, 0.014, 0.82, 0.78, 0.04);
     } else if (type === 'animal.rabbit') {
-      addAnimalSphere(group, furMat, 0.24, -0.03, 0.24, 1.2, 0.9, 1);
-      addAnimalSphere(group, furLightMat, 0.16, 0.2, 0.25, 1, 0.92, 0.95);
-      addAnimalSphere(group, furMat, 0.15, 0.36, 0.31, 1, 1, 0.96);
+      addAnimalSphere(group, furMat, 0.24, -0.03, 0.24, 0, 1.2, 0.9, 1);
+      addAnimalSphere(group, furLightMat, 0.16, 0.2, 0.25, 0, 1, 0.92, 0.95);
+      addAnimalSphere(group, furMat, 0.15, 0.36, 0.31, 0, 1, 1, 0.96);
       addAnimalBox(group, furLightMat, 0.12, 0.06, 0.06, 0.5, 0.29, 0, 0, 0, 0.06);
       addAnimalBox(group, furMat, 0.05, 0.28, 0.04, 0.34, 0.57, 0.06, 0, 0, -0.1);
       addAnimalBox(group, furMat, 0.05, 0.3, 0.04, 0.34, 0.57, -0.06, 0, 0, -0.1);
@@ -690,6 +691,10 @@ window.GameEntities = (function () {
       
       // For animals, sync the visible mesh with the latest respawn location.
       if (objData.type && objData.type.startsWith("animal.")) {
+        var animalBalance = getEntityBalance(objData.type);
+        var animalBehaviorSettings = getAnimalBehaviorSettings(objData.type, animalBalance);
+        var respawnIdleSeconds = animalBehaviorSettings.returnIdleBaseSeconds;
+        var respawnTime = performance.now() / 1000;
         var spawnX = objData.worldX;
         var spawnZ = objData.worldZ;
         if ((spawnX === undefined || spawnZ === undefined) && mesh.userData._spawnX !== undefined && mesh.userData._spawnZ !== undefined) {
@@ -705,10 +710,10 @@ window.GameEntities = (function () {
           mesh.userData._spawnZ = spawnZ;
         }
         // Reset wander timer to pick new direction
-        mesh.userData._wanderTime = performance.now() / 1000;
+        mesh.userData._wanderTime = respawnTime;
         mesh.userData._movementState = 'patrol';
         mesh.userData._patrolTarget = null;
-        mesh.userData._idleUntil = (performance.now() / 1000) + 0.5;
+        mesh.userData._idleUntil = respawnTime + respawnIdleSeconds;
         mesh.userData._moveSpeed = 0;
       }
       
@@ -740,77 +745,49 @@ window.GameEntities = (function () {
     mesh.userData._moveSpeed = mesh.userData._moveSpeed || 0;
   }
 
+  function getAnimalBehaviorTuningConfig() {
+    return (window.GAME_BALANCE && GAME_BALANCE.animalBehavior) || {};
+  }
+
+  function getBehaviorValue(behaviorConfig, key) {
+    return Number(behaviorConfig && behaviorConfig[key]) || 0;
+  }
+
   function getAnimalBehaviorSettings(type, balance) {
+    var behaviorConfig = (balance && balance.behavior) || {};
+    var tuningConfig = getAnimalBehaviorTuningConfig();
     var settings = {
-      patrolRadius: 3.2,
-      patrolSpeed: 0.38,
-      chaseSpeed: 1.05,
-      returnSpeed: 0.72,
-      turnRate: 0.18,
+      patrolRadius: getBehaviorValue(behaviorConfig, 'patrolRadius'),
+      patrolSpeed: getBehaviorValue(behaviorConfig, 'patrolSpeed'),
+      chaseSpeed: getBehaviorValue(behaviorConfig, 'chaseSpeed'),
+      returnSpeed: getBehaviorValue(behaviorConfig, 'returnSpeed'),
+      turnRate: getBehaviorValue(behaviorConfig, 'turnRate'),
+      fleeMinDistance: Number(tuningConfig.fleeMinDistance) || 0,
+      fleeSpawnRadiusMultiplier: Number(tuningConfig.fleeSpawnRadiusMultiplier) || 0,
+      fleeEscapeDistanceMultiplier: Number(tuningConfig.fleeEscapeDistanceMultiplier) || 0,
+      returnToSpawnDistanceMultiplier: Number(tuningConfig.returnToSpawnDistanceMultiplier) || 0,
+      returnIdleBaseSeconds: Number(tuningConfig.returnIdleBaseSeconds) || 0,
+      returnIdleRandomSeconds: Number(tuningConfig.returnIdleRandomSeconds) || 0,
+      patrolIdleBaseSeconds: Number(tuningConfig.patrolIdleBaseSeconds) || 0,
+      patrolIdleRandomSeconds: Number(tuningConfig.patrolIdleRandomSeconds) || 0,
       disposition: (window.GameRegistry && GameRegistry.getAnimalDisposition) ? GameRegistry.getAnimalDisposition(type) : ((balance && balance.animalDisposition) || 'threat')
     };
 
     settings.isThreat = settings.disposition !== 'prey';
 
-    if (type === 'animal.wolf') {
-      settings.patrolSpeed = 0.46;
-      settings.chaseSpeed = 1.18;
-      settings.returnSpeed = 0.8;
-      settings.turnRate = 0.24;
-    } else if (type === 'animal.boar') {
-      settings.patrolSpeed = 0.42;
-      settings.chaseSpeed = 1.0;
-      settings.returnSpeed = 0.76;
-      settings.turnRate = 0.2;
-    } else if (type === 'animal.bear') {
-      settings.patrolRadius = 3.8;
-      settings.patrolSpeed = 0.34;
-      settings.chaseSpeed = 0.9;
-      settings.returnSpeed = 0.64;
-      settings.turnRate = 0.14;
-    } else if (type === 'animal.lion') {
-      settings.patrolRadius = 4.2;
-      settings.patrolSpeed = 0.44;
-      settings.chaseSpeed = 1.15;
-      settings.returnSpeed = 0.82;
-      settings.turnRate = 0.24;
-    } else if (type === 'animal.bandit') {
-      settings.patrolRadius = 2.8;
-      settings.patrolSpeed = 0.4;
-      settings.chaseSpeed = 0.98;
-      settings.returnSpeed = 0.74;
-      settings.turnRate = 0.22;
-    } else if (type === 'animal.sabertooth') {
-      settings.patrolRadius = 4.6;
-      settings.patrolSpeed = 0.5;
-      settings.chaseSpeed = 1.25;
-      settings.returnSpeed = 0.88;
-      settings.turnRate = 0.26;
-    } else if (type === 'animal.deer') {
-      settings.patrolRadius = 3.8;
-      settings.patrolSpeed = 0.48;
-      settings.returnSpeed = 0.84;
-      settings.turnRate = 0.22;
-    } else if (type === 'animal.rabbit') {
-      settings.patrolRadius = 2.4;
-      settings.patrolSpeed = 0.54;
-      settings.returnSpeed = 0.96;
-      settings.turnRate = 0.28;
-    }
-
     if (settings.isThreat) {
       var aggroRange = Number(balance && balance.aggroRange);
-      settings.aggroRange = aggroRange >= 0 ? aggroRange : 3;
-      settings.attackRange = Math.max(1.05, settings.aggroRange * 0.55);
-      settings.chaseRange = Math.max(settings.attackRange + 1.25, settings.aggroRange * 2.3);
+      settings.aggroRange = aggroRange >= 0 ? aggroRange : 0;
+      settings.attackRange = getBehaviorValue(behaviorConfig, 'attackRange');
+      settings.chaseRange = getBehaviorValue(behaviorConfig, 'chaseRange');
       settings.fleeRange = 0;
       settings.fleeSpeed = settings.returnSpeed;
     } else {
       settings.aggroRange = 0;
       settings.attackRange = 0;
       settings.chaseRange = 0;
-      settings.fleeRange = Number(balance && balance.fleeRange) > 0 ? Number(balance && balance.fleeRange) : 2.4;
-      settings.fleeSpeed = Number(balance && balance.fleeSpeed) > 0 ? Number(balance && balance.fleeSpeed) : Math.max(settings.returnSpeed, settings.patrolSpeed + 0.35);
+      settings.fleeRange = Number(balance && balance.fleeRange) || 0;
+      settings.fleeSpeed = Number(balance && balance.fleeSpeed) || 0;
     }
 
     return settings;
@@ -837,11 +814,30 @@ window.GameEntities = (function () {
     return true;
   }
 
-  function turnAnimalTowards(mesh, targetAngle, turnRate) {
-    var angleDiff = targetAngle - mesh.rotation.y;
-    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-    mesh.rotation.y += angleDiff * turnRate;
+  function normalizeAnimalAngle(angle) {
+    while (angle > Math.PI) angle -= 2 * Math.PI;
+    while (angle < -Math.PI) angle += 2 * Math.PI;
+    return angle;
+  }
+
+  function turnAnimalTowards(mesh, targetAngle, turnRate, snapThreshold) {
+    targetAngle = normalizeAnimalAngle(targetAngle);
+    var angleDiff = normalizeAnimalAngle(targetAngle - mesh.rotation.y);
+    if ((snapThreshold !== undefined && Math.abs(angleDiff) <= snapThreshold) || turnRate >= 1) {
+      mesh.rotation.y = targetAngle;
+      return;
+    }
+    mesh.rotation.y = normalizeAnimalAngle(mesh.rotation.y + angleDiff * turnRate);
+  }
+
+  function getAnimalFacingAngle(dirX, dirZ) {
+    if (!dirX && !dirZ) return 0;
+    // Animal meshes are authored facing +X, so rotate from the X axis instead of the default +Z assumption.
+    return Math.atan2(-dirZ, dirX);
+  }
+
+  function getAnimalFacingAngleToTarget(fromX, fromZ, targetX, targetZ) {
+    return getAnimalFacingAngle(targetX - fromX, targetZ - fromZ);
   }
 
   function pickAnimalPatrolTarget(mesh, settings) {
@@ -859,7 +855,7 @@ window.GameEntities = (function () {
     return { x: spawnX, z: spawnZ };
   }
 
-  function moveAnimal(mesh, objData, targetX, targetZ, speed, dt, turnRate) {
+  function moveAnimal(mesh, objData, targetX, targetZ, speed, dt, turnRate, facingAngleOverride) {
     var dx = targetX - objData.worldX;
     var dz = targetZ - objData.worldZ;
     var distance = Math.sqrt(dx * dx + dz * dz);
@@ -890,11 +886,11 @@ window.GameEntities = (function () {
     mesh.position.x = objData.worldX;
     mesh.position.z = objData.worldZ;
     mesh.userData._moveSpeed = moved ? speed : 0;
-    turnAnimalTowards(mesh, Math.atan2(dirX, dirZ), turnRate);
+    turnAnimalTowards(mesh, facingAngleOverride === undefined ? getAnimalFacingAngle(dirX, dirZ) : facingAngleOverride, turnRate, 0.02);
     return moved && distance <= moveDistance + 0.08;
   }
 
-  function moveAnimalAwayFromTarget(mesh, objData, dangerX, dangerZ, speed, dt, turnRate, settings) {
+  function moveAnimalAwayFromTarget(mesh, objData, dangerX, dangerZ, speed, dt, turnRate, settings, facingAngleOverride) {
     var awayX = objData.worldX - dangerX;
     var awayZ = objData.worldZ - dangerZ;
     var awayDistance = Math.sqrt(awayX * awayX + awayZ * awayZ);
@@ -909,12 +905,12 @@ window.GameEntities = (function () {
       awayDistance = 1;
     }
 
-    var desiredDistance = Math.max((settings && settings.fleeRange) || 2.4, 1.6);
+    var desiredDistance = Math.max((settings && settings.fleeRange) || 0, (settings && settings.fleeMinDistance) || 0);
     var targetX = objData.worldX + (awayX / awayDistance) * desiredDistance;
     var targetZ = objData.worldZ + (awayZ / awayDistance) * desiredDistance;
     var spawnDx = targetX - mesh.userData._spawnX;
     var spawnDz = targetZ - mesh.userData._spawnZ;
-    var maxDistanceFromSpawn = ((settings && settings.patrolRadius) || 3) * 1.8;
+    var maxDistanceFromSpawn = ((settings && settings.patrolRadius) || 0) * ((settings && settings.fleeSpawnRadiusMultiplier) || 0);
     var targetDistanceFromSpawn = Math.sqrt(spawnDx * spawnDx + spawnDz * spawnDz);
 
     if (targetDistanceFromSpawn > maxDistanceFromSpawn) {
@@ -922,7 +918,7 @@ window.GameEntities = (function () {
       targetZ = mesh.userData._spawnZ + (spawnDz / targetDistanceFromSpawn) * maxDistanceFromSpawn;
     }
 
-    return moveAnimal(mesh, objData, targetX, targetZ, speed, dt, turnRate);
+    return moveAnimal(mesh, objData, targetX, targetZ, speed, dt, turnRate, facingAngleOverride);
   }
 
   function getWorkerTargetForAnimal(objData, settings) {
@@ -1013,7 +1009,7 @@ window.GameEntities = (function () {
           mesh.userData._patrolTarget = null;
           mesh.userData._moveSpeed = 0;
           if (playerPos) {
-            turnAnimalTowards(mesh, Math.atan2(playerPos.x - objData.worldX, playerPos.z - objData.worldZ), settings.turnRate * 1.4);
+            turnAnimalTowards(mesh, getAnimalFacingAngleToTarget(objData.worldX, objData.worldZ, playerPos.x, playerPos.z), 1, 0.02);
           }
         } else if (settings.isThreat && workerTarget && preferWorker) {
           mesh.userData._movementState = 'chase';
@@ -1026,24 +1022,10 @@ window.GameEntities = (function () {
 
           if (distToWorker <= settings.attackRange) {
             mesh.userData._moveSpeed = 0;
-            turnAnimalTowards(mesh, Math.atan2(workerTarget.x - objData.worldX, workerTarget.z - objData.worldZ), settings.turnRate * 1.4);
+            turnAnimalTowards(mesh, getAnimalFacingAngleToTarget(objData.worldX, objData.worldZ, workerTarget.x, workerTarget.z), 1, 0.02);
           } else {
             var reachedWorker = moveAnimal(mesh, objData, workerTarget.x, workerTarget.z, settings.chaseSpeed, dt, settings.turnRate);
             if (!reachedWorker && mesh.userData._moveSpeed === 0) {
-              mesh.userData._movementState = 'return';
-            }
-          }
-        } else if (settings.isThreat && !combatActive && playerPos && distToPlayer <= settings.chaseRange) {
-          mesh.userData._movementState = 'chase';
-          mesh.userData._patrolTarget = null;
-          mesh.userData._idleUntil = 0;
-
-          if (distToPlayer <= settings.attackRange) {
-            GameCombat.startCombat(objData);
-            mesh.userData._moveSpeed = 0;
-          } else {
-            var reachedPlayer = moveAnimal(mesh, objData, playerPos.x, playerPos.z, settings.chaseSpeed, dt, settings.turnRate);
-            if (!reachedPlayer && mesh.userData._moveSpeed === 0) {
               mesh.userData._movementState = 'return';
             }
           }
@@ -1053,17 +1035,17 @@ window.GameEntities = (function () {
           mesh.userData._idleUntil = 0;
 
           var escaped = moveAnimalAwayFromTarget(mesh, objData, playerPos.x, playerPos.z, settings.fleeSpeed, dt, settings.turnRate, settings);
-          if (distToPlayer > settings.fleeRange * 1.2) {
+          if (distToPlayer > settings.fleeRange * settings.fleeEscapeDistanceMultiplier) {
             mesh.userData._movementState = 'patrol';
           } else if (!escaped && mesh.userData._moveSpeed === 0) {
             mesh.userData._movementState = 'return';
           }
-        } else if (distFromSpawn > settings.patrolRadius * 1.25 || mesh.userData._movementState === 'return') {
+          } else if (distFromSpawn > settings.patrolRadius * settings.returnToSpawnDistanceMultiplier || mesh.userData._movementState === 'return') {
           mesh.userData._movementState = 'return';
           mesh.userData._patrolTarget = null;
           if (moveAnimal(mesh, objData, mesh.userData._spawnX, mesh.userData._spawnZ, settings.returnSpeed, dt, settings.turnRate)) {
             mesh.userData._movementState = 'patrol';
-            mesh.userData._idleUntil = time + 0.5 + Math.random();
+              mesh.userData._idleUntil = time + settings.returnIdleBaseSeconds + (Math.random() * settings.returnIdleRandomSeconds);
             mesh.userData._moveSpeed = 0;
           }
         } else {
@@ -1078,7 +1060,7 @@ window.GameEntities = (function () {
             var reachedPatrol = moveAnimal(mesh, objData, patrolTarget.x, patrolTarget.z, settings.patrolSpeed, dt, settings.turnRate);
             if (reachedPatrol || mesh.userData._moveSpeed === 0) {
               mesh.userData._patrolTarget = null;
-              mesh.userData._idleUntil = time + 0.8 + Math.random() * 1.2;
+              mesh.userData._idleUntil = time + settings.patrolIdleBaseSeconds + (Math.random() * settings.patrolIdleRandomSeconds);
               mesh.userData._moveSpeed = 0;
             }
           } else {

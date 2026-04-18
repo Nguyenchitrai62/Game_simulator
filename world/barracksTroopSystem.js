@@ -3,12 +3,130 @@ window.BarracksTroopSystem = (function () {
   var _troopIdCounter = 1;
   var _initialized = false;
   var _syncAccumulator = 0;
-  var TROOP_SYNC_INTERVAL = 0.25;
 
   var MODE_LABELS = {
     guard: 'Guard Nearby',
     follow: 'Follow Player'
   };
+
+  function getTroopBalanceConfig() {
+    return (window.GAME_BALANCE && GAME_BALANCE.barracksTroops) || {};
+  }
+
+  function getTroopTargetingConfig() {
+    return getTroopBalanceConfig().targeting || {};
+  }
+
+  function getTroopFormationConfig() {
+    return getTroopBalanceConfig().formation || {};
+  }
+
+  function getCombatConfig() {
+    return (window.GAME_BALANCE && GAME_BALANCE.combat) || {};
+  }
+
+  function getAnimalRespawnConfig() {
+    return (window.GAME_BALANCE && GAME_BALANCE.animalRespawn) || {};
+  }
+
+  function getTroopSyncInterval() {
+    return Number(getTroopBalanceConfig().syncIntervalSeconds) || 0;
+  }
+
+  function getTroopSpawnJitter() {
+    return Number(getTroopBalanceConfig().spawnJitter) || 0;
+  }
+
+  function getInitialAttackCooldownMax() {
+    return Number(getTroopBalanceConfig().initialAttackCooldownMax) || 0;
+  }
+
+  function getDestinationRetargetCooldown() {
+    return Number(getTroopBalanceConfig().destinationRetargetCooldown) || 0;
+  }
+
+  function getRepathCooldown() {
+    return Number(getTroopBalanceConfig().repathCooldown) || 0;
+  }
+
+  function getGuardRadiusLeashBonus() {
+    return Number(getTroopTargetingConfig().guardRadiusLeashBonus) || 0;
+  }
+
+  function getThreatBias() {
+    return Number(getTroopTargetingConfig().threatBias) || 0;
+  }
+
+  function getTroopDistanceWeight() {
+    return Number(getTroopTargetingConfig().troopDistanceWeight) || 0;
+  }
+
+  function getBarracksDistanceWeight() {
+    return Number(getTroopTargetingConfig().barracksDistanceWeight) || 0;
+  }
+
+  function getPriorityBiasForAnimal(animalType) {
+    var priorityBiases = getTroopTargetingConfig().priorityBiasByAnimal || {};
+    return Number(priorityBiases[animalType]) || 0;
+  }
+
+  function getGuardBaseRadius() {
+    return Number(getTroopFormationConfig().guardBaseRadius) || 0;
+  }
+
+  function getGuardRingSpacing() {
+    return Number(getTroopFormationConfig().guardRingSpacing) || 0;
+  }
+
+  function getGuardArcherOffset() {
+    return Number(getTroopFormationConfig().guardArcherOffset) || 0;
+  }
+
+  function getFollowBaseRadius() {
+    return Number(getTroopFormationConfig().followBaseRadius) || 0;
+  }
+
+  function getFollowRingSpacing() {
+    return Number(getTroopFormationConfig().followRingSpacing) || 0;
+  }
+
+  function getFollowArcherOffset() {
+    return Number(getTroopFormationConfig().followArcherOffset) || 0;
+  }
+
+  function getFollowAngleStep() {
+    return Number(getTroopFormationConfig().followAngleStep) || 0;
+  }
+
+  function getEngageMinRadius() {
+    return Number(getTroopFormationConfig().engageMinRadius) || 0;
+  }
+
+  function getEngageRadiusMultiplier() {
+    return Number(getTroopFormationConfig().engageRadiusMultiplier) || 0;
+  }
+
+  function getMinimumDamage() {
+    return Number(getCombatConfig().minimumDamage) || 0;
+  }
+
+  function getAnimalRespawnRetryDelayMs() {
+    return Number(getAnimalRespawnConfig().retryDelayMs) || 0;
+  }
+
+  function getEntityRespawnTimeSeconds(balance) {
+    return Number(balance && balance.respawnTime) || 0;
+  }
+
+  function isPlayerTooCloseForRespawn(target) {
+    if (!target || !window.GamePlayer || !GamePlayer.getPosition) return false;
+
+    var playerPos = GamePlayer.getPosition();
+    var safeDistance = Number(getAnimalRespawnConfig().playerSafeDistance) || 0;
+    var dx = Math.abs(target.worldX - playerPos.x);
+    var dz = Math.abs(target.worldZ - playerPos.z);
+    return dx < safeDistance && dz < safeDistance;
+  }
 
   function init() {
     disposeAllTroops();
@@ -22,7 +140,7 @@ window.BarracksTroopSystem = (function () {
     if (!_initialized || dt <= 0) return;
 
     _syncAccumulator += dt;
-    if (_syncAccumulator >= TROOP_SYNC_INTERVAL) {
+    if (_syncAccumulator >= getTroopSyncInterval()) {
       _syncAccumulator = 0;
       syncTroops();
     }
@@ -202,9 +320,10 @@ window.BarracksTroopSystem = (function () {
   }
 
   function createTroop(barracks, unitType) {
+    var spawnJitter = getTroopSpawnJitter();
     var spawnPos = resolveStandPosition(
-      barracks.x + ((Math.random() - 0.5) * 1.6),
-      barracks.z + ((Math.random() - 0.5) * 1.6),
+      barracks.x + ((Math.random() - 0.5) * spawnJitter),
+      barracks.z + ((Math.random() - 0.5) * spawnJitter),
       { x: barracks.x, z: barracks.z },
       4
     );
@@ -219,7 +338,7 @@ window.BarracksTroopSystem = (function () {
       targetPosition: null,
       pathQueue: [],
       targetAnimalId: null,
-      attackCooldown: Math.random() * 0.35,
+      attackCooldown: Math.random() * getInitialAttackCooldownMax(),
       destinationCooldown: 0,
       repathCooldown: 0,
       status: 'idle',
@@ -343,7 +462,7 @@ window.BarracksTroopSystem = (function () {
     var guardRadius = getBarracksGuardRadius(barracks);
     var barracksDistance = distanceBetween({ x: barracks.x, z: barracks.z }, { x: target.worldX, z: target.worldZ });
 
-    if (mode !== 'follow' && barracksDistance > guardRadius + 2.5) {
+    if (mode !== 'follow' && barracksDistance > guardRadius + getGuardRadiusLeashBonus()) {
       troop.targetAnimalId = null;
       holdFormation(troop, barracks, playerPos, unitConfig, dt, mode);
       return;
@@ -366,7 +485,7 @@ window.BarracksTroopSystem = (function () {
 
     var targetBalance = GameRegistry.getBalance(target.type) || {};
     var targetDefense = target.defense !== undefined ? target.defense : (targetBalance.defense || 0);
-    var damage = Math.max(1, getUnitAttackDamage(unitConfig) - targetDefense);
+  var damage = Math.max(getMinimumDamage(), getUnitAttackDamage(unitConfig) - targetDefense);
 
     target.hp -= damage;
     if (target.hp < 0) target.hp = 0;
@@ -425,7 +544,7 @@ window.BarracksTroopSystem = (function () {
       }
     }
 
-    troop.destinationCooldown = 0.18;
+    troop.destinationCooldown = getDestinationRetargetCooldown();
     troop.targetPosition = { x: targetPos.x, z: targetPos.z };
     troop.pathQueue = buildPath(troop.position, troop.targetPosition);
   }
@@ -459,7 +578,7 @@ window.BarracksTroopSystem = (function () {
     } else if (canMoveTo(troop.position.x, stepZ)) {
       nextZ = stepZ;
     } else if (troop.repathCooldown <= 0) {
-      troop.repathCooldown = 0.24;
+      troop.repathCooldown = getRepathCooldown();
       troop.pathQueue = buildPath(troop.position, troop.targetPosition);
     }
 
@@ -513,7 +632,7 @@ window.BarracksTroopSystem = (function () {
   function selectGuardTarget(troop, barracks, animals, animalMap) {
     var guardRadius = getBarracksGuardRadius(barracks);
     var existingTarget = troop.targetAnimalId ? animalMap[troop.targetAnimalId] : null;
-    if (isAnimalWithinGuardRadius(existingTarget, barracks, guardRadius + 2.5)) {
+    if (isAnimalWithinGuardRadius(existingTarget, barracks, guardRadius + getGuardRadiusLeashBonus())) {
       return existingTarget;
     }
 
@@ -524,13 +643,10 @@ window.BarracksTroopSystem = (function () {
       var animal = animals[index];
       if (!isAnimalWithinGuardRadius(animal, barracks, guardRadius)) continue;
 
-      var threatBias = (window.GameRegistry && GameRegistry.isAnimalThreat && GameRegistry.isAnimalThreat(animal.type)) ? -6 : 0;
+      var threatBias = (window.GameRegistry && GameRegistry.isAnimalThreat && GameRegistry.isAnimalThreat(animal.type)) ? getThreatBias() : 0;
       var troopDistance = distanceBetween(troop.position, { x: animal.worldX, z: animal.worldZ });
       var barracksDistance = distanceBetween({ x: barracks.x, z: barracks.z }, { x: animal.worldX, z: animal.worldZ });
-      var score = (troopDistance * 0.55) + (barracksDistance * 0.45) + threatBias;
-
-      if (animal.type === 'animal.bandit' || animal.type === 'animal.sabertooth') score -= 1.0;
-      if (animal.type === 'animal.bear' || animal.type === 'animal.lion') score -= 0.35;
+      var score = (troopDistance * getTroopDistanceWeight()) + (barracksDistance * getBarracksDistanceWeight()) + threatBias + getPriorityBiasForAnimal(animal.type);
 
       if (score < bestScore) {
         bestScore = score;
@@ -553,7 +669,7 @@ window.BarracksTroopSystem = (function () {
     var ringIndex = Math.floor(troop.slotIndex / 6);
     var angle = ((troop.slotIndex % groupSize) / groupSize) * Math.PI * 2;
     angle += (hashString(troop.barracksUid) % 360) * (Math.PI / 180);
-    var radius = 1.7 + (ringIndex * 0.7) + (troop.unitType === 'archer' ? 0.25 : 0);
+    var radius = getGuardBaseRadius() + (ringIndex * getGuardRingSpacing()) + (troop.unitType === 'archer' ? getGuardArcherOffset() : 0);
 
     return resolveStandPosition(
       barracks.x + Math.cos(angle) * radius,
@@ -565,8 +681,8 @@ window.BarracksTroopSystem = (function () {
 
   function getFollowAnchor(troop, playerPos) {
     var seed = hashString(troop.uid + ':' + troop.barracksUid);
-    var angle = ((seed % 360) * (Math.PI / 180)) + ((troop.slotIndex % 5) * 0.72);
-    var radius = 1.8 + (Math.floor(troop.slotIndex / 5) * 0.8) + (troop.unitType === 'archer' ? 0.2 : 0);
+    var angle = ((seed % 360) * (Math.PI / 180)) + ((troop.slotIndex % 5) * getFollowAngleStep());
+    var radius = getFollowBaseRadius() + (Math.floor(troop.slotIndex / 5) * getFollowRingSpacing()) + (troop.unitType === 'archer' ? getFollowArcherOffset() : 0);
 
     return resolveStandPosition(
       playerPos.x + Math.cos(angle) * radius,
@@ -579,7 +695,7 @@ window.BarracksTroopSystem = (function () {
   function getEngageAnchor(troop, target, attackRange) {
     var seed = hashString(troop.uid);
     var angle = (seed % 360) * (Math.PI / 180);
-    var desiredRadius = Math.max(1.1, attackRange * 0.88);
+    var desiredRadius = Math.max(getEngageMinRadius(), attackRange * getEngageRadiusMultiplier());
 
     return resolveStandPosition(
       target.worldX + Math.cos(angle) * desiredRadius,
@@ -669,7 +785,7 @@ window.BarracksTroopSystem = (function () {
   }
 
   function scheduleAnimalRespawn(target, balance) {
-    var respawnTime = balance ? (balance.respawnTime || 60) : 60;
+    var respawnTime = getEntityRespawnTimeSeconds(balance);
     target.respawnAt = Date.now() + (respawnTime * 1000);
 
     function tryAnimalRespawn() {
@@ -680,17 +796,12 @@ window.BarracksTroopSystem = (function () {
         relocated = GameTerrain.relocateRespawnedAnimal(target);
       }
 
-      if (!relocated && window.GamePlayer) {
-        var playerPos = GamePlayer.getPosition();
-        var dx = Math.abs(target.worldX - playerPos.x);
-        var dz = Math.abs(target.worldZ - playerPos.z);
-        if (dx < 2 && dz < 2) {
-          setTimeout(tryAnimalRespawn, 5000);
-          return;
-        }
+      if (!relocated && isPlayerTooCloseForRespawn(target)) {
+        setTimeout(tryAnimalRespawn, getAnimalRespawnRetryDelayMs());
+        return;
       }
 
-      target.hp = target.maxHp || (balance ? balance.hp : 1) || 1;
+      target.hp = target.maxHp || Number(balance && balance.hp) || 0;
       target._destroyed = false;
       target.respawnAt = 0;
       if (window.GameEntities && GameEntities.showObject) {
@@ -719,7 +830,7 @@ window.BarracksTroopSystem = (function () {
   function getBarracksGuardRadius(barracks) {
     var balance = getBarracksBalance(barracks);
     var level = barracks.level || 1;
-    return getLevelConfigValue(balance.guardRadius, level, 10);
+    return getLevelConfigValue(balance.guardRadius, level, 0);
   }
 
   function getLevelConfigValue(value, level, fallback) {
@@ -731,19 +842,19 @@ window.BarracksTroopSystem = (function () {
   }
 
   function getUnitMoveSpeed(unitConfig) {
-    return Math.max(1.8, Number(unitConfig && unitConfig.moveSpeed) || 3.0);
+    return Number(unitConfig && unitConfig.moveSpeed) || 0;
   }
 
   function getUnitAttackRange(unitConfig) {
-    return Math.max(1.1, Number(unitConfig && unitConfig.attackRange) || 1.4);
+    return Number(unitConfig && unitConfig.attackRange) || 0;
   }
 
   function getUnitAttackDamage(unitConfig) {
-    return Math.max(1, Number(unitConfig && unitConfig.attackDamage) || 1);
+    return Number(unitConfig && unitConfig.attackDamage) || getMinimumDamage();
   }
 
   function getUnitAttackInterval(unitConfig) {
-    return Math.max(0.45, Number(unitConfig && unitConfig.attackIntervalSeconds) || 1.0);
+    return Number(unitConfig && unitConfig.attackIntervalSeconds) || 0;
   }
 
   function distanceBetween(a, b) {

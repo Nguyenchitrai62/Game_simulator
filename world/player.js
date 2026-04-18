@@ -1,6 +1,7 @@
 window.GamePlayer = (function () {
   var mesh;
-  var _x = 8, _z = 8;
+  var _initialSpawnPosition = (window.GameState && GameState.getPlayerSpawnPosition) ? GameState.getPlayerSpawnPosition() : { x: 0, z: 0 };
+  var _x = _initialSpawnPosition.x, _z = _initialSpawnPosition.z;
   var _moving = false;
   var _direction = { x: 0, z: 1 };
   var _keys = {};
@@ -48,6 +49,7 @@ window.GamePlayer = (function () {
   var _tutLagRecoveryTimer = 0;
   var _tutLagAudioActive = false;
   var _tutNightTimer = 0;
+  var _repeatableTutArmed = { eat: true };
   var _tutLastNearNode = false; // set by updateContextAction each refresh
   var _clickMouseNdc = null;
   var _clickRaycaster = null;
@@ -78,9 +80,32 @@ window.GamePlayer = (function () {
     return current + (target - current) * alpha;
   }
 
+  function getConfiguredPositiveNumber(value) {
+    var number = Number(value);
+    return number > 0 ? number : null;
+  }
+
+  function getConfiguredNonNegativeNumber(value) {
+    var number = Number(value);
+    return number >= 0 ? number : null;
+  }
+
+  function getPlayerSpawnFallbackPosition() {
+    return (window.GameState && GameState.getPlayerSpawnPosition) ? GameState.getPlayerSpawnPosition() : { x: 0, z: 0 };
+  }
+
+  function getPlayerInteractionRadius() {
+    return (window.GameState && GameState.getPlayerInteractionRadius) ? GameState.getPlayerInteractionRadius() : 0;
+  }
+
+  function getPlayerShallowWaterSpeedMultiplier() {
+    return (window.GameState && GameState.getPlayerShallowWaterSpeedMultiplier) ? GameState.getPlayerShallowWaterSpeedMultiplier() : 0;
+  }
+
   function init(startX, startZ) {
-    _x = startX || 8;
-    _z = startZ || 8;
+    var spawnPosition = getPlayerSpawnFallbackPosition();
+    _x = (startX !== undefined && startX !== null) ? startX : spawnPosition.x;
+    _z = (startZ !== undefined && startZ !== null) ? startZ : spawnPosition.z;
 
     var group = new THREE.Group();
 
@@ -209,12 +234,17 @@ window.GamePlayer = (function () {
         var name = entity ? entity.name : objData.type;
         if (objData.type.startsWith('animal.')) {
           var balance = GameRegistry.getBalance(objData.type);
-          var info = name + ' | HP: ' + objData.hp + '/' + objData.maxHp;
-          if (balance) info += ' | ATK: ' + (balance.attack || 0) + ' DEF: ' + (balance.defense || 0);
-          info += ' | ' + ((GameRegistry.isAnimalThreat && GameRegistry.isAnimalThreat(objData.type)) ? 'Threat' : 'Prey');
+          var info = name + ' | ' + t('hud.nodes.hpShort', null, 'HP') + ': ' + objData.hp + '/' + objData.maxHp;
+          if (balance) {
+            info += ' | ' + t('hud.player.animalStatLabels.attack', null, 'Attack') + ': ' + (balance.attack || 0);
+            info += ' ' + t('hud.player.animalStatLabels.defense', null, 'Defense') + ': ' + (balance.defense || 0);
+          }
+          info += ' | ' + ((GameRegistry.isAnimalThreat && GameRegistry.isAnimalThreat(objData.type))
+            ? t('hud.player.animalDisposition.threat', null, 'Threat')
+            : t('hud.player.animalDisposition.prey', null, 'Prey'));
           GameHUD.showNotification(info);
         } else if (objData.type.startsWith('node.')) {
-          GameHUD.showNotification(name + ' | HP: ' + objData.hp + '/' + objData.maxHp);
+          GameHUD.showNotification(name + ' | ' + t('hud.nodes.hpShort', null, 'HP') + ': ' + objData.hp + '/' + objData.maxHp);
         }
       }
     }
@@ -227,27 +257,26 @@ window.GamePlayer = (function () {
 
     var foodAmount = GameState.getResource("resource.food");
     if (foodAmount < 1) {
-      if (typeof GameHUD !== 'undefined') GameHUD.showNotification("No food available.");
+      if (typeof GameHUD !== 'undefined') GameHUD.showNotification(t('hud.player.noFoodAvailable', null, 'No food available.'));
       return;
     }
 
     var currentHunger = GameState.getHunger();
     var maxHunger = GameState.getMaxHunger();
     if (currentHunger >= maxHunger) {
-      if (typeof GameHUD !== 'undefined') GameHUD.showNotification("Already full.");
+      if (typeof GameHUD !== 'undefined') GameHUD.showNotification(t('hud.player.alreadyFull', null, 'Already full.'));
       return;
     }
 
     // Consume 1 food, start eating
     GameState.removeResource("resource.food", 1);
-    var balance = window.GAME_BALANCE || {};
-    var hungerConfig = balance.hunger || {};
-    var eatDuration = Number(hungerConfig.eatDuration);
-    if (!(eatDuration > 0)) eatDuration = 0.5;
+    var eatDuration = GameState.getEatDuration();
     _isEating = true;
     _eatTimer = eatDuration;
 
-    if (typeof GameHUD !== 'undefined') GameHUD.showNotification("Eating... (" + eatDuration.toFixed(1) + "s)");
+    if (typeof GameHUD !== 'undefined') {
+      GameHUD.showNotification(t('hud.player.eatingNotification', { seconds: eatDuration.toFixed(1) }, 'Eating... ({seconds}s)'));
+    }
   }
 
   // === TUTORIAL FUNCTIONS ===
@@ -279,9 +308,13 @@ window.GamePlayer = (function () {
     return _getSpeechValue('tutorials.' + key, null);
   }
 
-  function _getSpeechDuration(config, fallbackSeconds) {
-    var duration = Number(config && config.duration);
-    return duration > 0 ? duration : fallbackSeconds;
+  function _isTutorialRepeatable(key) {
+    var tutorialConfig = _getTutorialSpeechConfig(key);
+    return !!(tutorialConfig && tutorialConfig.once === false);
+  }
+
+  function _getSpeechDuration(config) {
+    return getConfiguredPositiveNumber(config && config.duration);
   }
 
   function _formatSpeechText(template, tokens) {
@@ -293,6 +326,13 @@ window.GamePlayer = (function () {
       html = html.split('{' + tokenName + '}').join(String(tokens[tokenName]));
     }
     return html;
+  }
+
+  function t(path, tokens, fallback) {
+    if (window.GameI18n && GameI18n.t) {
+      return GameI18n.t(path, tokens, fallback);
+    }
+    return _formatSpeechText(fallback !== undefined ? fallback : path, tokens);
   }
 
   function _playSpeechAudio(audioPath) {
@@ -426,10 +466,40 @@ window.GamePlayer = (function () {
   }
 
   function _markTutSeen(key) {
+    if (_isTutorialRepeatable(key)) {
+      _repeatableTutArmed[key] = false;
+      _hideTut(key);
+      return;
+    }
     if (_tutState[key]) return;
     _tutState[key] = true;
     _saveTut();
     _hideTut(key);
+  }
+
+  function _rememberTutShown(key) {
+    if (_isTutorialRepeatable(key)) {
+      _repeatableTutArmed[key] = false;
+      return;
+    }
+    if (_tutState[key]) return;
+    _tutState[key] = true;
+    _saveTut();
+  }
+
+  function _getEatTutorialState() {
+    var hungryThreshold = GameState.getHungryThreshold();
+    var hunger = GameState.getHunger ? GameState.getHunger() : GameState.getMaxHunger();
+    var food = GameState.getResource ? GameState.getResource('resource.food') : 0;
+    var shouldPrompt = hunger < hungryThreshold && food >= 1;
+
+    if (!shouldPrompt) {
+      _repeatableTutArmed.eat = true;
+    }
+
+    return {
+      shouldPrompt: shouldPrompt
+    };
   }
 
   function _setLagAudioActive(active, audioPath) {
@@ -444,10 +514,13 @@ window.GamePlayer = (function () {
   function _queuePlayerSpeech(key, config, tokens, options) {
     if (!config || !config.text) return false;
 
+    var duration = _getSpeechDuration(config);
+    if (duration === null) return false;
+
     _runtimeSpeech = {
       key: key,
       html: _formatSpeechText(config.text, tokens),
-      remaining: _getSpeechDuration(config, 2.5),
+      remaining: duration,
       hintObjectId: options && options.hintObjectId ? options.hintObjectId : null
     };
     _showTut(_runtimeSpeech.key, _runtimeSpeech.html);
@@ -516,14 +589,14 @@ window.GamePlayer = (function () {
     if (_runtimeSpeech || _tutKey === 'lag') return;
 
     _resourceDiscoveryTimer += dt;
-    var scanInterval = Number(config.scanInterval);
-    if (!(scanInterval > 0)) scanInterval = 0.6;
+    var scanInterval = getConfiguredPositiveNumber(config.scanInterval);
+    if (scanInterval === null) return;
     if (_resourceDiscoveryTimer < scanInterval) return;
     _resourceDiscoveryTimer = 0;
 
     var watchedResourceIds = config.resourceIds || [];
-    var maxDistance = Number(config.maxDistance);
-    if (!(maxDistance > 0)) maxDistance = 18;
+    var maxDistance = getConfiguredPositiveNumber(config.maxDistance);
+    if (maxDistance === null) return;
 
     var meshes = GameEntities.getAllMeshes();
     var bestCandidate = null;
@@ -603,17 +676,20 @@ window.GamePlayer = (function () {
   function _queueWorldSpeech(key, config, objectId, tokens) {
     if (!config || !config.text || !objectId) return false;
 
-    var anchorY = Number(config.anchorY);
-    if (!(anchorY > 0)) {
-      anchorY = Number(_getSpeechValue('worldAnchorY', 1.75));
+    var anchorY = getConfiguredPositiveNumber(config.anchorY);
+    if (anchorY === null) {
+      anchorY = getConfiguredPositiveNumber(_getSpeechValue('worldAnchorY', null));
     }
-    if (!(anchorY > 0)) anchorY = 1.75;
+    if (anchorY === null) return false;
+
+    var duration = _getSpeechDuration(config);
+    if (duration === null) return false;
 
     _worldSpeech = {
       key: key,
       html: _formatSpeechText(config.text, tokens),
       objectId: objectId,
-      remaining: _getSpeechDuration(config, 2.5),
+      remaining: duration,
       anchorY: anchorY
     };
     _showWorldSpeech(key, _worldSpeech.html);
@@ -640,7 +716,7 @@ window.GamePlayer = (function () {
     }
 
     var mesh = window.GameEntities && GameEntities.getMeshForObjectId ? GameEntities.getMeshForObjectId(_worldSpeech.objectId) : null;
-    if (!mesh || !_isMeshVisibleOnScreen(mesh, _worldSpeech.anchorY || 1.75, 0, _worldSpeechScreenPt)) {
+    if (!mesh || !_isMeshVisibleOnScreen(mesh, _worldSpeech.anchorY, 0, _worldSpeechScreenPt)) {
       if (_worldSpeechEl) _worldSpeechEl.className = 'world-speech-bubble';
       return;
     }
@@ -661,8 +737,9 @@ window.GamePlayer = (function () {
   function _findVisibleThreatTauntTarget(config) {
     if (!window.GameEntities || !GameEntities.getAllMeshes || !GameEntities.getDataFromMesh) return null;
 
-    var maxDistance = Number(config && config.maxDistance);
-    if (!(maxDistance > 0)) maxDistance = 18;
+    var maxDistance = getConfiguredPositiveNumber(config && config.maxDistance);
+    var worldAnchorY = getConfiguredPositiveNumber(_getSpeechValue('worldAnchorY', null));
+    if (maxDistance === null || worldAnchorY === null) return null;
 
     var meshes = GameEntities.getAllMeshes();
     var bestCandidate = null;
@@ -670,7 +747,7 @@ window.GamePlayer = (function () {
       var mesh = meshes[meshIndex];
       var objData = GameEntities.getDataFromMesh(mesh);
       if (!_isEligibleThreatTauntTarget(objData, config)) continue;
-      if (!_isMeshVisibleOnScreen(mesh, Number(_getSpeechValue('worldAnchorY', 1.75)) || 1.75, maxDistance, _speechScanScreenPt)) continue;
+      if (!_isMeshVisibleOnScreen(mesh, worldAnchorY, maxDistance, _speechScanScreenPt)) continue;
 
       var entity = GameRegistry.getEntity(objData.type);
       var dx = mesh.position.x - _x;
@@ -728,10 +805,10 @@ window.GamePlayer = (function () {
     if (_threatSession) {
       var threatData = _getObjectDataById(_threatSession.objectId);
       var threatMesh = window.GameEntities && GameEntities.getMeshForObjectId ? GameEntities.getMeshForObjectId(_threatSession.objectId) : null;
-      var maxDistance = Number(config.maxDistance);
-      if (!(maxDistance > 0)) maxDistance = 18;
+      var maxDistance = getConfiguredPositiveNumber(config.maxDistance);
+      var worldAnchorY = getConfiguredPositiveNumber(_getSpeechValue('worldAnchorY', null));
 
-      if (!threatData || !_isEligibleThreatTauntTarget(threatData, config) || !threatMesh || !_isMeshVisibleOnScreen(threatMesh, Number(_getSpeechValue('worldAnchorY', 1.75)) || 1.75, maxDistance, _speechScanScreenPt)) {
+      if (maxDistance === null || worldAnchorY === null || !threatData || !_isEligibleThreatTauntTarget(threatData, config) || !threatMesh || !_isMeshVisibleOnScreen(threatMesh, worldAnchorY, maxDistance, _speechScanScreenPt)) {
         _clearThreatSession(false);
       } else if (window.GameCombat && GameCombat.isActive && GameCombat.getTarget) {
         var combatTarget = GameCombat.getTarget();
@@ -742,8 +819,12 @@ window.GamePlayer = (function () {
 
       if (_threatSession) {
         _threatSession.noAttackTimer += dt;
-        var delaySeconds = Number(idleConfig.delaySeconds);
-        if (!(delaySeconds > 0)) delaySeconds = 7;
+        var delaySeconds = getConfiguredPositiveNumber(idleConfig.delaySeconds);
+        if (delaySeconds === null) {
+          _clearThreatSession(false);
+          _updateWorldSpeech(dt);
+          return;
+        }
         if (!_threatSession.nudged && _threatSession.noAttackTimer >= delaySeconds && !_runtimeSpeech && _tutKey !== 'lag' && !suppressNewTaunts) {
           _queuePlayerSpeech('threatIdleNudge', idleConfig, null);
           _threatSession.nudged = true;
@@ -754,15 +835,21 @@ window.GamePlayer = (function () {
 
     if (!_threatSession && _threatTauntCooldown <= 0 && !suppressNewTaunts) {
       _threatTauntScanTimer += dt;
-      var scanInterval = Number(config.scanInterval);
-      if (!(scanInterval > 0)) scanInterval = 0.8;
+      var scanInterval = getConfiguredPositiveNumber(config.scanInterval);
+      if (scanInterval === null) {
+        _updateWorldSpeech(dt);
+        return;
+      }
 
       if (_threatTauntScanTimer >= scanInterval) {
         _threatTauntScanTimer = 0;
         var candidate = _findVisibleThreatTauntTarget(config);
         if (candidate) {
-          var chance = Number(firstConfig.chance);
-          if (!(chance >= 0)) chance = 0.35;
+          var chance = getConfiguredNonNegativeNumber(firstConfig.chance);
+          if (chance === null) {
+            _updateWorldSpeech(dt);
+            return;
+          }
 
           if (Math.random() <= chance) {
             _threatSession = {
@@ -772,8 +859,8 @@ window.GamePlayer = (function () {
             };
             _queueWorldSpeech('threatTaunt', firstConfig, candidate.data.id, { name: candidate.name });
           } else {
-            var retrySeconds = Number(config.retrySeconds);
-            _threatTauntCooldown = retrySeconds > 0 ? retrySeconds : 6;
+            var retrySeconds = getConfiguredPositiveNumber(config.retrySeconds);
+            _threatTauntCooldown = retrySeconds !== null ? retrySeconds : 0;
           }
         }
       }
@@ -787,17 +874,13 @@ window.GamePlayer = (function () {
     var fps = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? Number(GamePerf.getValue('frame.fps')) : 0;
     var presetId = (typeof GameQualitySettings !== 'undefined' && GameQualitySettings.getPresetId) ? GameQualitySettings.getPresetId() : '';
     var shouldSuggestLow = presetId !== 'low';
-    var minFps = Number(config.minFps);
-    if (!(minFps > 0)) minFps = 40;
-    var triggerSeconds = Number(config.triggerSeconds);
-    if (!(triggerSeconds > 0)) triggerSeconds = 2.5;
-    var recoverFps = Number(config.recoverFps);
-    if (!(recoverFps > 0)) recoverFps = 45;
-    var recoverSeconds = Number(config.recoverSeconds);
-    if (!(recoverSeconds > 0)) recoverSeconds = 1.25;
-    var lagText = _formatSpeechText(config.text || 'Ối dồi ôi, LAG rồi này, vãi lìn. Vào setting hạ xuống low đi.', null);
+    var minFps = getConfiguredPositiveNumber(config.minFps);
+    var triggerSeconds = getConfiguredPositiveNumber(config.triggerSeconds);
+    var recoverFps = getConfiguredPositiveNumber(config.recoverFps);
+    var recoverSeconds = getConfiguredPositiveNumber(config.recoverSeconds);
+    var lagText = _formatSpeechText(config.text || t('speech.tutorials.lag', null, 'Frame rate is tanking. Open Settings and switch to Low.'), null);
 
-    if (!shouldSuggestLow || !(fps > 0)) {
+    if (!shouldSuggestLow || !(fps > 0) || minFps === null || triggerSeconds === null || recoverFps === null || recoverSeconds === null) {
       _tutLagTimer = 0;
       _tutLagRecoveryTimer = 0;
       _setLagAudioActive(false, config.audioPath);
@@ -849,8 +932,8 @@ window.GamePlayer = (function () {
       return;
     }
 
-    var anchorY = Number(_getSpeechValue('playerAnchorY', 2.7));
-    if (!(anchorY > 0)) anchorY = 2.7;
+    var anchorY = getConfiguredPositiveNumber(_getSpeechValue('playerAnchorY', null));
+    if (anchorY === null) return;
 
     if (window.GameScene && GameScene.projectWorldToScreen) {
       var pt = GameScene.projectWorldToScreen(_x, anchorY, _z, _tutScreenPt);
@@ -873,19 +956,23 @@ window.GamePlayer = (function () {
     }
     _updateThreatTaunts(dt, lagActive || _isSpeechSuppressedByUi());
     var runtimeActive = _updateRuntimeSpeech(dt);
+    var eatRepeatable = _isTutorialRepeatable('eat');
+    var eatTutorialState = _getEatTutorialState();
+    var canShowEatTutorial = eatTutorialState.shouldPrompt && (eatRepeatable ? _repeatableTutArmed.eat !== false : !_tutState.eat);
+    var eatTutorialSettled = eatRepeatable ? !canShowEatTutorial : !!_tutState.eat;
 
     // Early exit if all onboarding tutorials are done and no runtime warning is active
-    if (!lagActive && !runtimeActive && _tutState.harvest && _tutState.eat && _tutState.night) {
+    if (!lagActive && !runtimeActive && _tutState.harvest && eatTutorialSettled && _tutState.night) {
       return;
     }
 
     if (!lagActive && !runtimeActive) {
-      var harvestConfig = _getTutorialSpeechConfig('harvest') || { text: 'Nhấn <span class="tut-key">[E]</span> để thu hoạch!' };
-      var eatConfig = _getTutorialSpeechConfig('eat') || { text: 'Đói rồi! Nhấn <span class="tut-key">[F]</span> để ăn' };
-      var nightConfig = _getTutorialSpeechConfig('night') || { text: 'Trời tối! Xây <span class="tut-key">Lửa Trại</span> để an toàn 🔥', duration: 9 };
+      var harvestConfig = _getTutorialSpeechConfig('harvest');
+      var eatConfig = _getTutorialSpeechConfig('eat');
+      var nightConfig = _getTutorialSpeechConfig('night');
 
       // Priority 1: harvest tutorial — near a harvestable resource node
-      if (!_tutState.harvest) {
+      if (!_tutState.harvest && harvestConfig && harvestConfig.text) {
         if (_tutLastNearNode) {
           _showTut('harvest', _formatSpeechText(harvestConfig.text, null));
         } else if (_tutKey === 'harvest') {
@@ -894,17 +981,14 @@ window.GamePlayer = (function () {
       }
 
       // Priority 2: hunger tutorial — hungry and has food, nothing else showing
-      if (!_tutState.eat && !_tutKey) {
-        var hunger = GameState.getHunger ? GameState.getHunger() : 100;
-        var maxHunger = GameState.getMaxHunger ? GameState.getMaxHunger() : 100;
-        var food = GameState.getResource ? GameState.getResource('resource.food') : 0;
-        if (hunger < maxHunger * 0.6 && food >= 1) {
-          _showTut('eat', _formatSpeechText(eatConfig.text, null));
+      if (canShowEatTutorial && !_tutKey && eatConfig && eatConfig.text) {
+        if (_queuePlayerSpeech('eat', eatConfig, null)) {
+          _rememberTutShown('eat');
         }
       }
 
       // Priority 3: night/fire tutorial — first time it gets dark
-      if (!_tutState.night && !_tutKey) {
+      if (!_tutState.night && !_tutKey && nightConfig && nightConfig.text) {
         var isNt = typeof DayNightSystem !== 'undefined' && DayNightSystem.isNight && DayNightSystem.isNight();
         if (isNt) {
           _showTut('night', _formatSpeechText(nightConfig.text, null));
@@ -915,9 +999,10 @@ window.GamePlayer = (function () {
 
     // Auto-dismiss night tutorial after 9 seconds
     if (_tutKey === 'night') {
-      var activeNightConfig = _getTutorialSpeechConfig('night') || { duration: 9 };
+      var activeNightConfig = _getTutorialSpeechConfig('night');
+      var nightDuration = _getSpeechDuration(activeNightConfig);
       _tutNightTimer += dt;
-      if (_tutNightTimer >= _getSpeechDuration(activeNightConfig, 9)) _markTutSeen('night');
+      if (activeNightConfig && nightDuration !== null && _tutNightTimer >= nightDuration) _markTutSeen('night');
     }
 
     _updateTutBubblePosition();
@@ -930,17 +1015,15 @@ window.GamePlayer = (function () {
 
     var _speed = GameState.getPlayerSpeed ? GameState.getPlayerSpeed() : 3;
 
-    // Speed penalty when very hungry (hunger < 20)
+    // Speed penalty when hunger drops below the configured threshold.
     var hunger = GameState.getHunger ? GameState.getHunger() : 100;
-    if (hunger < 20) {
-      var hungerBalance = (window.GAME_BALANCE && GAME_BALANCE.hunger) || {};
-      _speed *= (hungerBalance.hungrySpeedMult || 0.5);
+    if (hunger < GameState.getHungryThreshold()) {
+      _speed *= GameState.getHungrySpeedMultiplier();
     }
 
     // Speed penalty while eating
     if (_isEating) {
-      var hungerBalance2 = (window.GAME_BALANCE && GAME_BALANCE.hunger) || {};
-      _speed *= (hungerBalance2.eatSpeedMult || 0.5);
+      _speed *= GameState.getEatSpeedMultiplier();
     }
 
     // === EATING SYSTEM ===
@@ -987,7 +1070,7 @@ window.GamePlayer = (function () {
 
       var speedMultiplier = 1.0;
       if (GameTerrain.isShallowWater && GameTerrain.isShallowWater(_x, _z)) {
-        speedMultiplier = 0.5;
+        speedMultiplier = getPlayerShallowWaterSpeedMultiplier();
       }
 
       var newX = _x + dx * _speed * speedMultiplier * dt;
@@ -1082,9 +1165,7 @@ window.GamePlayer = (function () {
     _eatTimer -= dt;
     if (_eatTimer <= 0) {
       // Eating complete - restore hunger
-      var balance = window.GAME_BALANCE || {};
-      var hungerConfig = balance.hunger || {};
-      var foodRestore = (hungerConfig.foodRestore || {})[("resource.food")] || 5;
+      var foodRestore = GameState.getHungerRestoreAmount('resource.food');
       var currentHunger = GameState.getHunger();
       GameState.setHunger(Math.min(currentHunger + foodRestore, GameState.getMaxHunger()));
       _isEating = false;
@@ -1104,7 +1185,7 @@ window.GamePlayer = (function () {
         _torchFuel = 0;
         removeTorchMesh();
         if (typeof GameHUD !== 'undefined') {
-          GameHUD.showNotification("Torch burned out.");
+          GameHUD.showNotification(t('hud.player.torchBurnedOut', null, 'Torch burned out.'));
         }
       }
     }
@@ -1115,11 +1196,11 @@ window.GamePlayer = (function () {
       if (torchCount > 0) {
         GameState.removeFromInventory("item.handheld_torch", 1);
         var torchBalance = GameRegistry.getBalance("item.handheld_torch") || {};
-        _torchFuel = torchBalance.duration || 60;
+        _torchFuel = Number(torchBalance.duration) || 0;
         _torchActive = true;
         createTorchMesh();
         if (typeof GameHUD !== 'undefined') {
-          GameHUD.showNotification("Hand torch lit. (" + Math.floor(_torchFuel) + "s)");
+          GameHUD.showNotification(t('hud.player.torchLitNotification', { seconds: Math.floor(_torchFuel) }, 'Hand torch lit. ({seconds}s)'));
         }
       }
     }
@@ -1199,24 +1280,25 @@ window.GamePlayer = (function () {
   function buildFarmPrompt(status) {
     if (!status) return null;
 
-    var plotName = status.plotName || 'Farm Plot';
+    var plotName = status.plotName || t('hud.contextAction.farmPlot', null, 'Farm Plot');
 
     if (status.storedAmount > 0) {
-      return 'Collect ' + plotName + ' [' + status.storedAmount + ' stored]';
+      return t('hud.contextAction.collectStored', { name: plotName, count: status.storedAmount }, 'Collect {name} [{count} stored]');
     }
 
     if (!status.hasWorkerSupport && !status.planted) {
-      return plotName + ' [Needs worker]';
+      return t('hud.contextAction.needsWorker', { name: plotName }, '{name} [Needs worker]');
     }
-
-    var parts = [plotName];
-    parts.push('[' + status.statusText + ']');
 
     if (status.planted && !status.ready) {
-      parts.push(status.progressPercent + '%');
+      return t('hud.contextAction.statusWithProgress', {
+        name: plotName,
+        status: status.statusText,
+        progress: status.progressPercent
+      }, '{name} [{status}] {progress}%');
     }
 
-    return parts.join(' ');
+    return t('hud.contextAction.statusOnly', { name: plotName, status: status.statusText }, '{name} [{status}]');
   }
 
   function useGenericNodeName(objData) {
@@ -1238,7 +1320,7 @@ window.GamePlayer = (function () {
       return rewardPreview;
     }
     if (objData.type === 'node.berry_bush') {
-      return rewardPreview || 'Food';
+      return rewardPreview || t('hud.nodes.food', null, 'Food');
     }
 
     var detail = nodeInfo.stateLabel || '';
@@ -1249,14 +1331,15 @@ window.GamePlayer = (function () {
   }
 
   function updateContextAction() {
-    var nearObj = GameTerrain.findNearestObject(_x, _z, 2.5);
+    var interactionRadius = getPlayerInteractionRadius();
+    var nearObj = GameTerrain.findNearestObject(_x, _z, interactionRadius);
     var el = document.getElementById('context-action');
     var textEl = document.getElementById('context-text');
 
     // Reset tutorial node flag each refresh; set to true below if a node is actually nearby
     _tutLastNearNode = false;
 
-    var nearBuilding = findNearestBuilding(_x, _z, 2.5);
+    var nearBuilding = findNearestBuilding(_x, _z, interactionRadius);
     if (nearBuilding) {
       var storage = GameState.getBuildingStorage(nearBuilding.uid);
       var hasResources = false;
@@ -1271,7 +1354,7 @@ window.GamePlayer = (function () {
       if (hasResources) {
         var entity = GameRegistry.getEntity(nearBuilding.entityId);
         var name = entity ? entity.name : nearBuilding.entityId;
-        textEl.textContent = 'Collect from ' + name + ' (' + totalAmount + ' items)';
+        textEl.textContent = t('hud.contextAction.collectFrom', { name: name, count: totalAmount }, 'Collect from {name} ({count} items)');
         el.classList.add('show');
         GameHUD.hideObjectHpBar();
         return;
@@ -1292,7 +1375,15 @@ window.GamePlayer = (function () {
       var entity = GameRegistry.getEntity(nearObj.type);
       var nodeInfo = (nearObj.type.indexOf("node.") === 0 && typeof GameTerrain !== 'undefined' && GameTerrain.getNodeInfo) ? GameTerrain.getNodeInfo(nearObj) : null;
       var name = getNodePromptName(nearObj, nodeInfo, entity);
-      var action = nearObj.type.startsWith("animal.") ? ((GameRegistry.isAnimalThreat && GameRegistry.isAnimalThreat(nearObj.type)) ? "Fight" : "Hunt") : nearObj.type === "node.berry_bush" ? "Gather" : nearObj.type.startsWith("node.") ? "Harvest" : "Interact";
+      var action = nearObj.type.startsWith("animal.")
+        ? ((GameRegistry.isAnimalThreat && GameRegistry.isAnimalThreat(nearObj.type))
+          ? t('hud.contextAction.actions.fight', null, 'Fight')
+          : t('hud.contextAction.actions.hunt', null, 'Hunt'))
+        : nearObj.type === "node.berry_bush"
+          ? t('hud.contextAction.actions.gather', null, 'Gather')
+          : nearObj.type.startsWith("node.")
+            ? t('hud.contextAction.actions.harvest', null, 'Harvest')
+            : t('hud.contextAction.actions.interact', null, 'Interact');
       var detail = getNodePromptDetail(nearObj, nodeInfo);
       var showHpInPrompt = !!(nearObj.type && nearObj.type.indexOf('animal.') === 0);
       textEl.textContent = action + " " + name + (detail ? " [" + detail + "]" : "") + (showHpInPrompt ? (" (" + nearObj.hp + "/" + nearObj.maxHp + ")") : "");
@@ -1317,7 +1408,8 @@ window.GamePlayer = (function () {
   }
 
   function interactNearby() {
-    var nearBuilding = findNearestBuilding(_x, _z, 2.5);
+    var interactionRadius = getPlayerInteractionRadius();
+    var nearBuilding = findNearestBuilding(_x, _z, interactionRadius);
     if (nearBuilding) {
       if (window.GameActions && GameActions.interactWithFarmPlot && window.GameActions.getFarmPlotStatus && GameActions.getFarmPlotStatus(nearBuilding.uid)) {
         GameActions.interactWithFarmPlot(nearBuilding.uid);
@@ -1339,7 +1431,7 @@ window.GamePlayer = (function () {
       }
     }
 
-    var nearObj = GameTerrain.findNearestObject(_x, _z, 2.5);
+    var nearObj = GameTerrain.findNearestObject(_x, _z, interactionRadius);
     if (nearObj && nearObj.hp > 0) {
       interactWith(nearObj);
     }
@@ -1356,7 +1448,8 @@ window.GamePlayer = (function () {
 
   function findNearestBuilding(px, pz, radius) {
     var instances = GameState.getAllInstancesLive ? GameState.getAllInstancesLive() : GameState.getAllInstances();
-    var searchRadius = radius || 2.5;
+    var searchRadius = Number(radius) || 0;
+    if (!(searchRadius > 0)) return null;
     var nearest = null;
     var nearestDistSq = searchRadius * searchRadius;
 
@@ -1393,7 +1486,7 @@ window.GamePlayer = (function () {
     }
 
     if (messages.length > 0) {
-      GameHUD.showSuccess("Collected from " + buildingName + ": " + messages.join(", "));
+      GameHUD.showSuccess(t('hud.actions.collectedFromBuilding', { name: buildingName, items: messages.join(', ') }, 'Collected from {name}: {items}'));
       UnlockSystem.checkAll();
       GameHUD.renderAll();
     }
@@ -1405,7 +1498,9 @@ window.GamePlayer = (function () {
 
     if (typeof GameTerrain !== 'undefined' && GameTerrain.canHarvestNode && !GameTerrain.canHarvestNode(objData)) {
       var blockedInfo = GameTerrain.getNodeInfo ? GameTerrain.getNodeInfo(objData) : null;
-      GameHUD.showNotification((blockedInfo ? blockedInfo.name || blockedInfo.label : 'This node') + ' is not ready yet.');
+      GameHUD.showNotification(t('hud.player.nodeNotReady', {
+        name: blockedInfo ? blockedInfo.name || blockedInfo.label : t('hud.player.thisNode', null, 'This node')
+      }, '{name} is not ready yet.'));
       return;
     }
 
@@ -1416,7 +1511,7 @@ window.GamePlayer = (function () {
       });
 
       if (isBeingHarvested) {
-        GameHUD.showNotification("An NPC is already harvesting this!");
+        GameHUD.showNotification(t('hud.player.npcAlreadyHarvesting', null, 'An NPC is already harvesting this!'));
         return;
       }
     }

@@ -8,6 +8,43 @@ window.GameRegistry = (function () {
     speed: { order: 4, label: 'Speed', shortLabel: 'SPD' }
   };
 
+  function formatTemplate(value, tokens) {
+    var text = String(value == null ? '' : value);
+    if (!tokens) return text;
+
+    for (var tokenName in tokens) {
+      if (!tokens.hasOwnProperty(tokenName)) continue;
+      text = text.split('{' + tokenName + '}').join(String(tokens[tokenName]));
+    }
+
+    return text;
+  }
+
+  function t(path, tokens, fallback) {
+    if (window.GameI18n && GameI18n.t) {
+      return GameI18n.t('registry.' + path, tokens, fallback);
+    }
+    if (fallback !== undefined) return formatTemplate(fallback, tokens);
+    return formatTemplate(path, tokens);
+  }
+
+  function getStatMetadata(statKey) {
+    var meta = STAT_METADATA[statKey];
+    if (!meta) {
+      return {
+        order: 99,
+        label: statKey,
+        shortLabel: statKey
+      };
+    }
+
+    return {
+      order: meta.order,
+      label: t('stats.' + statKey + '.label', null, meta.label),
+      shortLabel: t('stats.' + statKey + '.shortLabel', null, meta.shortLabel)
+    };
+  }
+
   function formatBalanceNumber(value) {
     var numericValue = Number(value);
     if (!isFinite(numericValue)) return String(value);
@@ -43,8 +80,8 @@ window.GameRegistry = (function () {
     keys.forEach(function (statKey) {
       var numericValue = Number(stats[statKey]);
       var valueText = (numericValue > 0 ? '+' : '-') + formatBalanceNumber(Math.abs(numericValue));
-      var meta = STAT_METADATA[statKey] || null;
-      var label = meta ? (shortLabels ? meta.shortLabel : meta.label) : statKey;
+      var meta = getStatMetadata(statKey);
+      var label = shortLabels ? meta.shortLabel : meta.label;
       parts.push(valueText + ' ' + label);
     });
 
@@ -80,7 +117,7 @@ window.GameRegistry = (function () {
     if (!statSummary && !flavorText) return null;
 
     var recipeName = contentEntity && contentEntity.name ? contentEntity.name : outputEntity.name;
-    var parts = ['Craft ' + recipeName + '.'];
+    var parts = [t('recipeDescription.craft', { name: recipeName }, 'Craft {name}.')];
     if (statSummary) parts.push(statSummary + '.');
     if (flavorText) parts.push(flavorText);
     return parts.join(' ');
@@ -129,7 +166,7 @@ window.GameRegistry = (function () {
         }
       }
       var derivedDescription = getDerivedDescription(contentEntity, balanceData);
-      if (derivedDescription !== undefined && derivedDescription !== null) {
+      if (!contentEntity._i18nDescriptionOverridden && derivedDescription !== undefined && derivedDescription !== null) {
         merged.description = derivedDescription;
       }
       merged._balance = balanceData;

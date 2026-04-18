@@ -1,6 +1,8 @@
 window.GameStorage = (function () {
   var SAVE_KEY = "game_save";
   var WORLD_SAVE_KEY = "game_save_world";
+  var MANAGED_STORAGE_PREFIXES = ["evolution_"];
+  var MANAGED_STORAGE_EXACT_KEYS = [SAVE_KEY, WORLD_SAVE_KEY];
   var DEFAULT_SAVE_DELAY_MS = 700;
   var IDLE_SAVE_TIMEOUT_MS = 1200;
   var MIN_WRITE_INTERVAL_MS = 1500;
@@ -9,6 +11,7 @@ window.GameStorage = (function () {
   var _idleHandle = null;
   var _coreDirty = false;
   var _worldDirty = false;
+  var _persistenceSuspended = false;
   var _lastWriteAt = 0;
   var _lastWorldWriteAt = 0;
 
@@ -52,7 +55,26 @@ window.GameStorage = (function () {
     _idleHandle = null;
   }
 
+  function isManagedStorageKey(key) {
+    if (!key) return false;
+
+    for (var exactIndex = 0; exactIndex < MANAGED_STORAGE_EXACT_KEYS.length; exactIndex++) {
+      if (MANAGED_STORAGE_EXACT_KEYS[exactIndex] === key) {
+        return true;
+      }
+    }
+
+    for (var prefixIndex = 0; prefixIndex < MANAGED_STORAGE_PREFIXES.length; prefixIndex++) {
+      if (key.indexOf(MANAGED_STORAGE_PREFIXES[prefixIndex]) === 0) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   function writeSaveNow(options) {
+    if (_persistenceSuspended) return false;
     options = options || {};
     var saveMark = beginPerfMark('save.write');
     var coreBuildMark = beginPerfMark('save.buildCore');
@@ -100,6 +122,7 @@ window.GameStorage = (function () {
   }
 
   function flushPending(options) {
+    if (_persistenceSuspended) return false;
     if (!_coreDirty && !_worldDirty) return true;
     clearPendingSave();
     return writeSaveNow(options);
@@ -107,6 +130,7 @@ window.GameStorage = (function () {
 
   function runDeferredWrite() {
     _saveTimer = null;
+    if (_persistenceSuspended) return;
     if (!_coreDirty && !_worldDirty) return;
 
     if (typeof requestIdleCallback === 'function') {
@@ -121,6 +145,7 @@ window.GameStorage = (function () {
   }
 
   function scheduleSave(delayMs, options) {
+    if (_persistenceSuspended) return false;
     options = options || {};
     _coreDirty = true;
     var includeWorld = options.forceWorld === true;
@@ -140,6 +165,7 @@ window.GameStorage = (function () {
   }
 
   function handleLifecycleFlush() {
+    if (_persistenceSuspended) return false;
     if (_coreDirty || _worldDirty) {
       flushPending({ forceWorld: true });
     }
@@ -161,6 +187,7 @@ window.GameStorage = (function () {
   }
 
   function save(options) {
+    if (_persistenceSuspended) return false;
     options = options || {};
     if (options.immediate) {
       _coreDirty = true;
@@ -223,6 +250,55 @@ window.GameStorage = (function () {
     localStorage.removeItem(WORLD_SAVE_KEY);
   }
 
+  function suspendPersistence() {
+    clearPendingSave();
+    _coreDirty = false;
+    _worldDirty = false;
+    _persistenceSuspended = true;
+    return true;
+  }
+
+  function resumePersistence() {
+    _persistenceSuspended = false;
+    return true;
+  }
+
+  function isPersistenceSuspended() {
+    return _persistenceSuspended;
+  }
+
+  function clearAllData() {
+    clearPendingSave();
+    _coreDirty = false;
+    _worldDirty = false;
+
+    try {
+      if (typeof localStorage === 'undefined') return false;
+
+      var keysToRemove = {};
+      for (var exactIndex = 0; exactIndex < MANAGED_STORAGE_EXACT_KEYS.length; exactIndex++) {
+        keysToRemove[MANAGED_STORAGE_EXACT_KEYS[exactIndex]] = true;
+      }
+
+      for (var storageIndex = 0; storageIndex < localStorage.length; storageIndex++) {
+        var key = localStorage.key(storageIndex);
+        if (isManagedStorageKey(key)) {
+          keysToRemove[key] = true;
+        }
+      }
+
+      for (var storageKey in keysToRemove) {
+        if (!keysToRemove.hasOwnProperty(storageKey)) continue;
+        localStorage.removeItem(storageKey);
+      }
+
+      return true;
+    } catch (error) {
+      console.error('[Storage] Clear all data failed:', error);
+      return false;
+    }
+  }
+
   function checkVersion() {
     var raw = localStorage.getItem(SAVE_KEY);
     var rawWorld = localStorage.getItem(WORLD_SAVE_KEY);
@@ -267,6 +343,10 @@ window.GameStorage = (function () {
     load: load,
     hasSave: hasSave,
     clearSave: clearSave,
+    clearAllData: clearAllData,
+    suspendPersistence: suspendPersistence,
+    resumePersistence: resumePersistence,
+    isPersistenceSuspended: isPersistenceSuspended,
     checkVersion: checkVersion,
     getSaveInfo: getSaveInfo
   };

@@ -725,6 +725,24 @@ body { overflow: hidden; background: var(--bg-primary); font-family: 'Segoe UI',
   margin-top: 10px;
 }
 
+.quality-settings-toolbar-danger {
+  justify-content: flex-start;
+}
+
+.quality-settings-section-danger {
+  margin-top: 14px;
+  border: 1px solid rgba(233,69,96,0.24);
+  background: linear-gradient(180deg, rgba(68, 16, 24, 0.34), rgba(32, 10, 18, 0.28));
+}
+
+.quality-settings-section-kicker-danger {
+  color: rgba(255,170,170,0.86);
+}
+
+.quality-settings-copy-danger {
+  color: rgba(255,223,229,0.82);
+}
+
 .quality-settings-inline-meta {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -879,6 +897,16 @@ body { overflow: hidden; background: var(--bg-primary); font-family: 'Segoe UI',
 
 .debug-settings-reset:hover {
   background: rgba(255,255,255,0.08);
+}
+
+.debug-settings-reset-danger {
+  border-color: rgba(233,69,96,0.34);
+  background: rgba(233,69,96,0.14);
+  color: #ffe5ea;
+}
+
+.debug-settings-reset-danger:hover {
+  background: rgba(233,69,96,0.22);
 }
 
 .debug-settings-group + .debug-settings-group {

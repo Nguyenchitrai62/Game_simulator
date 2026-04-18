@@ -39,7 +39,16 @@ window.GAME_BALANCE = {
     defense: 1,
     rewards: { "resource.food": 5 },
     respawnTime: 60, // giây
-    aggroRange: 3 // ô
+    aggroRange: 3, // ô
+    behavior: {
+      patrolRadius: 3.2,
+      patrolSpeed: 0.46,
+      chaseSpeed: 1.18,
+      returnSpeed: 0.8,
+      turnRate: 0.24,
+      attackRange: 1.65,
+      chaseRange: 6.9
+    }
   },
   "animal.boar": {
     // Lợn rừng - trung bình, cho food + da
@@ -48,7 +57,16 @@ window.GAME_BALANCE = {
     defense: 2,
     rewards: { "resource.food": 8, "resource.leather": 2 },
     respawnTime: 90,
-    aggroRange: 2.5
+    aggroRange: 2.5,
+    behavior: {
+      patrolRadius: 3.2,
+      patrolSpeed: 0.42,
+      chaseSpeed: 1.0,
+      returnSpeed: 0.76,
+      turnRate: 0.2,
+      attackRange: 1.375,
+      chaseRange: 5.75
+    }
   },
   "animal.bear": {
     // Gấu - mạnh thời Đá, cho nhiều food + da
@@ -57,7 +75,16 @@ window.GAME_BALANCE = {
     defense: 3,
     rewards: { "resource.food": 15, "resource.leather": 5 },
     respawnTime: 120,
-    aggroRange: 2.5
+    aggroRange: 2.5,
+    behavior: {
+      patrolRadius: 3.8,
+      patrolSpeed: 0.34,
+      chaseSpeed: 0.9,
+      returnSpeed: 0.64,
+      turnRate: 0.14,
+      attackRange: 1.375,
+      chaseRange: 5.75
+    }
   },
   "animal.deer": {
     hp: 10,
@@ -67,7 +94,13 @@ window.GAME_BALANCE = {
     respawnTime: 45,
     animalDisposition: "prey",
     fleeRange: 3.2,
-    fleeSpeed: 1.08
+    fleeSpeed: 1.08,
+    behavior: {
+      patrolRadius: 3.8,
+      patrolSpeed: 0.48,
+      returnSpeed: 0.84,
+      turnRate: 0.22
+    }
   },
   "animal.rabbit": {
     hp: 6,
@@ -77,7 +110,13 @@ window.GAME_BALANCE = {
     respawnTime: 35,
     animalDisposition: "prey",
     fleeRange: 2.7,
-    fleeSpeed: 1.2
+    fleeSpeed: 1.2,
+    behavior: {
+      patrolRadius: 2.4,
+      patrolSpeed: 0.54,
+      returnSpeed: 0.96,
+      turnRate: 0.28
+    }
   },
 
   // === CÔNG TRÌNH (thời Đá) ===
@@ -433,7 +472,16 @@ window.GAME_BALANCE = {
     defense: 5,
     rewards: { "resource.food": 25, "resource.leather": 8 },
     respawnTime: 150,
-    aggroRange: 3.5
+    aggroRange: 3.5,
+    behavior: {
+      patrolRadius: 4.2,
+      patrolSpeed: 0.44,
+      chaseSpeed: 1.15,
+      returnSpeed: 0.82,
+      turnRate: 0.24,
+      attackRange: 1.925,
+      chaseRange: 8.05
+    }
   },
 
   // === CÔNG TRÌNH THỜI ĐỒNG ===
@@ -564,7 +612,16 @@ window.GAME_BALANCE = {
     defense: 8,
     rewards: { "resource.food": 30, "resource.leather": 10, "resource.bronze": 3 },
     respawnTime: 180,
-    aggroRange: 4
+    aggroRange: 4,
+    behavior: {
+      patrolRadius: 2.8,
+      patrolSpeed: 0.4,
+      chaseSpeed: 0.98,
+      returnSpeed: 0.74,
+      turnRate: 0.22,
+      attackRange: 2.2,
+      chaseRange: 9.2
+    }
   },
   "animal.sabertooth": {
     // Hổ kiếm răng kiếm - quái mạnh nhất
@@ -573,7 +630,16 @@ window.GAME_BALANCE = {
     defense: 10,
     rewards: { "resource.food": 50, "resource.leather": 20 },
     respawnTime: 240,
-    aggroRange: 4
+    aggroRange: 4,
+    behavior: {
+      patrolRadius: 4.6,
+      patrolSpeed: 0.5,
+      chaseSpeed: 1.25,
+      returnSpeed: 0.88,
+      turnRate: 0.26,
+      attackRange: 2.2,
+      chaseRange: 9.2
+    }
   },
 
   // === CÔNG TRÌNH THỜI ĐẠI SẮT ===
@@ -693,10 +759,18 @@ window.GAME_BALANCE = {
 
   // === HỆ THỐNG ĐÓI ===
   hunger: {
-    drainPerSecond: 0.2,    // đói giảm 0.1/giây (đầy→đói mất ~1000s ≈ 17 phút)
-    autoEatThreshold: 30,    // tự động ăn khi đói < 30%
-    hungrySpeedMult: 0.5,    // tốc độ ×0.5 khi đói < 20
+    maxHunger: 100,           // thanh đói tối đa
+    drainPerSecond: 0.2,      // đói giảm 0.2/giây (đầy→đói mất ~500s ≈ 8.3 phút)
+    autoEatThreshold: 30,     // ngưỡng auto-eat cho logic nào cần tham chiếu
+    hungryThreshold: 20,      // ngưỡng đói thấp dùng cho tutorial/HUD/tốc độ
+    overlay: {
+      warningThreshold: 20,   // ngưỡng HUD đổi sang warn / low-hunger
+      criticalThreshold: 0    // ngưỡng HUD đổi sang critical
+    },
+    hungrySpeedMult: 0.5,     // tốc độ ×0.5 khi đói < hungryThreshold
     starvingHpDrain: 1,       // mất 1 HP/giây khi đói = 0
+    starvationResourceLossFraction: 0.3,  // chết đói làm mất 30% tài nguyên đang mang
+    starvationRespawnHungerFraction: 0.5, // hồi lại 50% thanh đói sau khi chết đói
     foodRestore: {
       "resource.food": 5      // 1 thức ăn phục 5 đói
     },
@@ -707,7 +781,319 @@ window.GAME_BALANCE = {
 
   // === CHU KỲ NGÀY ĐÊM ===
   dayNight: {
-    hoursPerSecond: 0.0667    // 0.0667 giờ/giây → 1 ngày = 360 giây = 6 phút
+    hoursPerSecond: 0.0667,   // 0.0667 giờ/giây → 1 ngày = 360 giây = 6 phút
+    nightDarknessThreshold: 0.5
+  },
+
+  player: {
+    baseStats: {
+      maxHp: 100,
+      attack: 1,
+      defense: 0,
+      speed: 3
+    },
+    spawn: {
+      x: 8,
+      z: 8,
+      timeOfDay: 6
+    },
+    interactionRadius: 2.5,
+    movement: {
+      shallowWaterSpeedMultiplier: 0.5
+    },
+    death: {
+      resourceLossFraction: 0.3
+    }
+  },
+
+  combat: {
+    playerAttackIntervalSeconds: 0.5,
+    disengageDistance: 3,
+    minimumDamage: 1
+  },
+
+  animalRespawn: {
+    playerSafeDistance: 2,
+    retryDelayMs: 5000
+  },
+
+  animalBehavior: {
+    fleeMinDistance: 1.6,
+    fleeSpawnRadiusMultiplier: 1.8,
+    fleeEscapeDistanceMultiplier: 1.2,
+    returnToSpawnDistanceMultiplier: 1.25,
+    returnIdleBaseSeconds: 0.5,
+    returnIdleRandomSeconds: 1.0,
+    patrolIdleBaseSeconds: 0.8,
+    patrolIdleRandomSeconds: 1.2
+  },
+
+  barracksTroops: {
+    syncIntervalSeconds: 0.25,
+    spawnJitter: 1.6,
+    initialAttackCooldownMax: 0.35,
+    destinationRetargetCooldown: 0.18,
+    repathCooldown: 0.24,
+    targeting: {
+      guardRadiusLeashBonus: 2.5,
+      threatBias: -6,
+      troopDistanceWeight: 0.55,
+      barracksDistanceWeight: 0.45,
+      priorityBiasByAnimal: {
+        "animal.bandit": -1.0,
+        "animal.sabertooth": -1.0,
+        "animal.bear": -0.35,
+        "animal.lion": -0.35
+      }
+    },
+    formation: {
+      guardBaseRadius: 1.7,
+      guardRingSpacing: 0.7,
+      guardArcherOffset: 0.25,
+      followBaseRadius: 1.8,
+      followRingSpacing: 0.8,
+      followArcherOffset: 0.2,
+      followAngleStep: 0.72,
+      engageMinRadius: 1.1,
+      engageRadiusMultiplier: 0.88
+    }
+  },
+
+  npc: {
+    baseSpeed: 0.05,
+    nearBuildingThreshold: 1.6,
+    exposure: {
+      walkHomeSafeDistance: 1.8,
+      idleSafeDistance: 1.9,
+      exposedDistance: 1.9
+    },
+    notifications: {
+      nightWorkPauseCooldownMs: 12000,
+      workerThreatCooldownMs: 10000
+    },
+    taskDefaults: {
+      harvestSearchRadius: 5,
+      treeCareWaterTaskSeconds: 1.8,
+      farmPlantTaskSeconds: 1.0,
+      farmWaterTaskSeconds: 1.5,
+      farmHarvestTaskSeconds: 1.5,
+      farmCollectTaskSeconds: 0.8
+    }
+  },
+
+  simulation: {
+    tickIntervalSeconds: 1.0,
+    autosaveIntervalTicks: 12,
+    pausedAutosaveIntervalTicks: 24,
+    animalCullDistance: 18
+  },
+
+  buildingPlacement: {
+    overlapBuffer: 0.8
+  },
+
+  terrain: {
+    runtime: {
+      chunkSize: 16,
+      renderDistance: 2,
+      nodeStateUpdateIntervalMs: 250
+    },
+    predatorZones: {
+      minimumDistanceFromHome: 3,
+      ironAgeThresholdBonusDistance: 6,
+      ironAgeThresholdAdjustment: -0.04,
+      thresholdsByDistance: [
+        { minDistance: 8, threshold: 0.72 },
+        { minDistance: 6, threshold: 0.78 },
+        { minDistance: 4, threshold: 0.85 },
+        { minDistance: 3, threshold: 0.92 }
+      ],
+      highZoneMinDistance: 7,
+      highZoneRollThreshold: 0.93,
+      levels: {
+        medium: {
+          label: 'Predator Zone',
+          animalBonus: 1,
+          dangerBonus: 3.75
+        },
+        high: {
+          label: 'Predator Nest',
+          animalBonus: 2,
+          dangerBonus: 6.5
+        }
+      }
+    },
+    animalSpawns: {
+      high: [
+        { minDistance: 6, age: 'age.iron', rollThreshold: 0.45, above: 'animal.sabertooth', below: 'animal.bandit' },
+        { minDistance: 5, rollThreshold: 0.45, above: 'animal.lion', below: 'animal.bear' },
+        { minDistance: 3, rollThreshold: 0.5, above: 'animal.bear', below: 'animal.boar' },
+        { minDistance: 0, rollThreshold: 0.45, above: 'animal.boar', below: 'animal.wolf' }
+      ],
+      medium: [
+        { minDistance: 6, age: 'age.iron', rollThreshold: 0.5, above: 'animal.bandit', below: 'animal.lion' },
+        { minDistance: 6, rollThreshold: 0.5, above: 'animal.lion', below: 'animal.bear' },
+        { minDistance: 4, rollThreshold: 0.55, above: 'animal.bear', below: 'animal.boar' },
+        { minDistance: 3, rollThreshold: 0.5, above: 'animal.boar', below: 'animal.wolf' },
+        { minDistance: 0, rollThreshold: 0.5, above: 'animal.wolf', below: 'animal.deer' }
+      ],
+      normal: [
+        { minDistance: 8, age: 'age.iron', rollThreshold: 0.5, above: 'animal.sabertooth', below: 'animal.bandit' },
+        { minDistance: 6, age: 'age.iron', rollThreshold: 0.5, above: 'animal.bandit', below: 'animal.lion' },
+        { minDistance: 6, fixed: 'animal.lion' },
+        { minDistance: 4, fixed: 'animal.bear' },
+        { minDistance: 3, rollThreshold: 0.45, above: 'animal.boar', below: 'animal.wolf' },
+        { minDistance: 2, fixed: 'animal.wolf' },
+        { minDistance: 0, rollThreshold: 0.55, above: 'animal.rabbit', below: 'animal.deer' }
+      ]
+    },
+    respawn: {
+      defaultNodeRespawnTimeSeconds: 30,
+      loadedNodePlayerSafeDistance: 2.1,
+      relocation: {
+        node: {
+          tree: {
+            primary: {
+              clearance: 1.35,
+              buildingClearance: 1.15,
+              playerClearance: 2.4,
+              npcClearance: 1.35,
+              maxAttempts: 40,
+              minDistanceFromCurrent: 4.5
+            },
+            fallback: {
+              clearance: 1.35,
+              buildingClearance: 1.15,
+              playerClearance: 2.4,
+              maxAttempts: 20
+            }
+          },
+          rock: {
+            primary: {
+              clearance: 1.25,
+              buildingClearance: 1.1,
+              playerClearance: 2.4,
+              npcClearance: 1.25,
+              maxAttempts: 40,
+              minDistanceFromCurrent: 4.5
+            },
+            fallback: {
+              clearance: 1.25,
+              buildingClearance: 1.1,
+              playerClearance: 2.4,
+              maxAttempts: 20
+            }
+          }
+        },
+        animal: {
+          primary: {
+            clearance: 1.6,
+            buildingClearance: 1.3,
+            playerClearance: 2.6,
+            npcClearance: 1.2,
+            maxAttempts: 48,
+            minDistanceFromCurrent: 4.5
+          },
+          fallback: {
+            clearance: 1.5,
+            buildingClearance: 1.2,
+            playerClearance: 2.4,
+            maxAttempts: 24
+          }
+        }
+      }
+    },
+    generation: {
+      nodes: {
+        tree: {
+          countByDistance: [
+            { maxDistance: 1, base: 8, variance: 5 },
+            { maxDistance: 3, base: 5, variance: 6 },
+            { base: 2, variance: 4 }
+          ],
+          placement: {
+            clearance: 1.35,
+            buildingClearance: 1.15,
+            playerClearance: 2.0,
+            maxAttempts: 24
+          }
+        },
+        rock: {
+          countByDistance: [
+            { maxDistance: 1, base: 2, variance: 2 },
+            { maxDistance: 3, base: 3, variance: 4 },
+            { base: 4, variance: 5 }
+          ],
+          placement: {
+            clearance: 1.25,
+            buildingClearance: 1.1,
+            playerClearance: 2.0,
+            maxAttempts: 24
+          }
+        },
+        berryBush: {
+          countByDistance: [
+            { maxDistance: 1, base: 6, variance: 5 },
+            { maxDistance: 3, base: 3, variance: 4 }
+          ],
+          placement: {
+            clearance: 1.0,
+            buildingClearance: 1.0,
+            playerClearance: 2.0,
+            maxAttempts: 24
+          }
+        }
+      },
+      animals: {
+        minDistanceFromHome: 1,
+        baseCountDistanceFloorCap: 3,
+        zoneCapByLevel: {
+          medium: 4,
+          high: 5
+        },
+        placement: {
+          clearance: 1.6,
+          buildingClearance: 1.3,
+          playerClearance: 2.0,
+          maxAttempts: 24
+        }
+      },
+      oreSpawns: {
+        flint: {
+          entityId: 'node.flint_deposit',
+          minDistanceFromHome: 2,
+          rollThreshold: 0.5,
+          placement: {
+            clearance: 1.5,
+            buildingClearance: 1.2,
+            playerClearance: 2.0,
+            maxAttempts: 24
+          }
+        },
+        copper: {
+          entityId: 'node.copper_deposit',
+          minDistanceFromHome: 3,
+          rollThreshold: 0.6,
+          placement: {
+            clearance: 1.5,
+            buildingClearance: 1.2,
+            playerClearance: 2.0,
+            maxAttempts: 24
+          }
+        },
+        tin: {
+          entityId: 'node.tin_deposit',
+          minDistanceFromHome: 4,
+          rollThreshold: 0.65,
+          placement: {
+            clearance: 1.5,
+            buildingClearance: 1.2,
+            playerClearance: 2.0,
+            maxAttempts: 24
+          }
+        }
+      }
+    }
   },
 
   // === THIẾT LẬP CAMERA / MAP ===
@@ -732,11 +1118,13 @@ window.GAME_BALANCE = {
       tutorials: {
         harvest: {
           text: 'Nhấn <span class="tut-key">[E]</span> để thu hoạch!',
+          duration: 2.5,
           once: true
         },
         eat: {
           text: 'Đói rồi! Nhấn <span class="tut-key">[F]</span> để ăn',
-          once: true
+          duration: 2.5,
+          once: false
         },
         night: {
           text: 'Trời tối! Xây <span class="tut-key">Lửa Trại</span> để an toàn 🔥',

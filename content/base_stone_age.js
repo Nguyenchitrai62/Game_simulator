@@ -147,7 +147,7 @@ window.GAME_CONTENT["base_stone_age"] = {
       id: "building.berry_gatherer",
       type: "building",
       name: "Resident House",
-      description: "Residents gather wood, stone, flint, berries, and tend nearby farm plots.",
+      description: "Creates residents who gather wood, stone, flint, and berries, and tend nearby farm plots and tree nursery plots.",
       visual: { shape: "building", color: 0x8B7355, roofColor: 0x6B4E2E, scale: 1.0 },
       unlock: { age: "age.stone" }
     },

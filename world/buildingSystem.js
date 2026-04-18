@@ -5,6 +5,14 @@ window.BuildingSystem = (function () {
   var _interactiveMeshes = [];
   var _interactiveMeshesDirty = false;
 
+  function getBuildingPlacementConfig() {
+    return (window.GAME_BALANCE && GAME_BALANCE.buildingPlacement) || {};
+  }
+
+  function getBuildingOverlapBuffer() {
+    return Math.max(0, Number(getBuildingPlacementConfig().overlapBuffer) || 0);
+  }
+
   function removeInteractiveMesh(mesh) {
     if (!mesh) return;
     var index = _interactiveMeshes.indexOf(mesh);
@@ -138,13 +146,14 @@ window.BuildingSystem = (function () {
       return { valid: false, reason: "Another structure already occupies this tile" };
     }
 
-    // Must not overlap existing instances with 0.8 buffer
+    // Must not overlap existing instances within the configured placement buffer
     var instances = GameState.getAllInstances();
+    var overlapBuffer = getBuildingOverlapBuffer();
     for (var uid in instances) {
       var inst = instances[uid];
       var dx = Math.abs(inst.x - worldX);
       var dz = Math.abs(inst.z - worldZ);
-      if (dx < 0.8 && dz < 0.8) {
+      if (dx < overlapBuffer && dz < overlapBuffer) {
         return { valid: false, reason: "Another structure already occupies this tile" };
       }
     }

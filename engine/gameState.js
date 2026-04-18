@@ -7,21 +7,7 @@ window.GameState = (function () {
     age: "age.stone",
     version: "",
     showLockedItems: true,
-    player: {
-      hp: 100,
-      maxHp: 100,
-      attack: 1,
-      defense: 0,
-      x: 8,
-      z: 8,
-      speed: 3,
-      equipped: {
-        weapon: null,
-        offhand: null,
-        armor: null,
-        boots: null
-      }
-    },
+    player: createDefaultPlayerState(),
     inventory: {},
     instances: {},
     buildingStorage: {},
@@ -31,9 +17,9 @@ window.GameState = (function () {
     gameSpeed: 1.0,
     isPaused: false,
     researched: [],  // Researched technologies
-    hunger: 100,
-    maxHunger: 100,
-    timeOfDay: 6,
+    hunger: 0,
+    maxHunger: 0,
+    timeOfDay: getPlayerSpawnTimeOfDay(),
     fireFuel: {},
     exploredChunks: {}
   };
@@ -56,6 +42,198 @@ window.GameState = (function () {
     return _worldStateDirty;
   }
 
+  function getHungerConfig() {
+    return (window.GAME_BALANCE && GAME_BALANCE.hunger) || {};
+  }
+
+  function getConfiguredMaxHunger() {
+    var maxHunger = Number(getHungerConfig().maxHunger);
+    return maxHunger > 0 ? maxHunger : _state.maxHunger;
+  }
+
+  function getAutoEatThreshold() {
+    return Number(getHungerConfig().autoEatThreshold);
+  }
+
+  function getHungryThreshold() {
+    return Number(getHungerConfig().hungryThreshold);
+  }
+
+  function getHungerOverlayConfig() {
+    return getHungerConfig().overlay || {};
+  }
+
+  function getHungerOverlayWarningThreshold() {
+    var warningThreshold = Number(getHungerOverlayConfig().warningThreshold);
+    return isFinite(warningThreshold) ? warningThreshold : getHungryThreshold();
+  }
+
+  function getHungerOverlayCriticalThreshold() {
+    var criticalThreshold = Number(getHungerOverlayConfig().criticalThreshold);
+    return isFinite(criticalThreshold) ? criticalThreshold : 0;
+  }
+
+  function getHungerDrainPerSecond() {
+    return Number(getHungerConfig().drainPerSecond);
+  }
+
+  function getHungrySpeedMultiplier() {
+    return Number(getHungerConfig().hungrySpeedMult);
+  }
+
+  function getStarvingHpDrain() {
+    return Number(getHungerConfig().starvingHpDrain);
+  }
+
+  function getHungerRestoreAmount(resourceId) {
+    var foodRestoreMap = getHungerConfig().foodRestore || {};
+    return Number(foodRestoreMap[resourceId]);
+  }
+
+  function getEatDuration() {
+    return Number(getHungerConfig().eatDuration);
+  }
+
+  function getEatSpeedMultiplier() {
+    return Number(getHungerConfig().eatSpeedMult);
+  }
+
+  function getRegenHungerMultiplier() {
+    return Number(getHungerConfig().regenHungerMult);
+  }
+
+  function getStarvationResourceLossFraction() {
+    return Number(getHungerConfig().starvationResourceLossFraction);
+  }
+
+  function getStarvationRespawnHungerFraction() {
+    return Number(getHungerConfig().starvationRespawnHungerFraction);
+  }
+
+  function getPlayerConfig() {
+    return (window.GAME_BALANCE && GAME_BALANCE.player) || {};
+  }
+
+  function getPlayerBaseStats() {
+    var baseStats = getPlayerConfig().baseStats || {};
+    return {
+      maxHp: Number(baseStats.maxHp) || 0,
+      attack: Number(baseStats.attack) || 0,
+      defense: Number(baseStats.defense) || 0,
+      speed: Number(baseStats.speed) || 0
+    };
+  }
+
+  function getPlayerSpawnPosition() {
+    var spawn = getPlayerConfig().spawn || {};
+    return {
+      x: Number(spawn.x) || 0,
+      z: Number(spawn.z) || 0
+    };
+  }
+
+  function getPlayerSpawnTimeOfDay() {
+    return Number((getPlayerConfig().spawn || {}).timeOfDay) || 0;
+  }
+
+  function getPlayerInteractionRadius() {
+    return Number(getPlayerConfig().interactionRadius) || 0;
+  }
+
+  function getPlayerShallowWaterSpeedMultiplier() {
+    return Number(((getPlayerConfig().movement || {}).shallowWaterSpeedMultiplier)) || 0;
+  }
+
+  function getPlayerDeathResourceLossFraction() {
+    return Number(((getPlayerConfig().death || {}).resourceLossFraction));
+  }
+
+  function getFuelCapacityForInstance(uid) {
+    var inst = _state.instances[uid];
+    var balance = inst ? GameRegistry.getBalance(inst.entityId) : null;
+    return Number(balance && balance.fuelCapacity) || 0;
+  }
+
+  function createDefaultEquipmentSlots() {
+    return {
+      weapon: null,
+      offhand: null,
+      armor: null,
+      boots: null
+    };
+  }
+
+  function createDefaultPlayerState() {
+    var baseStats = getPlayerBaseStats();
+    var spawn = getPlayerSpawnPosition();
+    return {
+      hp: baseStats.maxHp,
+      maxHp: baseStats.maxHp,
+      attack: baseStats.attack,
+      defense: baseStats.defense,
+      x: spawn.x,
+      z: spawn.z,
+      speed: baseStats.speed,
+      equipped: createDefaultEquipmentSlots()
+    };
+  }
+
+  function mergeEquipmentSlots(equipped) {
+    var merged = createDefaultEquipmentSlots();
+    equipped = equipped || {};
+    for (var slot in merged) {
+      if (equipped.hasOwnProperty(slot)) {
+        merged[slot] = equipped[slot] || null;
+      }
+    }
+    return merged;
+  }
+
+  function syncPlayerStateToBalance(options) {
+    options = options || {};
+    var defaultPlayer = createDefaultPlayerState();
+    var currentPlayer = _state.player || {};
+
+    _state.player = currentPlayer;
+    _state.player.equipped = mergeEquipmentSlots(currentPlayer.equipped);
+    _state.player.attack = defaultPlayer.attack;
+    _state.player.defense = defaultPlayer.defense;
+    _state.player.speed = defaultPlayer.speed;
+
+    if (options.resetPosition) {
+      _state.player.x = defaultPlayer.x;
+      _state.player.z = defaultPlayer.z;
+    } else {
+      var savedX = Number(_state.player.x);
+      var savedZ = Number(_state.player.z);
+      _state.player.x = isFinite(savedX) ? savedX : defaultPlayer.x;
+      _state.player.z = isFinite(savedZ) ? savedZ : defaultPlayer.z;
+    }
+
+    _state.player.maxHp = getPlayerMaxHp();
+    if (options.resetHealth) {
+      _state.player.hp = _state.player.maxHp;
+      return;
+    }
+
+    var currentHp = Number(_state.player.hp);
+    if (!isFinite(currentHp)) {
+      _state.player.hp = _state.player.maxHp;
+      return;
+    }
+
+    _state.player.hp = Math.max(0, Math.min(currentHp, _state.player.maxHp));
+  }
+
+  function syncHungerStateToBalance(resetToFull) {
+    _state.maxHunger = getConfiguredMaxHunger();
+    if (resetToFull) {
+      _state.hunger = _state.maxHunger;
+      return;
+    }
+    _state.hunger = Math.max(0, Math.min(_state.hunger, _state.maxHunger));
+  }
+
   function markInstancesDirty() {
     if (window.GameSpatialIndex && GameSpatialIndex.markInstancesDirty) {
       GameSpatialIndex.markInstancesDirty();
@@ -72,12 +250,8 @@ window.GameState = (function () {
     _state.unlocked = ["age.stone"];
     _state.age = "age.stone";
     _state.version = window.GAME_MANIFEST.version;
-    _state.player = {
-      hp: 100, maxHp: 100,
-      attack: 1, defense: 0,
-      x: 8, z: 8, speed: 3,
-      equipped: { weapon: null, offhand: null, armor: null, boots: null }
-    };
+    _state.player = createDefaultPlayerState();
+    syncPlayerStateToBalance({ resetPosition: true, resetHealth: true });
     _state.inventory = {};
     _state.instances = {};
     _state.buildingStorage = {};
@@ -85,9 +259,10 @@ window.GameState = (function () {
     _state.worldSeed = Math.floor(Math.random() * 100000);
     _state.fractionalAccumulator = {};
     _state.researched = [];
-    _state.hunger = 100;
-    _state.maxHunger = 100;
-    _state.timeOfDay = 6;
+    _state.hunger = 0;
+    _state.maxHunger = 0;
+    syncHungerStateToBalance(true);
+    _state.timeOfDay = getPlayerSpawnTimeOfDay();
     _state.fireFuel = {};
     _state.exploredChunks = {};
     _coreStateVersion = 1;
@@ -302,7 +477,7 @@ window.GameState = (function () {
   }
 
   function getPlayerMaxHp() {
-    return 100 + getEquippedStatTotal('maxHp');
+    return getPlayerBaseStats().maxHp + getEquippedStatTotal('maxHp');
   }
 
   function getPlayerAttack() {
@@ -812,15 +987,8 @@ window.GameState = (function () {
     _state.techState = data.techState || { currentResearch: null, progress: 0 };
     _state.age = data.age || "age.stone";
     _state.version = data.version || "";
-    _state.player = data.player || {
-      hp: 100, maxHp: 100, attack: 1, defense: 0,
-      x: 8, z: 8, speed: 3,
-      equipped: { weapon: null, offhand: null, armor: null, boots: null }
-    };
-    // Backward compatibility: add boots slot if missing
-    if (_state.player.equipped && !_state.player.equipped.hasOwnProperty('boots')) {
-      _state.player.equipped.boots = null;
-    }
+    _state.player = data.player || createDefaultPlayerState();
+    syncPlayerStateToBalance({ resetPosition: false, resetHealth: false });
     _state.inventory = data.inventory || {};
     _state.instances = data.instances || {};
     _state.buildingStorage = data.buildingStorage || {};
@@ -829,9 +997,10 @@ window.GameState = (function () {
     _state.fractionalAccumulator = data.fractionalAccumulator || {};
     _state.gameSpeed = data.gameSpeed || 1.0;
     _state.isPaused = data.isPaused || false;
-    _state.hunger = data.hunger !== undefined ? data.hunger : 100;
-    _state.maxHunger = data.maxHunger || 100;
-    _state.timeOfDay = data.timeOfDay !== undefined ? data.timeOfDay : 6;
+    _state.hunger = data.hunger !== undefined ? data.hunger : 0;
+    _state.maxHunger = 0;
+    syncHungerStateToBalance(data.hunger === undefined);
+    _state.timeOfDay = data.timeOfDay !== undefined ? data.timeOfDay : getPlayerSpawnTimeOfDay();
     _state.fireFuel = data.fireFuel || {};
     _state.exploredChunks = data.exploredChunks || {};
     normalizeZeroCapacityBuildingStorage();
@@ -884,7 +1053,7 @@ window.GameState = (function () {
     markCoreStateChanged();
   }
   function getMaxHunger() { return _state.maxHunger; }
-  function isHungry() { return _state.hunger < 20; }
+  function isHungry() { return _state.hunger < getHungryThreshold(); }
   function isStarving() { return _state.hunger <= 0; }
 
   // === Time of Day ===
@@ -903,9 +1072,7 @@ window.GameState = (function () {
   }
   function setFireFuel(uid, current) {
     if (!_state.fireFuel[uid]) {
-      var inst = _state.instances[uid];
-      var balance = inst ? GameRegistry.getBalance(inst.entityId) : null;
-      var maxFuel = (balance && balance.fuelCapacity) ? balance.fuelCapacity : 999;
+      var maxFuel = getFuelCapacityForInstance(uid);
       _state.fireFuel[uid] = { current: current, max: maxFuel };
     }
     var nextCurrent = Math.max(0, Math.min(current, _state.fireFuel[uid].max));
@@ -915,9 +1082,7 @@ window.GameState = (function () {
   }
   function addFireFuel(uid, amount) {
     if (!_state.fireFuel[uid]) {
-      var inst = _state.instances[uid];
-      var balance = inst ? GameRegistry.getBalance(inst.entityId) : null;
-      var maxFuel = (balance && balance.fuelCapacity) ? balance.fuelCapacity : 999;
+      var maxFuel = getFuelCapacityForInstance(uid);
       _state.fireFuel[uid] = { current: 0, max: maxFuel };
     }
     var nextCurrent = Math.min(_state.fireFuel[uid].max, _state.fireFuel[uid].current + amount);
@@ -1004,6 +1169,27 @@ window.GameState = (function () {
     isResearched: isResearched,
     getResearched: getResearched,
     getHunger: getHunger, setHunger: setHunger,
+    getHungerConfig: getHungerConfig,
+    getAutoEatThreshold: getAutoEatThreshold,
+    getHungryThreshold: getHungryThreshold,
+    getHungerOverlayWarningThreshold: getHungerOverlayWarningThreshold,
+    getHungerOverlayCriticalThreshold: getHungerOverlayCriticalThreshold,
+    getHungerDrainPerSecond: getHungerDrainPerSecond,
+    getHungrySpeedMultiplier: getHungrySpeedMultiplier,
+    getStarvingHpDrain: getStarvingHpDrain,
+    getHungerRestoreAmount: getHungerRestoreAmount,
+    getEatDuration: getEatDuration,
+    getEatSpeedMultiplier: getEatSpeedMultiplier,
+    getRegenHungerMultiplier: getRegenHungerMultiplier,
+    getStarvationResourceLossFraction: getStarvationResourceLossFraction,
+    getStarvationRespawnHungerFraction: getStarvationRespawnHungerFraction,
+    getPlayerConfig: getPlayerConfig,
+    getPlayerBaseStats: getPlayerBaseStats,
+    getPlayerSpawnPosition: getPlayerSpawnPosition,
+    getPlayerSpawnTimeOfDay: getPlayerSpawnTimeOfDay,
+    getPlayerInteractionRadius: getPlayerInteractionRadius,
+    getPlayerShallowWaterSpeedMultiplier: getPlayerShallowWaterSpeedMultiplier,
+    getPlayerDeathResourceLossFraction: getPlayerDeathResourceLossFraction,
     getMaxHunger: getMaxHunger, isHungry: isHungry, isStarving: isStarving,
     getTimeOfDay: getTimeOfDay, setTimeOfDay: setTimeOfDay,
     getFireFuel: getFireFuel, setFireFuel: setFireFuel,

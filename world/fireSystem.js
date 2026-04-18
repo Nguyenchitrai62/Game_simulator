@@ -25,6 +25,26 @@ window.FireSystem = (function () {
     return hash;
   }
 
+  function getLightBalance(entityId) {
+    return GameRegistry.getBalance(entityId) || {};
+  }
+
+  function getBalanceLightRadius(balance) {
+    return Number(balance.lightRadius) || 0;
+  }
+
+  function getBalanceLightIntensity(balance) {
+    return Number(balance.lightIntensity) || 0;
+  }
+
+  function getBalanceLightColor(balance) {
+    return balance.lightColor !== undefined ? balance.lightColor : _warmOrange.getHex();
+  }
+
+  function getBalanceFuelCapacity(balance) {
+    return Number(balance.fuelCapacity) || 0;
+  }
+
   function init() {
     var instances = GameState.getAllInstancesLive ? GameState.getAllInstancesLive() : GameState.getAllInstances();
     for (var uid in instances) {
@@ -39,12 +59,12 @@ window.FireSystem = (function () {
 
   function createFireLight(uid, instance) {
     var entityId = instance.entityId;
-    var balance = GameRegistry.getBalance(entityId);
-    if (!balance || !balance.lightRadius) return;
+    var balance = getLightBalance(entityId);
+    var lightRadius = getBalanceLightRadius(balance);
+    if (!lightRadius) return;
 
-    var lightIntensity = balance.lightIntensity || 1.5;
-    var lightColor = balance.lightColor || 0xFFA500;
-    var lightRadius = balance.lightRadius || 14;
+    var lightIntensity = getBalanceLightIntensity(balance);
+    var lightColor = getBalanceLightColor(balance);
 
     var isCampfire = (entityId === 'building.campfire');
     var seed = hashUid(uid);
@@ -181,10 +201,10 @@ window.FireSystem = (function () {
         continue;
       }
 
-      var balance = GameRegistry.getBalance(instance.entityId);
+      var balance = getLightBalance(instance.entityId);
       if (!balance) continue;
 
-      var lightRadius = fire.radius || balance.lightRadius || 0;
+      var lightRadius = fire.radius || getBalanceLightRadius(balance);
       if (lightRadius > 0) {
         pushLightSource(
           _lightSources,
@@ -202,7 +222,7 @@ window.FireSystem = (function () {
       }
 
       var fuel = GameState.getFireFuel ? GameState.getFireFuel(uid) : null;
-      var maxFuel = balance.fuelCapacity || 999;
+      var maxFuel = getBalanceFuelCapacity(balance);
       var currentFuel = (fuel !== null && fuel !== undefined) ? fuel : maxFuel;
       var hasFuel = currentFuel > 0;
 
@@ -374,8 +394,10 @@ window.FireSystem = (function () {
     _playerTorchLightInfo = null;
 
     if (hasActiveTorch) {
+      var torchBalance = getLightBalance('item.handheld_torch');
+      var torchRadius = getBalanceLightRadius(torchBalance);
       if (!_playerTorchLight) {
-        _playerTorchLight = new THREE.PointLight(0xFFA500, 0, 16);
+        _playerTorchLight = new THREE.PointLight(getBalanceLightColor(torchBalance), 0, torchRadius * 2.5);
         _playerTorchLight.decay = 1.2;
         _playerTorchLight.castShadow = false;
         GameScene.getScene().add(_playerTorchLight);
@@ -384,8 +406,7 @@ window.FireSystem = (function () {
       var pos = GamePlayer.getPosition();
 
       if (darkness > 0.05) {
-        var torchBalance = GameRegistry.getBalance("item.handheld_torch") || {};
-        var baseInt = torchBalance.lightIntensity || 2.0;
+        var baseInt = getBalanceLightIntensity(torchBalance);
 
         var intensityScale = Math.min(1.0, darkness * 2.5);
 
@@ -406,7 +427,7 @@ window.FireSystem = (function () {
         _playerTorchLightInfo = {
           x: pos.x,
           z: pos.z,
-          radius: torchBalance.lightRadius || 6,
+          radius: torchRadius,
           intensity: intensityScale,
           sourceUid: 'player_torch',
           sourceType: 'torch',

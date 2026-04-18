@@ -5,9 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Evolution Simulator 3D</title>
   <link rel="icon" type="image/png" href="asset/LOGO.png">
-  <link rel="preload" as="audio" href="asset/Chibi.mp3" type="audio/mpeg">
-  <link rel="preload" as="audio" href="asset/lag.ogg" type="audio/ogg">
-  <link rel="preload" as="audio" href="asset/fire.ogg" type="audio/ogg">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -157,7 +154,7 @@
       </div>
       <div class="hunger-text" id="hunger-text">100 / 100</div>
     </div>
-    <button class="eat-btn" id="eat-btn" onclick="GamePlayer.startEat()">[F] Eat</button>
+    <button class="eat-btn" id="eat-btn" onclick="GamePlayer.startEat()" data-i18n="dom.eatButton">[F] Eat</button>
   </div>
 
   <!-- Day/Night Clock -->
@@ -166,8 +163,8 @@
   </div>
 
   <div class="perf-tools" id="perf-tools">
-    <button id="quality-settings-toggle" class="quality-settings-toggle" type="button" aria-expanded="false" aria-label="Setting (F9)" title="Setting (F9)">
-      <span class="quality-settings-toggle-text">Setting</span>
+    <button id="quality-settings-toggle" class="quality-settings-toggle" type="button" aria-expanded="false" aria-label="Settings (F9)" title="Settings (F9)" data-i18n-aria-label="dom.settingsToggleTooltip" data-i18n-title="dom.settingsToggleTooltip">
+      <span class="quality-settings-toggle-text" data-i18n="dom.settingsToggle">Settings</span>
     </button>
     <div id="fps-panel" class="fps-panel">FPS --</div>
   </div>
@@ -176,7 +173,7 @@
 
   <!-- Context Action -->
   <div class="context-action" id="context-action">
-    <span class="key">[E]</span> <span id="context-text">Chop Tree</span>
+    <span class="key">[E]</span> <span id="context-text" data-i18n="hud.contextAction.actions.gather">Gather</span>
   </div>
 
   <!-- Tutorial Speech Bubble (above player head) -->
@@ -204,18 +201,18 @@
   <div id="building-storage-labels"></div>
 
   <div class="player-basic-panel" id="player-basic-panel">
-    <div class="player-basic-title">Player</div>
+    <div class="player-basic-title" data-i18n="dom.playerPanelTitle">Player</div>
     <div class="player-basic-grid">
       <div class="player-basic-stat">
-        <span class="player-basic-label">ATK</span>
+        <span class="player-basic-label" data-i18n="dom.playerBasicStats.attack">ATK</span>
         <span class="player-basic-value stat-atk" id="stat-atk">1</span>
       </div>
       <div class="player-basic-stat">
-        <span class="player-basic-label">DEF</span>
+        <span class="player-basic-label" data-i18n="dom.playerBasicStats.defense">DEF</span>
         <span class="player-basic-value stat-def" id="stat-def">0</span>
       </div>
       <div class="player-basic-stat">
-        <span class="player-basic-label">SPD</span>
+        <span class="player-basic-label" data-i18n="dom.playerBasicStats.speed">SPD</span>
         <span class="player-basic-value stat-spd" id="stat-spd">3</span>
       </div>
     </div>
@@ -224,7 +221,7 @@
   <div class="quickbar" id="quickbar">
     <div class="quickbar-switch" id="quickbar-switch">
       <button class="quickbar-toggle build" id="quickbar-toggle" onclick="GameHUD.toggleQuickbarMode()">
-        <span class="quickbar-toggle-label">Build</span>
+        <span class="quickbar-toggle-label" data-i18n="hud.quickbar.mode.build">Build</span>
         <span class="quickbar-toggle-hint">Tab</span>
       </button>
     </div>
@@ -264,9 +261,9 @@
         <div class="modal-header">
           <div class="modal-header-top">
             <div class="modal-context">
-              <div class="modal-kicker" id="modal-kicker">Economy</div>
-              <div class="modal-title" id="modal-title">Resources</div>
-              <div class="modal-subtitle" id="modal-subtitle">Track your stockpile and current economy flow.</div>
+              <div class="modal-kicker" id="modal-kicker" data-i18n="hud.modal.header.resources.kicker">Economy</div>
+              <div class="modal-title" id="modal-title" data-i18n="hud.modal.header.resources.title">Resources</div>
+              <div class="modal-subtitle" id="modal-subtitle" data-i18n="hud.modal.header.resources.subtitle">Track your stockpile and current economy flow.</div>
             </div>
             <button class="modal-close" onclick="GameHUD.closeModal()">✕</button>
           </div>
@@ -309,7 +306,7 @@
   <!-- Full Map Overlay -->
   <div id="map-popup" class="map-popup" style="display:none;">
     <div class="map-popup-bar">
-      <span class="map-popup-title">WORLD MAP</span>
+      <span class="map-popup-title" data-i18n="dom.mapTitle">WORLD MAP</span>
       <button class="map-close-btn" onclick="MiniMap.toggleMap()">[M] / [ESC]</button>
     </div>
     <canvas id="map-full-canvas"></canvas>
@@ -381,6 +378,10 @@
   <script src="world/minimap.js"></script>
 
   <!-- UI (MUST load BEFORE main.js!) -->
+  <script src="ui/hud/debugSettings.js"></script>
+  <script src="ui/hud/settingsPanel.js"></script>
+  <script src="ui/hud/modalPanels.js"></script>
+  <script src="ui/hud/inspector.js"></script>
   <script src="ui/hud.js"></script>
 
   <!-- Entry Point -->

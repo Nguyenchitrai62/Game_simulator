@@ -1,7 +1,8 @@
 window.GameTerrain = (function () {
-  var CHUNK_SIZE = 16;
+  var _terrainRuntimeConfig = (((window.GAME_BALANCE || {}).terrain || {}).runtime) || {};
+  var CHUNK_SIZE = Number(_terrainRuntimeConfig.chunkSize) || 0;
   var chunks = {};
-  var RENDER_DISTANCE = 2;
+  var RENDER_DISTANCE = Math.max(0, Number(_terrainRuntimeConfig.renderDistance) || 0);
   var worldSeed = 42;
   var _lastLoadedPlayerChunk = { x: null, z: null };
   var _lastNodeStateUpdateAt = 0;
@@ -17,7 +18,7 @@ window.GameTerrain = (function () {
     top: Infinity,
     bottom: Infinity
   };
-  var NODE_STATE_UPDATE_INTERVAL_MS = 250;
+  var NODE_STATE_UPDATE_INTERVAL_MS = Math.max(0, Number(_terrainRuntimeConfig.nodeStateUpdateIntervalMs) || 0);
 
   function snapshotVisibilityCameraState(camera) {
     if (!camera) return;
@@ -254,75 +255,193 @@ window.GameTerrain = (function () {
     _lastVisibilityCameraState.bottom = Infinity;
   }
 
-  function getPredatorZoneProfile(seed, distFromHome, currentAge) {
-    if (distFromHome < 3) return null;
+  function getTerrainBalanceConfig() {
+    return (window.GAME_BALANCE && GAME_BALANCE.terrain) || {};
+  }
 
-    var zoneRoll = seededRandom(seed + 9700);
-    var threshold = distFromHome >= 8 ? 0.72 : (distFromHome >= 6 ? 0.78 : (distFromHome >= 4 ? 0.85 : 0.92));
-    if (currentAge === 'age.iron' && distFromHome >= 6) {
-      threshold -= 0.04;
+  function getEntityBalance(entityId) {
+    return (window.GAME_BALANCE && window.GAME_BALANCE[entityId]) || {};
+  }
+
+  function getPredatorZoneConfig() {
+    return getTerrainBalanceConfig().predatorZones || {};
+  }
+
+  function getAnimalSpawnConfig() {
+    return getTerrainBalanceConfig().animalSpawns || {};
+  }
+
+  function getTerrainRespawnConfig() {
+    return getTerrainBalanceConfig().respawn || {};
+  }
+
+  function getTerrainGenerationConfig() {
+    return getTerrainBalanceConfig().generation || {};
+  }
+
+  function getTerrainGenerationNodeConfig(nodeKey) {
+    return (getTerrainGenerationConfig().nodes || {})[nodeKey] || {};
+  }
+
+  function getTerrainAnimalGenerationConfig() {
+    return getTerrainGenerationConfig().animals || {};
+  }
+
+  function getTerrainOreGenerationConfig(oreKey) {
+    return (getTerrainGenerationConfig().oreSpawns || {})[oreKey] || {};
+  }
+
+  function getTerrainNodeRelocationConfig(nodeType, stageKey) {
+    var nodeRelocationConfig = (getTerrainRespawnConfig().relocation || {}).node || {};
+    var configKey = nodeType === 'node.tree' ? 'tree' : (nodeType === 'node.rock' ? 'rock' : null);
+    var nodeConfig = configKey ? nodeRelocationConfig[configKey] : null;
+    return (nodeConfig && nodeConfig[stageKey]) || {};
+  }
+
+  function getTerrainAnimalRelocationConfig(stageKey) {
+    var animalRelocationConfig = (getTerrainRespawnConfig().relocation || {}).animal || {};
+    return animalRelocationConfig[stageKey] || {};
+  }
+
+  function getTerrainRespawnTimeSeconds(entityId) {
+    var balance = getEntityBalance(entityId);
+    if (balance.respawnTime !== undefined) {
+      return Number(balance.respawnTime) || 0;
+    }
+    return Number(getTerrainRespawnConfig().defaultNodeRespawnTimeSeconds) || 0;
+  }
+
+  function getTerrainLoadedNodePlayerSafeDistance() {
+    return Number(getTerrainRespawnConfig().loadedNodePlayerSafeDistance) || 0;
+  }
+
+  function getBalancedEntityHp(entityId, fallbackHp) {
+    var balance = getEntityBalance(entityId);
+    if (balance.hp !== undefined) {
+      return Math.max(1, Number(balance.hp) || 0);
+    }
+    return Math.max(1, Number(fallbackHp) || 1);
+  }
+
+  function buildSpawnOptions(baseConfig, extraOptions) {
+    var options = {};
+    var key;
+    baseConfig = baseConfig || {};
+    extraOptions = extraOptions || {};
+
+    for (key in baseConfig) {
+      if (!Object.prototype.hasOwnProperty.call(baseConfig, key)) continue;
+      options[key] = baseConfig[key];
     }
 
-    if (zoneRoll <= threshold) return null;
+    for (key in extraOptions) {
+      if (!Object.prototype.hasOwnProperty.call(extraOptions, key)) continue;
+      if (extraOptions[key] === undefined) continue;
+      options[key] = extraOptions[key];
+    }
 
-    var zoneLevel = (distFromHome >= 7 || zoneRoll > 0.93) ? 'high' : 'medium';
+    return options;
+  }
+
+  function getDistanceBandConfig(bands, distFromHome) {
+    if (!bands || !bands.length) return null;
+
+    for (var index = 0; index < bands.length; index++) {
+      var band = bands[index];
+      if (band.maxDistance === undefined || distFromHome < Number(band.maxDistance)) {
+        return band;
+      }
+    }
+
+    return null;
+  }
+
+  function resolveDistanceBandCount(bands, distFromHome, roll) {
+    var band = getDistanceBandConfig(bands, distFromHome);
+    if (!band) return 0;
+    return Number(band.base || 0) + Math.floor((roll || 0) * Number(band.variance || 0));
+  }
+
+  function getPredatorZoneAnimalCap(level) {
+    return Number((getTerrainAnimalGenerationConfig().zoneCapByLevel || {})[level]) || 0;
+  }
+
+  function getFallbackPlayerPosition() {
+    if (typeof GamePlayer !== 'undefined' && GamePlayer.getPosition) {
+      return GamePlayer.getPosition();
+    }
+    if (typeof GameState !== 'undefined' && GameState.getPlayerSpawnPosition) {
+      return GameState.getPlayerSpawnPosition();
+    }
+    return { x: 0, z: 0 };
+  }
+
+  function getPredatorZoneThreshold(distFromHome, currentAge) {
+    var config = getPredatorZoneConfig();
+    var thresholds = config.thresholdsByDistance || [];
+    var threshold = null;
+
+    for (var index = 0; index < thresholds.length; index++) {
+      if (distFromHome >= thresholds[index].minDistance) {
+        threshold = Number(thresholds[index].threshold);
+        break;
+      }
+    }
+
+    if (threshold === null) return null;
+
+    if (currentAge === 'age.iron' && distFromHome >= Number(config.ironAgeThresholdBonusDistance)) {
+      threshold += Number(config.ironAgeThresholdAdjustment) || 0;
+    }
+
+    return threshold;
+  }
+
+  function getPredatorZoneLevelData(level) {
+    return (getPredatorZoneConfig().levels || {})[level] || null;
+  }
+
+  function matchesAnimalSpawnRule(rule, currentAge, distFromHome) {
+    if (!rule) return false;
+    if (rule.age && rule.age !== currentAge) return false;
+    return distFromHome >= Number(rule.minDistance || 0);
+  }
+
+  function resolveAnimalSpawnTable(table, currentAge, distFromHome, animalRoll) {
+    for (var index = 0; index < table.length; index++) {
+      var rule = table[index];
+      if (!matchesAnimalSpawnRule(rule, currentAge, distFromHome)) continue;
+      if (rule.fixed) return rule.fixed;
+      return animalRoll > Number(rule.rollThreshold) ? rule.above : rule.below;
+    }
+    return null;
+  }
+
+  function getPredatorZoneProfile(seed, distFromHome, currentAge) {
+    var config = getPredatorZoneConfig();
+    if (distFromHome < Number(config.minimumDistanceFromHome)) return null;
+
+    var zoneRoll = seededRandom(seed + 9700);
+    var threshold = getPredatorZoneThreshold(distFromHome, currentAge);
+
+    if (threshold === null || zoneRoll <= threshold) return null;
+
+    var zoneLevel = (distFromHome >= Number(config.highZoneMinDistance) || zoneRoll > Number(config.highZoneRollThreshold)) ? 'high' : 'medium';
+    var levelData = getPredatorZoneLevelData(zoneLevel);
     return {
       level: zoneLevel,
-      label: zoneLevel === 'high' ? 'Predator Nest' : 'Predator Zone',
-      animalBonus: zoneLevel === 'high' ? 2 : 1,
-      dangerBonus: zoneLevel === 'high' ? 6.5 : 3.75
+      label: levelData ? levelData.label : '',
+      animalBonus: levelData ? levelData.animalBonus : 0,
+      dangerBonus: levelData ? levelData.dangerBonus : 0
     };
   }
 
   function chooseAnimalType(currentAge, distFromHome, animalRoll, predatorZone) {
-    if (predatorZone && predatorZone.level === 'high') {
-      if (currentAge === 'age.iron' && distFromHome >= 6) {
-        return animalRoll > 0.45 ? 'animal.sabertooth' : 'animal.bandit';
-      }
-      if (distFromHome >= 5) {
-        return animalRoll > 0.45 ? 'animal.lion' : 'animal.bear';
-      }
-      if (distFromHome >= 3) {
-        return animalRoll > 0.5 ? 'animal.bear' : 'animal.boar';
-      }
-      return animalRoll > 0.45 ? 'animal.boar' : 'animal.wolf';
-    }
-
-    if (predatorZone && predatorZone.level === 'medium') {
-      if (currentAge === 'age.iron' && distFromHome >= 6) {
-        return animalRoll > 0.5 ? 'animal.bandit' : 'animal.lion';
-      }
-      if (distFromHome >= 6) {
-        return animalRoll > 0.5 ? 'animal.lion' : 'animal.bear';
-      }
-      if (distFromHome >= 4) {
-        return animalRoll > 0.55 ? 'animal.bear' : 'animal.boar';
-      }
-      if (distFromHome >= 3) {
-        return animalRoll > 0.5 ? 'animal.boar' : 'animal.wolf';
-      }
-      return animalRoll > 0.5 ? 'animal.wolf' : 'animal.deer';
-    }
-
-    if (currentAge === 'age.iron' && distFromHome >= 8) {
-      return animalRoll > 0.5 ? 'animal.sabertooth' : 'animal.bandit';
-    }
-    if (currentAge === 'age.iron' && distFromHome >= 6) {
-      return animalRoll > 0.5 ? 'animal.bandit' : 'animal.lion';
-    }
-    if (distFromHome >= 6) {
-      return 'animal.lion';
-    }
-    if (distFromHome >= 4) {
-      return 'animal.bear';
-    }
-    if (distFromHome >= 3) {
-      return animalRoll > 0.45 ? 'animal.boar' : 'animal.wolf';
-    }
-    if (distFromHome >= 2) {
-      return 'animal.wolf';
-    }
-    return animalRoll > 0.55 ? 'animal.rabbit' : 'animal.deer';
+    var spawnConfig = getAnimalSpawnConfig();
+    var tableKey = predatorZone ? predatorZone.level : 'normal';
+    var animalType = resolveAnimalSpawnTable(spawnConfig[tableKey] || [], currentAge, distFromHome, animalRoll);
+    if (animalType) return animalType;
+    return resolveAnimalSpawnTable(spawnConfig.normal || [], currentAge, distFromHome, animalRoll);
   }
 
   function getChunkSize() { return CHUNK_SIZE; }
@@ -416,14 +535,14 @@ window.GameTerrain = (function () {
   function getNodeInfo(objData) {
     if (!isResourceNode(objData)) return null;
 
-    var balance = (window.GAME_BALANCE && window.GAME_BALANCE[objData.type]) || {};
+    var balance = getEntityBalance(objData.type);
     var config = getNodeConfig(objData.type);
     var info = {
       name: getNodeBaseName(objData.type),
       label: getNodeBaseName(objData.type),
       stateLabel: "",
       rewards: cloneMap(balance.rewards),
-      hp: balance.hp || objData.maxHp || objData.hp || 1,
+      hp: getBalancedEntityHp(objData.type, objData.maxHp || objData.hp),
       scale: 1,
       harvestable: true,
       isGiant: false,
@@ -708,8 +827,7 @@ window.GameTerrain = (function () {
     }
 
     if (objData._destroyed && !objData.respawnAt) {
-      var balance = (window.GAME_BALANCE && window.GAME_BALANCE[objData.type]) || {};
-      objData.respawnAt = now + ((balance.respawnTime || 30) * 1000);
+      objData.respawnAt = now + (getTerrainRespawnTimeSeconds(objData.type) * 1000);
     }
 
     if (savedX !== undefined || savedZ !== undefined || savedWorldX !== undefined || savedWorldZ !== undefined || savedNodeVariant !== undefined || savedGrowthStage !== undefined || savedNextGrowthAt !== undefined) {
@@ -844,35 +962,25 @@ window.GameTerrain = (function () {
     var chunk = getChunkAt(objData.worldX, objData.worldZ);
     if (!chunk) return false;
 
-    var playerPos = (typeof GamePlayer !== 'undefined' && GamePlayer.getPosition) ? GamePlayer.getPosition() : { x: 8, z: 8 };
+    var playerPos = getFallbackPlayerPosition();
     var placedInstances = getPlacedInstancesForLookup();
     var activeNPCs = (typeof NPCSystem !== 'undefined' && NPCSystem.getAllNPCs) ? NPCSystem.getAllNPCs() : null;
     var seedHash = hashString(objData.id || objData.type || "node");
-    var clearance = objData.type === "node.tree" ? 1.35 : 1.25;
-    var buildingClearance = objData.type === "node.tree" ? 1.15 : 1.1;
-    var position = findChunkSpawnPosition(chunk, playerPos, 1200 + (seedHash % 173), 1400 + (seedHash % 191), objData.spawnCycle || 0, {
-      clearance: clearance,
-      buildingClearance: buildingClearance,
-      playerClearance: 2.4,
+    var primaryRelocation = getTerrainNodeRelocationConfig(objData.type, 'primary');
+    var fallbackRelocation = getTerrainNodeRelocationConfig(objData.type, 'fallback');
+    var position = findChunkSpawnPosition(chunk, playerPos, 1200 + (seedHash % 173), 1400 + (seedHash % 191), objData.spawnCycle || 0, buildSpawnOptions(primaryRelocation, {
       npcPositions: activeNPCs,
-      npcClearance: Math.max(0.9, clearance),
-      maxAttempts: 40,
       instances: placedInstances,
       skipObjectId: objData.id,
       currentWorldX: objData.worldX,
-      currentWorldZ: objData.worldZ,
-      minDistanceFromCurrent: 4.5
-    });
+      currentWorldZ: objData.worldZ
+    }));
 
     if (!position) {
-      position = findChunkSpawnPosition(chunk, playerPos, 1200 + (seedHash % 173), 1400 + (seedHash % 191), (objData.spawnCycle || 0) + 17, {
-        clearance: clearance,
-        buildingClearance: buildingClearance,
-        playerClearance: 2.4,
-        maxAttempts: 20,
+      position = findChunkSpawnPosition(chunk, playerPos, 1200 + (seedHash % 173), 1400 + (seedHash % 191), (objData.spawnCycle || 0) + 17, buildSpawnOptions(fallbackRelocation, {
         instances: placedInstances,
         skipObjectId: objData.id
-      });
+      }));
     }
 
     if (!position) return false;
@@ -889,33 +997,25 @@ window.GameTerrain = (function () {
 
     objData.respawnCycle = (objData.respawnCycle || 0) + 1;
 
-    var playerPos = (typeof GamePlayer !== 'undefined' && GamePlayer.getPosition) ? GamePlayer.getPosition() : { x: 8, z: 8 };
+    var playerPos = getFallbackPlayerPosition();
     var placedInstances = getPlacedInstancesForLookup();
     var activeNPCs = (typeof NPCSystem !== 'undefined' && NPCSystem.getAllNPCs) ? NPCSystem.getAllNPCs() : null;
     var seedHash = hashString((objData.id || objData.type || 'animal') + '|' + objData.respawnCycle + '|' + Date.now());
-    var position = findChunkSpawnPosition(chunk, playerPos, 2100 + (seedHash % 173), 2300 + (seedHash % 191), objData.respawnCycle, {
-      clearance: 1.6,
-      buildingClearance: 1.3,
-      playerClearance: 2.6,
+    var primaryAnimalRelocation = getTerrainAnimalRelocationConfig('primary');
+    var fallbackAnimalRelocation = getTerrainAnimalRelocationConfig('fallback');
+    var position = findChunkSpawnPosition(chunk, playerPos, 2100 + (seedHash % 173), 2300 + (seedHash % 191), objData.respawnCycle, buildSpawnOptions(primaryAnimalRelocation, {
       npcPositions: activeNPCs,
-      npcClearance: 1.2,
-      maxAttempts: 48,
       instances: placedInstances,
       skipObjectId: objData.id,
       currentWorldX: objData.worldX,
-      currentWorldZ: objData.worldZ,
-      minDistanceFromCurrent: 4.5
-    });
+      currentWorldZ: objData.worldZ
+    }));
 
     if (!position) {
-      position = findChunkSpawnPosition(chunk, playerPos, 2500 + (seedHash % 131), 2700 + (seedHash % 149), objData.respawnCycle + 11, {
-        clearance: 1.5,
-        buildingClearance: 1.2,
-        playerClearance: 2.4,
-        maxAttempts: 24,
+      position = findChunkSpawnPosition(chunk, playerPos, 2500 + (seedHash % 131), 2700 + (seedHash % 149), objData.respawnCycle + 11, buildSpawnOptions(fallbackAnimalRelocation, {
         instances: placedInstances,
         skipObjectId: objData.id
-      });
+      }));
     }
 
     if (!position) return false;
@@ -951,17 +1051,15 @@ window.GameTerrain = (function () {
   function updateLoadedNodeState(objData, now, playerX, playerZ) {
     if (!isResourceNode(objData)) return;
 
-    var balance = (window.GAME_BALANCE && window.GAME_BALANCE[objData.type]) || {};
-
     if (objData._destroyed) {
       if (!objData.respawnAt) {
-        objData.respawnAt = now + ((balance.respawnTime || 30) * 1000);
+        objData.respawnAt = now + (getTerrainRespawnTimeSeconds(objData.type) * 1000);
       }
 
       if (now >= objData.respawnAt) {
         var dx = objData.worldX - playerX;
         var dz = objData.worldZ - playerZ;
-        if (Math.sqrt(dx * dx + dz * dz) >= 2.1) {
+        if (Math.sqrt(dx * dx + dz * dz) >= getTerrainLoadedNodePlayerSafeDistance()) {
           respawnNode(objData, now);
         }
       }
@@ -998,7 +1096,6 @@ window.GameTerrain = (function () {
 
     var rewards = cloneMap(info.rewards);
     var config = getNodeConfig(objData.type);
-    var balance = (window.GAME_BALANCE && window.GAME_BALANCE[objData.type]) || {};
     var now = Date.now();
 
     if (config && config.kind === "growth" && config.persistOnHarvest) {
@@ -1024,7 +1121,7 @@ window.GameTerrain = (function () {
 
     objData._destroyed = true;
     objData.hp = 0;
-    objData.respawnAt = now + ((balance.respawnTime || 30) * 1000);
+  objData.respawnAt = now + (getTerrainRespawnTimeSeconds(objData.type) * 1000);
 
     if (typeof GameEntities !== "undefined" && GameEntities.hideObject) {
       GameEntities.hideObject(objData);
@@ -1314,27 +1411,22 @@ window.GameTerrain = (function () {
     }
 
     // Generate objects based on distance from home
-    var treeCount;
-    if (distFromHome < 1) treeCount = 8 + Math.floor(rng(10) * 5);
-    else if (distFromHome < 3) treeCount = 5 + Math.floor(rng(10) * 6);
-    else treeCount = 2 + Math.floor(rng(10) * 4);
+    var treeGeneration = getTerrainGenerationNodeConfig('tree');
+    var treePlacement = treeGeneration.placement || {};
+    var treeCount = resolveDistanceBandCount(treeGeneration.countByDistance || [], distFromHome, rng(10));
 
     // Get player position to avoid spawning on player
     var hasSavedChunkData = !!savedChunkData;
-    var playerPos = hasSavedChunkData ? null : ((typeof GamePlayer !== 'undefined' && GamePlayer.getPosition) ? GamePlayer.getPosition() : { x: 8, z: 8 });
+    var playerPos = hasSavedChunkData ? null : getFallbackPlayerPosition();
     var placedInstances = hasSavedChunkData ? null : ((typeof GameState !== 'undefined' && GameState.getAllInstances) ? GameState.getAllInstances() : null);
 
     for (var i = 0; i < treeCount; i++) {
-      var treePos = findChunkSpawnPosition(chunkData, playerPos, 100, 101, i, {
-        clearance: 1.35,
-        buildingClearance: 1.15,
-        playerClearance: 2.0,
-        maxAttempts: 24,
+      var treePos = findChunkSpawnPosition(chunkData, playerPos, 100, 101, i, buildSpawnOptions(treePlacement, {
         instances: placedInstances
-      });
+      }));
       if (!treePos) continue;
 
-      var treeHp = (window.GAME_BALANCE["node.tree"] || {}).hp || 3;
+      var treeHp = getBalancedEntityHp('node.tree');
       chunkData.objects.push({
         id: "obj_" + key + "_" + i,
         type: "node.tree",
@@ -1346,20 +1438,15 @@ window.GameTerrain = (function () {
     }
 
     // Rocks
-    var rockCount;
-    if (distFromHome < 1) rockCount = 2 + Math.floor(rng(20) * 2);
-    else if (distFromHome < 3) rockCount = 3 + Math.floor(rng(20) * 4);
-    else rockCount = 4 + Math.floor(rng(20) * 5);
+    var rockGeneration = getTerrainGenerationNodeConfig('rock');
+    var rockPlacement = rockGeneration.placement || {};
+    var rockCount = resolveDistanceBandCount(rockGeneration.countByDistance || [], distFromHome, rng(20));
 
-    var rockHp = (window.GAME_BALANCE["node.rock"] || {}).hp || 5;
+    var rockHp = getBalancedEntityHp('node.rock');
     for (var i = 0; i < rockCount; i++) {
-      var rockPos = findChunkSpawnPosition(chunkData, playerPos, 200, 201, i, {
-        clearance: 1.25,
-        buildingClearance: 1.1,
-        playerClearance: 2.0,
-        maxAttempts: 24,
+      var rockPos = findChunkSpawnPosition(chunkData, playerPos, 200, 201, i, buildSpawnOptions(rockPlacement, {
         instances: placedInstances
-      });
+      }));
       if (!rockPos) continue;
 
       chunkData.objects.push({
@@ -1373,76 +1460,48 @@ window.GameTerrain = (function () {
     }
 
     // Berry bushes (near home - more frequent around early settlements)
-    if (distFromHome < 1) {
-      // Home area: many bushes (6-10)
-      var bushCount = 6 + Math.floor(rng(30) * 5);
-      var bushHp = (window.GAME_BALANCE["node.berry_bush"] || {}).hp || 1;
-      for (var i = 0; i < bushCount; i++) {
-        var bushPos = findChunkSpawnPosition(chunkData, playerPos, 300, 301, i, {
-          clearance: 1.0,
-          buildingClearance: 1.0,
-          playerClearance: 2.0,
-          maxAttempts: 24,
-          instances: placedInstances
-        });
-        if (!bushPos) continue;
+    var berryBushGeneration = getTerrainGenerationNodeConfig('berryBush');
+    var berryBushPlacement = berryBushGeneration.placement || {};
+    var bushCount = resolveDistanceBandCount(berryBushGeneration.countByDistance || [], distFromHome, rng(30));
+    var bushHp = getBalancedEntityHp('node.berry_bush');
+    for (var i = 0; i < bushCount; i++) {
+      var bushPos = findChunkSpawnPosition(chunkData, playerPos, 300, 301, i, buildSpawnOptions(berryBushPlacement, {
+        instances: placedInstances
+      }));
+      if (!bushPos) continue;
 
-        chunkData.objects.push({
-          id: "obj_" + key + "_b" + i,
-          type: "node.berry_bush",
-          x: bushPos.x, z: bushPos.z,
-          hp: bushHp, maxHp: bushHp,
-          worldX: bushPos.worldX,
-          worldZ: bushPos.worldZ
-        });
-      }
-    } else if (distFromHome < 3) {
-      // Near home: moderate bushes (3-6)
-      var bushCount = 3 + Math.floor(rng(30) * 4);
-      var bushHp = (window.GAME_BALANCE["node.berry_bush"] || {}).hp || 1;
-      for (var i = 0; i < bushCount; i++) {
-        var midBushPos = findChunkSpawnPosition(chunkData, playerPos, 300, 301, i, {
-          clearance: 1.0,
-          buildingClearance: 1.0,
-          playerClearance: 2.0,
-          maxAttempts: 24,
-          instances: placedInstances
-        });
-        if (!midBushPos) continue;
-
-        chunkData.objects.push({
-          id: "obj_" + key + "_b" + i,
-          type: "node.berry_bush",
-          x: midBushPos.x, z: midBushPos.z,
-          hp: bushHp, maxHp: bushHp,
-          worldX: midBushPos.worldX,
-          worldZ: midBushPos.worldZ
-        });
-      }
+      chunkData.objects.push({
+        id: "obj_" + key + "_b" + i,
+        type: "node.berry_bush",
+        x: bushPos.x, z: bushPos.z,
+        hp: bushHp, maxHp: bushHp,
+        worldX: bushPos.worldX,
+        worldZ: bushPos.worldZ
+      });
     }
 
     // Animals (further from home = more/dangerous)
-    if (distFromHome >= 1) {
-      var animalCount = Math.min(Math.floor(distFromHome), 3);
+    var animalGeneration = getTerrainAnimalGenerationConfig();
+    if (distFromHome >= Number(animalGeneration.minDistanceFromHome || 0)) {
+      var animalPlacement = animalGeneration.placement || {};
+      var animalCount = Math.min(Math.floor(distFromHome), Number(animalGeneration.baseCountDistanceFloorCap) || 0);
       if (predatorZone) {
-        animalCount = Math.min(animalCount + (predatorZone.animalBonus || 0), predatorZone.level === 'high' ? 5 : 4);
+        var predatorZoneCap = getPredatorZoneAnimalCap(predatorZone.level);
+        animalCount = predatorZoneCap > 0
+          ? Math.min(animalCount + (predatorZone.animalBonus || 0), predatorZoneCap)
+          : (animalCount + (predatorZone.animalBonus || 0));
       }
 
       for (var i = 0; i < animalCount; i++) {
-        var animalPos = findChunkSpawnPosition(chunkData, playerPos, 400, 401, i, {
-          clearance: 1.6,
-          buildingClearance: 1.3,
-          playerClearance: 2.0,
-          maxAttempts: 24,
+        var animalPos = findChunkSpawnPosition(chunkData, playerPos, 400, 401, i, buildSpawnOptions(animalPlacement, {
           instances: placedInstances
-        });
+        }));
         if (!animalPos) continue;
 
         var animalRoll = rng(410 + i);
         var animalType = chooseAnimalType(currentAge, distFromHome, animalRoll, predatorZone);
-        
-        var animalBalance = window.GAME_BALANCE[animalType] || {};
-        var animalHp = animalBalance.hp || 15;
+
+        var animalHp = getBalancedEntityHp(animalType);
         chunkData.objects.push({
           id: "obj_" + key + "_a" + i,
           type: animalType,
@@ -1455,19 +1514,17 @@ window.GameTerrain = (function () {
     }
 
     // Flint deposits (far chunks)
-    if (distFromHome >= 2 && rng(500) > 0.5) {
-      var flintPos = findChunkSpawnPosition(chunkData, playerPos, 600, 601, 0, {
-        clearance: 1.5,
-        buildingClearance: 1.2,
-        playerClearance: 2.0,
-        maxAttempts: 24,
+    var flintGeneration = getTerrainOreGenerationConfig('flint');
+    if (distFromHome >= Number(flintGeneration.minDistanceFromHome || 0) && rng(500) > Number(flintGeneration.rollThreshold)) {
+      var flintPos = findChunkSpawnPosition(chunkData, playerPos, 600, 601, 0, buildSpawnOptions(flintGeneration.placement, {
         instances: placedInstances
-      });
+      }));
       if (flintPos) {
-      var flintHp = (window.GAME_BALANCE["node.flint_deposit"] || {}).hp || 4;
+      var flintEntityId = flintGeneration.entityId || 'node.flint_deposit';
+      var flintHp = getBalancedEntityHp(flintEntityId);
       chunkData.objects.push({
         id: "obj_" + key + "_f0",
-        type: "node.flint_deposit",
+        type: flintEntityId,
         x: flintPos.x, z: flintPos.z,
         hp: flintHp, maxHp: flintHp,
         worldX: flintPos.worldX,
@@ -1477,19 +1534,17 @@ window.GameTerrain = (function () {
     }
 
     // Copper deposits (Bronze Age - far chunks)
-    if (distFromHome >= 3 && rng(700) > 0.6) {
-      var copperPos = findChunkSpawnPosition(chunkData, playerPos, 800, 801, 0, {
-        clearance: 1.5,
-        buildingClearance: 1.2,
-        playerClearance: 2.0,
-        maxAttempts: 24,
+    var copperGeneration = getTerrainOreGenerationConfig('copper');
+    if (distFromHome >= Number(copperGeneration.minDistanceFromHome || 0) && rng(700) > Number(copperGeneration.rollThreshold)) {
+      var copperPos = findChunkSpawnPosition(chunkData, playerPos, 800, 801, 0, buildSpawnOptions(copperGeneration.placement, {
         instances: placedInstances
-      });
+      }));
       if (copperPos) {
-      var copperHp = (window.GAME_BALANCE["node.copper_deposit"] || {}).hp || 6;
+      var copperEntityId = copperGeneration.entityId || 'node.copper_deposit';
+      var copperHp = getBalancedEntityHp(copperEntityId);
       chunkData.objects.push({
         id: "obj_" + key + "_copper0",
-        type: "node.copper_deposit",
+        type: copperEntityId,
         x: copperPos.x, z: copperPos.z,
         hp: copperHp, maxHp: copperHp,
         worldX: copperPos.worldX,
@@ -1499,19 +1554,17 @@ window.GameTerrain = (function () {
     }
 
     // Tin deposits (Bronze Age - further chunks)
-    if (distFromHome >= 4 && rng(900) > 0.65) {
-      var tinPos = findChunkSpawnPosition(chunkData, playerPos, 1000, 1001, 0, {
-        clearance: 1.5,
-        buildingClearance: 1.2,
-        playerClearance: 2.0,
-        maxAttempts: 24,
+    var tinGeneration = getTerrainOreGenerationConfig('tin');
+    if (distFromHome >= Number(tinGeneration.minDistanceFromHome || 0) && rng(900) > Number(tinGeneration.rollThreshold)) {
+      var tinPos = findChunkSpawnPosition(chunkData, playerPos, 1000, 1001, 0, buildSpawnOptions(tinGeneration.placement, {
         instances: placedInstances
-      });
+      }));
       if (tinPos) {
-      var tinHp = (window.GAME_BALANCE["node.tin_deposit"] || {}).hp || 5;
+      var tinEntityId = tinGeneration.entityId || 'node.tin_deposit';
+      var tinHp = getBalancedEntityHp(tinEntityId);
       chunkData.objects.push({
         id: "obj_" + key + "_tin0",
-        type: "node.tin_deposit",
+        type: tinEntityId,
         x: tinPos.x, z: tinPos.z,
         hp: tinHp, maxHp: tinHp,
         worldX: tinPos.worldX,
@@ -1623,7 +1676,8 @@ window.GameTerrain = (function () {
 
   function findNearestObject(worldX, worldZ, maxDist) {
     var nearest = null;
-    var nearestDist = maxDist || 3;
+    var nearestDist = Number(maxDist) || 0;
+    if (!(nearestDist > 0)) return null;
     var nearestDistSq = nearestDist * nearestDist;
 
     forEachLoadedChunkNear(worldX, worldZ, nearestDist, function (chunk) {

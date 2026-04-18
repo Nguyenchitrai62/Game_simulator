@@ -1,199 +1,5 @@
 console.log('[HUD] Loading hud.js...');
 
-window.GameDebugSettings = window.GameDebugSettings || (function () {
-  var STORAGE_KEY = 'evolution_debug_settings_v1';
-  var _defaults = {
-    hud: true,
-    minimap: true,
-    worldLabels: true,
-    notifications: true,
-    particles: true,
-    weather: true,
-    atmosphere: true,
-    animals: true,
-    npcs: true,
-    barracksTroops: true
-  };
-  var _legacyLowPresetSnapshot = {
-    hud: true,
-    minimap: true,
-    worldLabels: true,
-    notifications: true,
-    particles: false,
-    weather: true,
-    atmosphere: false,
-    animals: true,
-    npcs: true,
-    barracksTroops: true
-  };
-  var _state = loadState();
-  var _listeners = [];
-
-  function cloneDefaults() {
-    var copy = {};
-    for (var key in _defaults) {
-      copy[key] = _defaults[key];
-    }
-    return copy;
-  }
-
-  function matchesSnapshot(snapshot, expected) {
-    for (var key in _defaults) {
-      if ((snapshot[key] !== false) !== (expected[key] !== false)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  function shouldResetLegacyLowPresetSnapshot(snapshot) {
-    if (!window.GameQualitySettings || !GameQualitySettings.getPresetId) return false;
-    if (GameQualitySettings.getPresetId() !== 'low') return false;
-    return matchesSnapshot(snapshot, _legacyLowPresetSnapshot);
-  }
-
-  function loadState() {
-    var nextState = cloneDefaults();
-    try {
-      if (typeof localStorage === 'undefined') return nextState;
-      var raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return nextState;
-      var parsed = JSON.parse(raw);
-      for (var key in _defaults) {
-        if (parsed && typeof parsed[key] === 'boolean') {
-          nextState[key] = parsed[key];
-        }
-      }
-
-      if (shouldResetLegacyLowPresetSnapshot(nextState)) {
-        nextState = cloneDefaults();
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
-      }
-    } catch (error) {
-      console.warn('[DebugSettings] Failed to load saved state:', error);
-    }
-    return nextState;
-  }
-
-  function saveState() {
-    try {
-      if (typeof localStorage === 'undefined') return;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(_state));
-    } catch (error) {
-      console.warn('[DebugSettings] Failed to save state:', error);
-    }
-  }
-
-  function emit(change) {
-    var snapshot = getAll();
-    for (var i = 0; i < _listeners.length; i++) {
-      try {
-        _listeners[i](snapshot, change || null);
-      } catch (error) {
-        console.warn('[DebugSettings] Listener failed:', error);
-      }
-    }
-  }
-
-  function isEnabled(key) {
-    return _state[key] !== false;
-  }
-
-  function setEnabled(key, enabled, source) {
-    if (!_defaults.hasOwnProperty(key)) return false;
-    var nextValue = enabled !== false;
-    if (_state[key] === nextValue) return nextValue;
-    _state[key] = nextValue;
-    saveState();
-    emit({ key: key, value: nextValue, source: source || 'set' });
-    return nextValue;
-  }
-
-  function toggle(key, source) {
-    return setEnabled(key, !isEnabled(key), source || 'toggle');
-  }
-
-  function applySnapshot(snapshot, source) {
-    var changed = false;
-    for (var key in _defaults) {
-      if (!snapshot || typeof snapshot[key] !== 'boolean') continue;
-      if (_state[key] === snapshot[key]) continue;
-      _state[key] = snapshot[key];
-      changed = true;
-    }
-
-    if (!changed) return getAll();
-
-    saveState();
-    emit({ type: 'batch', source: source || 'snapshot' });
-    return getAll();
-  }
-
-  function getAll() {
-    var snapshot = {};
-    for (var key in _defaults) {
-      snapshot[key] = _state[key] !== false;
-    }
-    return snapshot;
-  }
-
-  function reset(source) {
-    _state = cloneDefaults();
-    saveState();
-    emit({ type: 'reset', source: source || 'reset' });
-    return getAll();
-  }
-
-  function subscribe(listener) {
-    if (typeof listener !== 'function') {
-      return function () {};
-    }
-    _listeners.push(listener);
-    return function () {
-      for (var i = _listeners.length - 1; i >= 0; i--) {
-        if (_listeners[i] === listener) {
-          _listeners.splice(i, 1);
-          break;
-        }
-      }
-    };
-  }
-
-  return {
-    isEnabled: isEnabled,
-    setEnabled: setEnabled,
-    toggle: toggle,
-    applySnapshot: applySnapshot,
-    getAll: getAll,
-    reset: reset,
-    subscribe: subscribe,
-    getDefaults: cloneDefaults
-  };
-})();
-
-(function applyEarlyDebugSettingsClasses() {
-  if (typeof document === 'undefined') return;
-
-  function syncBodyClasses() {
-    if (!document.body || !window.GameDebugSettings || !GameDebugSettings.isEnabled) return;
-
-    document.body.classList.toggle('debug-hud-hidden', !GameDebugSettings.isEnabled('hud'));
-    document.body.classList.toggle('debug-minimap-hidden', !GameDebugSettings.isEnabled('minimap'));
-    document.body.classList.toggle('debug-world-labels-hidden', !GameDebugSettings.isEnabled('worldLabels'));
-  }
-
-  if (document.body) {
-    syncBodyClasses();
-    return;
-  }
-
-  document.addEventListener('DOMContentLoaded', syncBodyClasses, { once: true });
-})();
-
-if (window.GameQualitySettings && GameQualitySettings.syncRuntime) {
-  GameQualitySettings.syncRuntime('hud-load');
-}
-
 try {
   window.GameHUD = (function () {
     console.log('[HUD] IIFE started');
@@ -232,95 +38,33 @@ try {
     var OBJECT_HP_BAR_OFFSET_X = 52;
     var OBJECT_HP_BAR_OFFSET_Y = 4;
     var OVERLAY_POSITION_SMOOTHING = 22;
-    var _debugSettingsUnsubscribe = null;
-    var _qualityPanelOpen = false;
-    var _qualitySettingsTab = 'graphics';
-    var _qualitySettingsUnsubscribe = null;
     var _languageUnsubscribe = null;
     var _modalFocusTarget = null;
     var _modalFocusTimer = null;
-    var _qualityPromptState = {
-      visible: false,
-      suggestedPreset: null,
-      suggestedLabel: '',
-      fps: 0,
-      frameMs: 0,
-      snoozeUntil: 0,
-      stableSeconds: 0,
-      lowFpsSeconds: 0
+    var _settingsUiState = {
+      panelOpen: false,
+      activeTab: 'graphics',
+      prompt: {
+        visible: false,
+        suggestedPreset: null,
+        suggestedLabel: '',
+        fps: 0,
+        frameMs: 0,
+        snoozeUntil: 0,
+        stableSeconds: 0,
+        lowFpsSeconds: 0
+      }
     };
     var _settlementHtmlCacheKey = '';
     var _settlementHtmlCacheValue = '';
     var _objectiveTrackerCacheKey = '';
     var _objectiveTrackerCacheClassName = '';
     var _objectiveTrackerCacheHtml = '';
-    var QUALITY_SETTINGS_TABS = [
-      {
-        id: 'graphics',
-        kicker: 'Render',
-        label: 'Graphics',
-        title: 'Graphics Presets',
-        description: 'Choose render quality here only. This tab should not directly manage the switches in the tabs below.'
-      },
-      {
-        id: 'language',
-        kicker: 'Text',
-        label: 'Language',
-        title: 'Display Language',
-        description: 'Control HUD language, localized content names, and speech text from one place.'
-      },
-      {
-        id: 'overlay',
-        kicker: 'HUD',
-        label: 'Overlay',
-        title: 'Overlay Surfaces',
-        description: 'Control HUD readability layers, map visibility, and other player-facing interface surfaces.'
-      },
-      {
-        id: 'worldFx',
-        kicker: 'Visual',
-        label: 'World FX',
-        title: 'World FX',
-        description: 'Adjust optional ambience and effect systems without touching the core render preset.'
-      },
-      {
-        id: 'simulation',
-        kicker: 'CPU',
-        label: 'Simulation',
-        title: 'Simulation Systems',
-        description: 'Profile heavy runtime systems independently when you need to isolate CPU cost.'
-      }
-    ];
-    var DEBUG_SETTINGS_GROUPS = {
-      overlay: {
-        title: 'Overlay',
-        copy: 'HUD visibility and readability controls that affect what the player sees on screen.',
-        items: [
-          { key: 'hud', label: 'HUD Overlay', hint: 'Show or hide HUD surfaces while keeping the settings controls available.' },
-          { key: 'minimap', label: 'Minimap', hint: 'Show the minimap and allow opening the full world map.' },
-          { key: 'worldLabels', label: 'World Labels', hint: 'Show HP bars, world labels, and storage warning overlays.' },
-          { key: 'notifications', label: 'Notifications', hint: 'Enable toast notifications for combat, crafting, and settlement events.' }
-        ]
-      },
-      worldFx: {
-        title: 'World FX',
-        copy: 'Optional effect layers for ambience and impact feedback.',
-        items: [
-          { key: 'particles', label: 'Particles', hint: 'Enable impact sparks, embers, and other particle effects.' },
-          { key: 'weather', label: 'Weather', hint: 'Enable rain simulation and weather visuals.' },
-          { key: 'atmosphere', label: 'Atmosphere', hint: 'Enable ambience updates such as stars, clouds, and wind motion.' }
-        ]
-      },
-      simulation: {
-        title: 'Simulation',
-        copy: 'Heavy update loops for entities and automation, useful when profiling CPU load.',
-        items: [
-          { key: 'animals', label: 'Animal Simulation', hint: 'Freeze animal AI and movement updates.' },
-          { key: 'npcs', label: 'NPC Workers', hint: 'Pause worker updates to isolate settlement CPU load.' },
-          { key: 'barracksTroops', label: 'Barracks Troops', hint: 'Pause deployed troop updates and targeting.' }
-        ]
-      }
-    };
+    var _modalActive = false;
+    var _modalTab = 'resources';
+    var _characterCanvas = null;
+    var _hoveredInstance = null;
+    var _selectedInstance = null;
 
     function isDebugSettingEnabled(key) {
       return !window.GameDebugSettings || !GameDebugSettings.isEnabled || GameDebugSettings.isEnabled(key);
@@ -496,308 +240,244 @@ try {
       else document.body.classList.remove(name);
     }
 
-    function getQualitySettingsPanel() {
-      return document.getElementById('quality-settings-panel');
+    function getCurrentLanguageId() {
+      return (window.GameI18n && GameI18n.getLanguage) ? GameI18n.getLanguage() : 'en';
     }
 
-    function getQualitySettingsToggleButton() {
-      return document.getElementById('quality-settings-toggle');
+    function invalidateLocalizedCaches() {
+      _settlementHtmlCacheKey = '';
+      _settlementHtmlCacheValue = '';
+      _objectiveTrackerCacheKey = '';
+      _objectiveTrackerCacheClassName = '';
+      _objectiveTrackerCacheHtml = '';
     }
 
-    function getQualityPromptElement() {
-      return document.getElementById('quality-prompt');
-    }
-
-    function getQualitySnapshot() {
-      return (window.GameQualitySettings && GameQualitySettings.getSnapshot) ? GameQualitySettings.getSnapshot() : null;
-    }
-
-    function getCurrentQualityPreset() {
-      var snapshot = getQualitySnapshot();
-      return snapshot && snapshot.current ? snapshot.current : { id: 'high', label: 'High', description: '', summary: '' };
-    }
-
-    function getQualityRuntimeConfigForPreset(presetId) {
-      return (window.GameQualitySettings && GameQualitySettings.getRuntimeConfigForPreset) ? GameQualitySettings.getRuntimeConfigForPreset(presetId) : null;
-    }
-
-    function normalizeQualitySettingsTab(tabId) {
-      for (var i = 0; i < QUALITY_SETTINGS_TABS.length; i++) {
-        if (QUALITY_SETTINGS_TABS[i].id === tabId) return QUALITY_SETTINGS_TABS[i].id;
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Delete' && _hoveredInstance && !BuildingSystem.isBuildMode()) {
+        confirmDestroy(_hoveredInstance);
       }
-      return 'graphics';
-    }
+    });
 
-    function getQualitySettingsTabMeta(tabId) {
-      var resolvedTabId = normalizeQualitySettingsTab(tabId);
-      for (var i = 0; i < QUALITY_SETTINGS_TABS.length; i++) {
-        if (QUALITY_SETTINGS_TABS[i].id === resolvedTabId) {
-          return {
-            id: QUALITY_SETTINGS_TABS[i].id,
-            kicker: t('hud.settings.tabs.' + resolvedTabId + '.kicker', null, QUALITY_SETTINGS_TABS[i].kicker),
-            label: t('hud.settings.tabs.' + resolvedTabId + '.label', null, QUALITY_SETTINGS_TABS[i].label),
-            title: t('hud.settings.tabs.' + resolvedTabId + '.title', null, QUALITY_SETTINGS_TABS[i].title),
-            description: t('hud.settings.tabs.' + resolvedTabId + '.description', null, QUALITY_SETTINGS_TABS[i].description)
-          };
+    document.addEventListener('keydown', function(e) {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        toggleQuickbarMode();
+        return;
+      }
+
+      var quickbarIndex = getQuickbarKeyIndex(e);
+      if (quickbarIndex === null) return;
+
+      e.preventDefault();
+      activateQuickbarSlot(quickbarIndex);
+    });
+
+    document.addEventListener('keydown', function(e) {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      if (e.key === 'F9') {
+        e.preventDefault();
+        toggleQualitySettingsPanel();
+        return;
+      }
+
+      if (e.key === 'Escape') {
+        if (_settingsUiState.panelOpen) {
+          toggleQualitySettingsPanel(false);
         }
       }
-      return {
-        id: QUALITY_SETTINGS_TABS[0].id,
-        kicker: t('hud.settings.tabs.graphics.kicker', null, QUALITY_SETTINGS_TABS[0].kicker),
-        label: t('hud.settings.tabs.graphics.label', null, QUALITY_SETTINGS_TABS[0].label),
-        title: t('hud.settings.tabs.graphics.title', null, QUALITY_SETTINGS_TABS[0].title),
-        description: t('hud.settings.tabs.graphics.description', null, QUALITY_SETTINGS_TABS[0].description)
-      };
-    }
+    });
 
-    function getQualitySettingsGroup(tabId) {
-      return DEBUG_SETTINGS_GROUPS[normalizeQualitySettingsTab(tabId)] || null;
-    }
+    function formatRewardSummary(rewardMap) {
+      if (!rewardMap) return '';
 
-    function getLocalizedQualityPresetLabel(presetId, fallbackLabel) {
-      return t('hud.settings.graphics.presets.' + presetId + '.label', null, fallbackLabel || presetId);
-    }
-
-    function getLocalizedQualityPresetCopy(presetId, fallbackCopy) {
-      return t('hud.settings.graphics.presets.' + presetId + '.summary', null, fallbackCopy || '');
-    }
-
-    function getQualityPresetAudience(presetId) {
-      if (presetId === 'high') return t('hud.settings.graphics.audience.high', null, 'Stronger desktops');
-      if (presetId === 'medium') return t('hud.settings.graphics.audience.medium', null, 'Balanced default');
-      if (presetId === 'low') return t('hud.settings.graphics.audience.low', null, 'Older laptops');
-      return t('hud.settings.graphics.audience.adaptive', null, 'Adaptive profile');
-    }
-
-    function getQualityShadowLabel(config) {
-      if (!config || !config.scene || !config.scene.shadows) return t('hud.settings.graphics.pills.shadowsOff', null, 'Shadows Off');
-      if (config.scene.shadowMapSize >= 2048) return t('hud.settings.graphics.pills.shadowsHigh', null, 'Shadows High');
-      if (config.scene.shadowMapSize >= 1024) return t('hud.settings.graphics.pills.shadowsMedium', null, 'Shadows Medium');
-      return t('hud.settings.graphics.pills.shadowsOn', null, 'Shadows On');
-    }
-
-    function getQualityWeatherLabel(config) {
-      if (!config || !config.debug || !config.debug.weather || !config.weather || !config.weather.rainDropCount) return t('hud.settings.graphics.pills.weatherOff', null, 'Weather Off');
-      if (config.weather.rainDropCount >= 600) return t('hud.settings.graphics.pills.weatherFull', null, 'Weather Full');
-      if (config.weather.rainDropCount >= 300) return t('hud.settings.graphics.pills.weatherLight', null, 'Weather Light');
-      return t('hud.settings.graphics.pills.weatherMinimal', null, 'Weather Minimal');
-    }
-
-    function getQualityOverlayLabel(config) {
-      if (!config || !config.debug || !config.debug.worldLabels || !config.scene) return t('hud.settings.graphics.pills.overlaysMinimal', null, 'Overlays Minimal');
-      if (config.scene.nodeHpLabelDistance >= 999) return t('hud.settings.graphics.pills.overlaysFull', null, 'Overlays Full');
-      return t('hud.settings.graphics.pills.overlaysBalanced', null, 'Overlays Balanced');
-    }
-
-    function getQualityRefreshLabel(config) {
-      if (!config || !config.minimap) return t('hud.settings.graphics.pills.mapRefreshStandard', null, 'Map Refresh Standard');
-      if (config.minimap.fullRefreshMs <= 150) return t('hud.settings.graphics.pills.mapRefreshFast', null, 'Map Refresh Fast');
-      if (config.minimap.fullRefreshMs <= 200) return t('hud.settings.graphics.pills.mapRefreshBalanced', null, 'Map Refresh Balanced');
-      return t('hud.settings.graphics.pills.mapRefreshEco', null, 'Map Refresh Eco');
-    }
-
-    function buildQualityPillListHtml(presetId) {
-      var config = getQualityRuntimeConfigForPreset(presetId);
-      if (!config) return '';
-
-      var sceneConfig = config.scene || {};
-      var debugConfig = config.debug || {};
-      var pills = [
-        getQualityShadowLabel(config),
-        getQualityWeatherLabel(config),
-        debugConfig.particles ? t('hud.settings.graphics.pills.particlesOn', null, 'Particles On') : t('hud.settings.graphics.pills.particlesOff', null, 'Particles Off'),
-        getQualityOverlayLabel(config),
-        t('hud.settings.graphics.pills.renderScale', { percent: Math.round((sceneConfig.maxPixelRatioCap || 1) * 100) }, 'Render Scale {percent}%'),
-        getQualityRefreshLabel(config)
-      ];
-
-      var html = '<div class="quality-settings-pill-list">';
-      for (var i = 0; i < pills.length; i++) {
-        html += '<span class="quality-settings-pill">' + escapeHtml(pills[i]) + '</span>';
-      }
-      html += '</div>';
-      return html;
-    }
-
-    function buildQualitySettingsSidebarHtml(activeTabId) {
-      var html = '<aside class="quality-settings-sidebar">';
-      html += '<div class="quality-settings-sidebar-label">' + escapeHtml(t('hud.settings.sidebar.label', null, 'Settings Sections')) + '</div>';
-      html += '<div class="quality-settings-tab-nav">';
-
-      for (var i = 0; i < QUALITY_SETTINGS_TABS.length; i++) {
-        var tab = getQualitySettingsTabMeta(QUALITY_SETTINGS_TABS[i].id);
-        var tabClass = 'quality-settings-tab-button';
-        if (tab.id === activeTabId) tabClass += ' active';
-        html += '<button class="' + tabClass + '" type="button" onclick="GameHUD.switchQualitySettingsTab(\'' + tab.id + '\')">' +
-          '<span class="quality-settings-tab-kicker">' + escapeHtml(tab.kicker) + '</span>' +
-          '<span class="quality-settings-tab-name">' + escapeHtml(tab.label) + '</span>' +
-        '</button>';
+      var parts = [];
+      for (var resId in rewardMap) {
+        if (!rewardMap[resId]) continue;
+        var entity = GameRegistry.getEntity(resId);
+        parts.push(rewardMap[resId] + ' ' + (entity ? entity.name : resId));
       }
 
-      html += '</div>';
-      html += '<div class="quality-settings-sidebar-note">' + escapeHtml(t('hud.settings.sidebar.note', null, 'Use the sidebar to separate graphics presets, language, overlay, FX, and simulation switches.')) + '</div>';
-      html += '</aside>';
-      return html;
+      return parts.join(' + ');
     }
 
-    function buildQualityRuntimeSettingsTabHtml(tabId) {
-      var group = getQualitySettingsGroup(tabId);
-      if (!group) return '';
+    function getNodeAccentColor(nodeInfo) {
+      if (!nodeInfo) return '#4ecca3';
+      if (nodeInfo.isGiant) return '#f0a500';
+      if (nodeInfo.stateLabel === 'Loaded' || nodeInfo.stateLabel === 'Mature') return '#4ecca3';
+      if (nodeInfo.stateLabel === 'Few Berries' || nodeInfo.stateLabel === 'Sapling') return '#7db4ff';
+      if (nodeInfo.stateLabel === 'Berrying' || nodeInfo.stateLabel === 'Young' || nodeInfo.stateLabel === 'Large') return '#f0a500';
+      return '#4ecca3';
+    }
 
-      var groupTitle = t('hud.settings.runtime.' + tabId + '.title', null, group.title);
-      var groupCopy = t('hud.settings.runtime.' + tabId + '.copy', null, group.copy || '');
+    function getWorldNodeTitle(objData, nodeInfo, entity) {
+      if (!nodeInfo) return entity ? entity.name : objData.type;
+      if (objData.type === 'node.tree' || objData.type === 'node.rock' || objData.type === 'node.berry_bush') {
+        return nodeInfo.name || nodeInfo.label;
+      }
+      return nodeInfo.label;
+    }
 
-      var html = '<div class="quality-settings-body quality-settings-body-runtime">';
-      html += '<section class="quality-settings-section">';
-      html += '<div class="quality-settings-section-head">' +
-        '<div>' +
-          '<div class="quality-settings-section-kicker">' + escapeHtml(groupTitle) + '</div>' +
-          '<div class="quality-settings-section-title">' + escapeHtml(t('hud.settings.runtime.controlsTitle', { title: groupTitle }, '{title} Controls')) + '</div>' +
-        '</div>' +
-      '</div>';
-      html += '<div class="quality-settings-copy">' + escapeHtml(groupCopy) + '</div>';
-      html += '<div class="quality-settings-toggle-list">';
+    function getWorldNodeMeta(objData, nodeInfo) {
+      if (!nodeInfo) return '';
 
-      for (var itemIndex = 0; itemIndex < group.items.length; itemIndex++) {
-        var item = group.items[itemIndex];
-        var itemLabel = t('hud.settings.runtime.' + tabId + '.items.' + item.key + '.label', null, item.label);
-        var itemHint = t('hud.settings.runtime.' + tabId + '.items.' + item.key + '.hint', null, item.hint);
-        html += '<label class="debug-setting-row">' +
-          '<span class="debug-setting-copy-block">' +
-            '<span class="debug-setting-name">' + escapeHtml(itemLabel) + '</span>' +
-            '<span class="debug-setting-hint">' + escapeHtml(itemHint) + '</span>' +
-          '</span>' +
-          '<input type="checkbox" data-settings-toggle="' + item.key + '"' + (isDebugSettingEnabled(item.key) ? ' checked' : '') + '>' +
-        '</label>';
+      var rewardText = formatRewardSummary(nodeInfo.rewards);
+      if (objData.type === 'node.tree' || objData.type === 'node.rock') {
+        return rewardText;
+      }
+      if (objData.type === 'node.berry_bush') {
+        return rewardText || t('hud.nodes.food', null, 'Food');
       }
 
-      html += '</div>';
-      html += '<div class="quality-settings-toolbar"><button class="debug-settings-reset" type="button" data-settings-reset="true">' + escapeHtml(t('hud.settings.runtime.reset', null, 'Reset Runtime Toggles')) + '</button></div>';
-      html += '<div class="quality-settings-compact-note">' + escapeHtml(t('hud.settings.runtime.note', null, 'Changes here only affect this runtime category. Graphics and Language stay in their own tabs.')) + '</div>';
-      html += '</section>';
-      html += '</div>';
-      return html;
+      return (nodeInfo.stateLabel ? nodeInfo.stateLabel + ' • ' : '') + rewardText;
     }
 
-    function buildQualityGraphicsTabHtml(snapshot, current) {
-      var currentLabel = getLocalizedQualityPresetLabel(current.id, current.label || 'High');
-      var currentCopy = getLocalizedQualityPresetCopy(current.id, current.summary || current.description || t('hud.settings.graphics.current.copy', null, 'Choose how much visual detail and rendering cost the game should target.'));
-      var html = '<div class="quality-settings-body quality-settings-body-graphics">';
-      html += '<section class="quality-settings-section quality-settings-section-current">';
-      html += '<div class="quality-settings-section-head">' +
-        '<div>' +
-          '<div class="quality-settings-section-kicker">' + escapeHtml(t('hud.settings.graphics.current.kicker', null, 'Current Profile')) + '</div>' +
-          '<div class="quality-settings-section-title">' + escapeHtml(t('hud.settings.graphics.current.title', { name: currentLabel }, '{name} preset active')) + '</div>' +
-        '</div>' +
-        '<div class="quality-settings-status">' + escapeHtml(t('hud.settings.common.live', null, 'Live')) + '</div>' +
-      '</div>';
-      html += '<div class="quality-settings-copy">' + escapeHtml(currentCopy) + '</div>';
-      html += buildQualityPillListHtml(current.id);
-      html += '<div class="quality-settings-note">' + escapeHtml(t('hud.settings.graphics.current.note', null, 'Changing a preset here updates graphics quality only in this Settings flow. Language, Overlay, World FX, and Simulation stay in their own tabs.')) + '</div>';
-      html += '<div class="quality-settings-inline-meta">' +
-        '<div class="quality-settings-inline-item"><span class="quality-settings-inline-label">' + escapeHtml(t('hud.settings.common.shortcut', null, 'Shortcut')) + '</span><strong>F9</strong></div>' +
-        '<div class="quality-settings-inline-item"><span class="quality-settings-inline-label">' + escapeHtml(t('hud.settings.common.assist', null, 'Assist')) + '</span><strong>' + escapeHtml(t('hud.settings.common.optInOnly', null, 'Opt-in only')) + '</strong></div>' +
-      '</div>';
-      html += '</section>';
+    function shouldShowWorldNodeLabel(objData) {
+      if (!objData || !objData.type) return false;
+      return objData.type !== 'node.tree' && objData.type !== 'node.rock' && objData.type !== 'node.berry_bush';
+    }
 
-      html += '<section class="quality-settings-section quality-settings-section-presets">';
-      html += '<div class="quality-settings-section-head">' +
-        '<div>' +
-          '<div class="quality-settings-section-kicker">' + escapeHtml(t('hud.settings.graphics.presets.kicker', null, 'Graphics Preset')) + '</div>' +
-          '<div class="quality-settings-section-title">' + escapeHtml(t('hud.settings.graphics.presets.title', null, 'Choose the look and performance target')) + '</div>' +
-        '</div>' +
-      '</div>';
-      html += '<div class="quality-settings-choice-list">';
-      for (var i = 0; i < snapshot.presets.length; i++) {
-        var preset = snapshot.presets[i];
-        var presetLabel = getLocalizedQualityPresetLabel(preset.id, preset.label);
-        var presetCopy = getLocalizedQualityPresetCopy(preset.id, preset.summary || preset.description || '');
-        var rowClass = 'quality-choice-row';
-        if (preset.id === snapshot.preset) rowClass += ' active';
-        html += '<button class="' + rowClass + '" type="button" onclick="GameHUD.applyQualityPreset(\'' + preset.id + '\')">' +
-          '<span class="quality-choice-copy">' +
-            '<span class="quality-choice-name-row">' +
-              '<span class="quality-choice-name">' + escapeHtml(presetLabel) + '</span>' +
-              '<span class="quality-choice-badge">' + escapeHtml(getQualityPresetAudience(preset.id)) + '</span>' +
-            '</span>' +
-            '<span class="quality-choice-hint">' + escapeHtml(presetCopy) + '</span>' +
-          '</span>' +
-          '<span class="quality-choice-state">' + escapeHtml(preset.id === snapshot.preset ? t('hud.settings.common.active', null, 'Active') : t('hud.settings.common.apply', null, 'Apply')) + '</span>' +
-        '</button>';
+    function getInspectNodeMeta(objData, nodeInfo) {
+      if (!nodeInfo) return t('hud.nodes.hpShort', null, 'HP') + ' ' + objData.hp + '/' + objData.maxHp;
+
+      var rewardText = formatRewardSummary(nodeInfo.rewards);
+      if (objData.type === 'node.tree') {
+        return rewardText || t('hud.nodes.wood', null, 'Wood');
       }
-      html += '</div>';
-      html += '</section>';
-      html += '</div>';
-      return html;
-    }
-
-    function buildLanguageSettingsTabHtml() {
-      if (!window.GameI18n || !GameI18n.getLanguages) return '';
-
-      var currentLanguage = GameI18n.getLanguage ? GameI18n.getLanguage() : 'en';
-      var currentMeta = GameI18n.getLanguageMeta ? GameI18n.getLanguageMeta(currentLanguage) : { nativeLabel: currentLanguage, label: currentLanguage };
-      var languages = GameI18n.getLanguages();
-      var html = '<div class="quality-settings-body quality-settings-body-language">';
-      html += '<section class="quality-settings-section quality-settings-section-language">';
-      html += '<div class="quality-settings-section-head">' +
-        '<div>' +
-          '<div class="quality-settings-section-kicker">' + escapeHtml(t('hud.settings.language.kicker', null, 'Language')) + '</div>' +
-          '<div class="quality-settings-section-title">' + escapeHtml(t('hud.settings.language.title', null, 'Display Language')) + '</div>' +
-        '</div>' +
-      '</div>';
-      html += '<div class="quality-settings-copy">' + escapeHtml(t('hud.settings.language.copy', null, 'Switch HUD text, localized content names, and speech overlays without reloading the save.')) + '</div>';
-      html += '<div class="quality-settings-inline-meta">';
-      html += '<div class="quality-settings-inline-item"><span class="quality-settings-inline-label">' + escapeHtml(t('hud.settings.language.active', null, 'Active')) + '</span><strong>' + escapeHtml(currentMeta.nativeLabel || currentMeta.label || currentLanguage) + '</strong></div>';
-      html += '</div>';
-      html += '<div class="quality-settings-choice-list">';
-
-      for (var i = 0; i < languages.length; i++) {
-        var language = languages[i];
-        var rowClass = 'quality-choice-row';
-        if (language.id === currentLanguage) rowClass += ' active';
-        html += '<button class="' + rowClass + '" type="button" onclick="GameHUD.setLanguage(\'' + language.id + '\')">' +
-          '<span class="quality-choice-copy">' +
-            '<span class="quality-choice-name-row">' +
-              '<span class="quality-choice-name">' + escapeHtml(language.nativeLabel || language.label || language.id) + '</span>' +
-              '<span class="quality-choice-badge">' + escapeHtml(language.label || language.id) + '</span>' +
-            '</span>' +
-          '</span>' +
-          '<span class="quality-choice-state">' + escapeHtml(language.id === currentLanguage ? t('hud.settings.language.active', null, 'Active') : t('hud.settings.language.apply', null, 'Use')) + '</span>' +
-        '</button>';
+      if (objData.type === 'node.rock') {
+        return rewardText || t('hud.nodes.stone', null, 'Stone');
+      }
+      if (objData.type === 'node.berry_bush') {
+        return rewardText || t('hud.nodes.food', null, 'Food');
       }
 
-      html += '</div>';
-      html += '</section>';
-      html += '</div>';
-      return html;
+      return (nodeInfo.stateLabel ? nodeInfo.stateLabel + ' • ' : '') + rewardText;
     }
 
-    function setLanguage(languageId) {
-      if (!window.GameI18n || !GameI18n.setLanguage) return null;
+    function getSuggestedLowerPresetId() {
+      if (!window.GameQualitySettings || !GameQualitySettings.getPresetId) return null;
 
-      var appliedLanguage = GameI18n.setLanguage(languageId, 'hud-settings');
-      var meta = GameI18n.getLanguageMeta ? GameI18n.getLanguageMeta(appliedLanguage) : { nativeLabel: appliedLanguage, label: appliedLanguage };
-      renderQualitySettingsPanel();
-      updateQualitySettingsToggleState();
-      updateModal();
-      renderAll('language-change');
-      showNotification(t('hud.settings.language.changed', { name: meta.nativeLabel || meta.label || appliedLanguage }, 'Language: {name}'), 'info');
-      return appliedLanguage;
+      var currentPresetId = GameQualitySettings.getPresetId();
+      if (currentPresetId === 'high') return 'medium';
+      if (currentPresetId === 'medium') return 'low';
+      return null;
     }
 
-    function updateQualitySettingsToggleState() {
-      var button = getQualitySettingsToggleButton();
-      if (!button) return;
+    function updateQualityPerformanceAdvisor(dt) {
+      if (!dt || !window.GameQualitySettings || !GameQualitySettings.getConfigValue) return;
 
-      var buttonLabel = t('hud.settings.toggle', null, 'Settings');
+      var promptState = _settingsUiState.prompt;
 
-      button.setAttribute('aria-expanded', _qualityPanelOpen ? 'true' : 'false');
-      button.setAttribute('aria-label', buttonLabel + ' (F9)');
-      button.setAttribute('title', buttonLabel + ' (F9)');
-      setNodeClassState(button, 'is-open', _qualityPanelOpen);
-      setInnerHtmlIfChanged(button,
-        '<span class="quality-settings-toggle-text">' + escapeHtml(buttonLabel) + '</span>'
-      );
+      var suggestedPresetId = getSuggestedLowerPresetId();
+      if (!suggestedPresetId) {
+        promptState.lowFpsSeconds = 0;
+        return;
+      }
+
+      if (Date.now() < promptState.snoozeUntil) return;
+
+      var lowFpsThreshold = GameQualitySettings.getConfigValue('advisor.suggestDownFps', 0);
+      var lowFpsSeconds = GameQualitySettings.getConfigValue('advisor.suggestAfterSeconds', 0);
+      if (!(lowFpsThreshold > 0) || !(lowFpsSeconds > 0)) return;
+
+      if (_fpsSmoothed <= lowFpsThreshold) {
+        promptState.lowFpsSeconds += dt;
+      } else {
+        promptState.lowFpsSeconds = Math.max(0, promptState.lowFpsSeconds - (dt * 1.5));
+      }
+
+      if (promptState.visible || promptState.lowFpsSeconds < lowFpsSeconds) return;
+
+      var suggestedPreset = window.GameQualitySettings.getPresetDefinition ? GameQualitySettings.getPresetDefinition(suggestedPresetId) : null;
+      promptState.visible = true;
+      promptState.suggestedPreset = suggestedPresetId;
+      promptState.suggestedLabel = suggestedPreset && suggestedPreset.label ? suggestedPreset.label : suggestedPresetId;
+      promptState.fps = Math.max(1, Math.round(_fpsSmoothed));
+      promptState.frameMs = _fpsSmoothedMs.toFixed(1);
+      promptState.lowFpsSeconds = 0;
+      renderQualityPrompt();
+    }
+
+    function updatePerformanceStats(dt) {
+      var panel = getFpsPanel();
+      if (!panel || !dt) return;
+
+      var instantFps = dt > 0 ? (1 / dt) : 0;
+      var instantMs = dt * 1000;
+
+      if (_fpsSmoothed <= 0) _fpsSmoothed = instantFps;
+      else _fpsSmoothed += (instantFps - _fpsSmoothed) * 0.18;
+
+      if (_fpsSmoothedMs <= 0) _fpsSmoothedMs = instantMs;
+      else _fpsSmoothedMs += (instantMs - _fpsSmoothedMs) * 0.18;
+
+      _fpsUpdateAccumulator += dt;
+      if (_fpsUpdateAccumulator < 0.12) return;
+      var advisorDelta = _fpsUpdateAccumulator;
+      _fpsUpdateAccumulator = 0;
+
+      var label = Math.round(_fpsSmoothed) + ' FPS';
+      var drawCalls = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('draw.calls') : null;
+      if (false && typeof drawCalls === 'number' && drawCalls > 0) {
+        label += ' | DC ' + Math.round(drawCalls);
+      }
+
+      var tooltipParts = [];
+      var frameMetric = (typeof GamePerf !== 'undefined' && GamePerf.getMetric) ? GamePerf.getMetric('frame.total') : null;
+      var hudMetric = (typeof GamePerf !== 'undefined' && GamePerf.getMetric) ? GamePerf.getMetric('hud.render') : null;
+      var overlayMetric = (typeof GamePerf !== 'undefined' && GamePerf.getMetric) ? GamePerf.getMetric('overlays.update') : null;
+      var tickMetric = (typeof GamePerf !== 'undefined' && GamePerf.getMetric) ? GamePerf.getMetric('tick.total') : null;
+      var saveMetric = (typeof GamePerf !== 'undefined' && GamePerf.getMetric) ? GamePerf.getMetric('save.write') : null;
+      var triangles = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('draw.triangles') : null;
+      var geometries = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('memory.geometries') : null;
+      var loadedChunks = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('terrain.loadedChunks') : null;
+      var visibleChunks = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('terrain.visibleChunks') : null;
+      var renderPixelRatio = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('render.pixelRatio') : null;
+      var currentQualityPreset = getCurrentQualityPreset();
+
+      if (frameMetric && frameMetric.avgMs > 0) tooltipParts.push('Frame ' + frameMetric.avgMs.toFixed(1) + ' ms');
+      if (hudMetric && hudMetric.avgMs > 0) tooltipParts.push('HUD ' + hudMetric.avgMs.toFixed(1) + ' ms');
+      if (overlayMetric && overlayMetric.avgMs > 0) tooltipParts.push('Overlay ' + overlayMetric.avgMs.toFixed(1) + ' ms');
+      if (tickMetric && tickMetric.avgMs > 0) tooltipParts.push('Tick ' + tickMetric.avgMs.toFixed(1) + ' ms');
+      if (saveMetric && saveMetric.avgMs > 0) tooltipParts.push('Save ' + saveMetric.avgMs.toFixed(1) + ' ms');
+      if (typeof triangles === 'number') tooltipParts.push('Triangles ' + Math.round(triangles));
+      if (typeof geometries === 'number') tooltipParts.push('Geometries ' + Math.round(geometries));
+      if (typeof loadedChunks === 'number' && typeof visibleChunks === 'number') tooltipParts.push('Chunks ' + Math.round(visibleChunks) + '/' + Math.round(loadedChunks));
+      if (typeof renderPixelRatio === 'number') tooltipParts.push('PixelRatio ' + renderPixelRatio.toFixed(2));
+      if (currentQualityPreset && currentQualityPreset.label) tooltipParts.push('Quality ' + currentQualityPreset.label);
+
+      setNodeText(panel, label);
+      setNodeTitle(panel, tooltipParts.join(' | '));
+      panel.classList.remove('warn', 'low');
+      if (_fpsSmoothed < 25) {
+        panel.classList.add('low');
+      } else if (_fpsSmoothed < 45) {
+        panel.classList.add('warn');
+      }
+
+      updateQualityPerformanceAdvisor(advisorDelta);
+    }
+
+    function toggleModal() {
+      _modalPanelsModule.toggleModal();
+    }
+
+    function openModal(options) {
+      _modalPanelsModule.openModal(options);
+    }
+
+    function closeModal() {
+      _modalPanelsModule.closeModal();
+    }
+
+    function switchModalTab(tabName) {
+      _modalPanelsModule.switchModalTab(tabName);
+    }
+
+    function updateModal() {
+      _modalPanelsModule.updateModal();
     }
 
     function clearWorldOverlayElements() {
@@ -813,212 +493,124 @@ try {
       el.classList.remove('show', 'error', 'success', 'info', 'warning', 'default');
     }
 
+    if (!window.GameHUDModules || !window.GameHUDModules.createSettingsPanelModule || !window.GameHUDModules.createModalPanelsModule || !window.GameHUDModules.createInspectorModule) {
+      throw new Error('Required HUD modules were not loaded before ui/hud.js');
+    }
+
+    var _settingsPanel = window.GameHUDModules.createSettingsPanelModule({
+      state: _settingsUiState,
+      t: t,
+      escapeHtml: escapeHtml,
+      setInnerHtmlIfChanged: setInnerHtmlIfChanged,
+      setNodeClassState: setNodeClassState,
+      setBodyClass: setBodyClass,
+      isDebugSettingEnabled: isDebugSettingEnabled,
+      isHudVisible: isHudVisible,
+      areWorldLabelsVisible: areWorldLabelsVisible,
+      areNotificationsVisible: areNotificationsVisible,
+      invalidateLocalizedCaches: invalidateLocalizedCaches,
+      renderResources: renderResources,
+      renderQuickbar: renderQuickbar,
+      renderObjectiveTracker: renderObjectiveTracker,
+      updateModal: updateModal,
+      renderNow: renderNow,
+      showNotification: showNotification,
+      clearScheduledRender: clearScheduledRender,
+      closeModal: closeModal,
+      closeInspector: closeInspector,
+      clearWorldOverlayElements: clearWorldOverlayElements,
+      hideNotificationElement: hideNotificationElement,
+      renderAll: renderAll,
+      isModalActive: function () { return _modalActive; }
+    });
+
+    var _modalPanelsModule = window.GameHUDModules.createModalPanelsModule({
+      t: t,
+      escapeHtml: escapeHtml,
+      getResourceIcon: getResourceIcon,
+      getNextAgeObjective: getNextAgeObjective,
+      isHudVisible: isHudVisible,
+      setModalFocusTarget: setModalFocusTarget,
+      clearModalFocusHighlight: clearModalFocusHighlight,
+      applyModalFocusTarget: applyModalFocusTarget,
+      renderModalHeader: renderModalHeader,
+      toggleQuickbarMode: toggleQuickbarMode,
+      getModalActive: function () { return _modalActive; },
+      setModalActive: function (value) { _modalActive = !!value; },
+      getModalTab: function () { return _modalTab; },
+      setModalTab: function (value) { _modalTab = value || _modalTab; },
+      getCharacterCanvas: function () { return _characterCanvas; },
+      setCharacterCanvas: function (value) { _characterCanvas = value || null; }
+    });
+
+    var _inspectorModule = window.GameHUDModules.createInspectorModule({
+      t: t,
+      escapeHtml: escapeHtml,
+      setInnerHtmlIfChanged: setInnerHtmlIfChanged,
+      showNotification: showNotification,
+      getSelectedInstance: function () { return _selectedInstance; },
+      setSelectedInstance: function (value) { _selectedInstance = value || null; },
+      setHoveredInstance: function (value) { _hoveredInstance = value || null; }
+    });
+
+    function getCurrentQualityPreset() {
+      return _settingsPanel.getCurrentQualityPreset();
+    }
+
+    function setLanguage(languageId) {
+      return _settingsPanel.setLanguage(languageId);
+    }
+
+    function resetAllGameData() {
+      return _settingsPanel.resetAllGameData();
+    }
+
+    function updateQualitySettingsToggleState() {
+      _settingsPanel.updateQualitySettingsToggleState();
+    }
+
     function renderQualitySettingsPanel() {
-      var panel = getQualitySettingsPanel();
-      var snapshot = getQualitySnapshot();
-      if (!panel || !snapshot) return;
-
-      var current = snapshot.current || { id: 'high', label: 'High', description: '', summary: '' };
-      var activeTab = getQualitySettingsTabMeta(_qualitySettingsTab);
-      _qualitySettingsTab = activeTab.id;
-      var html = '<div class="quality-popup-content" onclick="event.stopPropagation()">' +
-        '<div class="quality-settings-header">' +
-        '<div>' +
-          '<div class="quality-settings-kicker">' + escapeHtml(t('hud.settings.header.kicker', null, 'Settings')) + '</div>' +
-          '<div class="quality-settings-title">' + escapeHtml(t('hud.settings.header.title', null, 'Game Settings')) + '</div>' +
-          '<div class="quality-settings-copy">' + escapeHtml(t('hud.settings.header.copy', null, 'Adjust graphics, language, overlay, world FX, and simulation in separate tabs so each category stays in its own lane.')) + '</div>' +
-        '</div>' +
-        '<button class="quality-settings-close" type="button" onclick="GameHUD.toggleQualitySettingsPanel(false)">' + escapeHtml(t('hud.settings.header.close', null, 'Close')) + '</button>' +
-      '</div>';
-
-      html += '<div class="quality-settings-layout">';
-      html += buildQualitySettingsSidebarHtml(activeTab.id);
-      html += '<div class="quality-settings-stage">';
-      html += '<div class="quality-settings-stage-header">' +
-        '<div class="quality-settings-stage-kicker">' + escapeHtml(activeTab.kicker) + '</div>' +
-        '<div class="quality-settings-stage-title">' + escapeHtml(activeTab.title) + '</div>' +
-        '<div class="quality-settings-copy">' + escapeHtml(activeTab.description) + '</div>' +
-      '</div>';
-      html += activeTab.id === 'graphics'
-        ? buildQualityGraphicsTabHtml(snapshot, current)
-        : (activeTab.id === 'language' ? buildLanguageSettingsTabHtml() : buildQualityRuntimeSettingsTabHtml(activeTab.id));
-      html += '</div>';
-      html += '</div>';
-      html += '</div>';
-
-      setInnerHtmlIfChanged(panel, html);
-      setNodeClassState(panel, 'open', _qualityPanelOpen);
-      panel.setAttribute('aria-hidden', _qualityPanelOpen ? 'false' : 'true');
-      updateQualitySettingsToggleState();
+      _settingsPanel.renderQualitySettingsPanel();
     }
 
     function renderQualityPrompt() {
-      var prompt = getQualityPromptElement();
-      if (!prompt) return;
-
-      if (_qualityPanelOpen || !_qualityPromptState.visible || !_qualityPromptState.suggestedPreset) {
-        prompt.classList.remove('show');
-        prompt.setAttribute('aria-hidden', 'true');
-        prompt.innerHTML = '';
-        return;
-      }
-
-      var preset = window.GameQualitySettings && GameQualitySettings.getPresetDefinition ? GameQualitySettings.getPresetDefinition(_qualityPromptState.suggestedPreset) : null;
-      var label = getLocalizedQualityPresetLabel(_qualityPromptState.suggestedPreset, preset && preset.label ? preset.label : (_qualityPromptState.suggestedLabel || _qualityPromptState.suggestedPreset));
-      var html = '<div class="quality-prompt-card">' +
-        '<div class="quality-prompt-kicker">' + escapeHtml(t('hud.settings.prompt.kicker', null, 'Performance Advisory')) + '</div>' +
-        '<div class="quality-prompt-title">' + escapeHtml(t('hud.settings.prompt.title', null, 'FPS is staying low')) + '</div>' +
-        '<div class="quality-prompt-copy">' + escapeHtml(t('hud.settings.prompt.copy', { fps: String(_qualityPromptState.fps || 0), frameMs: String(_qualityPromptState.frameMs || 0), name: label }, 'Average is around {fps} FPS ({frameMs} ms). Switch to {name} to reduce CPU and rendering load?')) + '</div>' +
-        '<div class="quality-prompt-actions">' +
-          '<button class="quality-prompt-btn accept" type="button" onclick="GameHUD.acceptQualitySuggestion()">' + escapeHtml(t('hud.settings.prompt.accept', { name: label }, 'Switch to {name}')) + '</button>' +
-          '<button class="quality-prompt-btn" type="button" onclick="GameHUD.snoozeQualityPrompt()">' + escapeHtml(t('hud.settings.prompt.snooze', null, 'Not now')) + '</button>' +
-          '<button class="quality-prompt-btn subtle" type="button" onclick="GameHUD.dismissQualityPrompt()">' + escapeHtml(t('hud.settings.prompt.dismiss', null, 'Keep current')) + '</button>' +
-        '</div>' +
-      '</div>';
-
-      setInnerHtmlIfChanged(prompt, html);
-      prompt.classList.add('show');
-      prompt.setAttribute('aria-hidden', 'false');
+      _settingsPanel.renderQualityPrompt();
     }
 
     function applyQualitySettingsState() {
-      updateQualitySettingsToggleState();
-      renderQualitySettingsPanel();
-      renderQualityPrompt();
+      _settingsPanel.applyQualitySettingsState();
     }
 
     function toggleQualitySettingsPanel(forceOpen) {
-      _qualityPanelOpen = typeof forceOpen === 'boolean' ? forceOpen : !_qualityPanelOpen;
-      renderQualitySettingsPanel();
-      return _qualityPanelOpen;
+      return _settingsPanel.toggleQualitySettingsPanel(forceOpen);
     }
 
     function switchQualitySettingsTab(tabId) {
-      var nextTabId = normalizeQualitySettingsTab(tabId);
-      if (_qualitySettingsTab === nextTabId) return nextTabId;
-      _qualitySettingsTab = nextTabId;
-      renderQualitySettingsPanel();
-      return nextTabId;
+      return _settingsPanel.switchQualitySettingsTab(tabId);
     }
 
     function applyQualityPreset(presetId, source) {
-      if (!window.GameQualitySettings || !GameQualitySettings.applyPreset) return null;
-
-      var nextPreset = GameQualitySettings.applyPreset(presetId, source || 'panel', { syncDebug: true });
-      _qualityPromptState.visible = false;
-      _qualityPromptState.lowFpsSeconds = 0;
-      renderQualityPrompt();
-      applyQualitySettingsState();
-
-      if (nextPreset && nextPreset.label) {
-        showNotification(t('hud.settings.graphics.changed', { name: getLocalizedQualityPresetLabel(nextPreset.id, nextPreset.label) }, 'Graphics preset: {name}'), 'info');
-      }
-
-      return nextPreset;
-    }
-
-    function hideQualityPrompt(snoozeMs) {
-      _qualityPromptState.visible = false;
-      if (snoozeMs && snoozeMs > 0) {
-        _qualityPromptState.snoozeUntil = Date.now() + snoozeMs;
-      }
-      renderQualityPrompt();
+      return _settingsPanel.applyQualityPreset(presetId, source);
     }
 
     function acceptQualitySuggestion() {
-      if (!_qualityPromptState.suggestedPreset) return null;
-      var accepted = applyQualityPreset(_qualityPromptState.suggestedPreset, 'advisor');
-      hideQualityPrompt(120000);
-      return accepted;
+      return _settingsPanel.acceptQualitySuggestion();
     }
 
     function snoozeQualityPrompt() {
-      hideQualityPrompt(90000);
+      _settingsPanel.snoozeQualityPrompt();
     }
 
     function dismissQualityPrompt() {
-      hideQualityPrompt(300000);
+      _settingsPanel.dismissQualityPrompt();
     }
 
     function applyDebugSettingsState(reason) {
-      var hudVisible = isHudVisible();
-      var worldLabelsVisible = areWorldLabelsVisible();
-
-      setBodyClass('debug-hud-hidden', !hudVisible);
-      setBodyClass('debug-minimap-hidden', !isDebugSettingEnabled('minimap'));
-      setBodyClass('debug-world-labels-hidden', !worldLabelsVisible);
-
-      if (!hudVisible) {
-        clearScheduledRender();
-        if (_modalActive) closeModal();
-        closeInspector();
-      }
-
-      if (!worldLabelsVisible) {
-        clearWorldOverlayElements();
-      }
-
-      if (!areNotificationsVisible()) {
-        hideNotificationElement();
-      }
-
-      if (window.MiniMap && MiniMap.refreshVisibility) {
-        MiniMap.refreshVisibility();
-      }
-      if (window.WeatherSystem && WeatherSystem.setEnabled) {
-        WeatherSystem.setEnabled(isDebugSettingEnabled('weather'));
-      }
-      if (window.ParticleSystem && ParticleSystem.clearAll && !isDebugSettingEnabled('particles')) {
-        ParticleSystem.clearAll();
-      }
-
-      renderQualitySettingsPanel();
-      if (hudVisible) {
-        renderAll(reason || 'debug-settings');
-      }
+      _settingsPanel.applyDebugSettingsState(reason);
     }
 
     function bindQualitySettingsUi() {
-      var panel = getQualitySettingsPanel();
-      if (panel && !panel._qualitySettingsPanelBound) {
-        panel.addEventListener('change', function (event) {
-          var target = event.target;
-          var key = target && target.getAttribute ? target.getAttribute('data-settings-toggle') : null;
-          if (!key || !window.GameDebugSettings) return;
-          GameDebugSettings.setEnabled(key, !!target.checked, 'settings-panel');
-        });
-        panel.addEventListener('click', function (event) {
-          if (event.target === panel) {
-            toggleQualitySettingsPanel(false);
-            return;
-          }
-          var target = event.target;
-          if (!target || !target.getAttribute || target.getAttribute('data-settings-reset') !== 'true' || !window.GameDebugSettings) return;
-          GameDebugSettings.reset('settings-panel');
-          renderQualitySettingsPanel();
-        });
-        panel._qualitySettingsPanelBound = true;
-      }
-
-      var button = getQualitySettingsToggleButton();
-      if (button && !button._qualitySettingsBound) {
-        button.addEventListener('click', function () {
-          toggleQualitySettingsPanel();
-        });
-        button._qualitySettingsBound = true;
-      }
-
-      if (!_qualitySettingsUnsubscribe && window.GameQualitySettings && GameQualitySettings.subscribe) {
-        _qualitySettingsUnsubscribe = GameQualitySettings.subscribe(function () {
-          applyQualitySettingsState();
-        });
-      }
-
-      if (!_debugSettingsUnsubscribe && window.GameDebugSettings && GameDebugSettings.subscribe) {
-        _debugSettingsUnsubscribe = GameDebugSettings.subscribe(function (snapshot, change) {
-          applyDebugSettingsState(change && change.key ? ('debug:' + change.key) : 'debug-settings');
-        });
-      }
+      _settingsPanel.bindQualitySettingsUi();
     }
   
   function init() {
@@ -1036,11 +628,15 @@ try {
     bindQualitySettingsUi();
     if (!_languageUnsubscribe && window.GameI18n && GameI18n.subscribe) {
       _languageUnsubscribe = GameI18n.subscribe(function() {
+        invalidateLocalizedCaches();
+        renderResources();
         renderQuickbar();
+        renderObjectiveTracker();
         renderModalHeader();
         updateModal();
         updateQualitySettingsToggleState();
         renderQualitySettingsPanel();
+        renderNow('language-change');
       });
     }
     renderQualitySettingsPanel();
@@ -1458,7 +1054,7 @@ try {
     fuelCard.className = 'building-world-fuel';
     var fuelBadge = document.createElement('div');
     fuelBadge.className = 'building-world-badge';
-    fuelBadge.textContent = 'FIRE';
+    fuelBadge.textContent = t('hud.inspector.fireBadge', null, 'FIRE');
     var fuelBar = document.createElement('div');
     fuelBar.className = 'building-world-bar';
     var fuelFill = document.createElement('div');
@@ -1566,13 +1162,14 @@ try {
 
     resources.forEach(function (res) {
       if (!GameState.isUnlocked(res.id)) return;
+      var localizedResource = GameRegistry.getEntity(res.id) || res;
       var amount = GameState.getSpendableResource(res.id);
       var net = stats.net ? stats.net[res.id] : 0;
       
       html += '<div class="resource-item" style="min-width:110px;">';
       html += '<span class="resource-icon">' + getResourceIcon(res.id) + '</span>';
       html += '<span class="resource-amount">' + Math.floor(amount) + '</span>';
-      html += ' <span class="resource-name">' + escapeHtml(res.name) + '</span>';
+      html += ' <span class="resource-name">' + escapeHtml(localizedResource.name) + '</span>';
       
       if (_showProductionPanel) {
         var netStr = "", netColor = "#888";
@@ -1597,7 +1194,7 @@ try {
     });
     
     html += '</div>';
-    html += '<button class="btn btn-small" onclick="GameHUD.toggleProductionPanel()" style="padding:2px 6px;font-size:11px;">' + (_showProductionPanel ? "Hide rates" : "Show rates") + '</button>';
+    html += '<button class="btn btn-small" onclick="GameHUD.toggleProductionPanel()" style="padding:2px 6px;font-size:11px;">' + escapeHtml(_showProductionPanel ? t('hud.resourceBar.hideRates', null, 'Hide rates') : t('hud.resourceBar.showRates', null, 'Show rates')) + '</button>';
     html += '</div>';
 
     setInnerHtmlIfChanged(container, html);
@@ -1612,16 +1209,16 @@ try {
     var hunger = GameState.getHunger ? GameState.getHunger() : 100;
     var speed = GameState.getPlayerSpeed ? GameState.getPlayerSpeed() : 3;
     var isEatingNow = typeof GamePlayer !== 'undefined' && GamePlayer.isEating && GamePlayer.isEating();
-    var hungerBalance = (window.GAME_BALANCE && GAME_BALANCE.hunger) || {};
+    var hungryThreshold = GameState.getHungryThreshold();
     var isSlowed = false;
 
-    if (hunger < 20) {
-      speed *= (hungerBalance.hungrySpeedMult || 0.5);
+    if (hunger < hungryThreshold) {
+      speed *= GameState.getHungrySpeedMultiplier();
       isSlowed = true;
     }
 
     if (isEatingNow) {
-      speed *= (hungerBalance.eatSpeedMult || 0.5);
+      speed *= GameState.getEatSpeedMultiplier();
       isSlowed = true;
     }
 
@@ -1676,22 +1273,31 @@ try {
 
     var foodCount = GameState.getResource("resource.food");
     var isEatingNow = typeof GamePlayer !== 'undefined' && GamePlayer.isEating && GamePlayer.isEating();
+  var warningThreshold = GameState.getHungerOverlayWarningThreshold();
+  var criticalThreshold = GameState.getHungerOverlayCriticalThreshold();
 
-    var text = Math.floor(hunger) + "/" + maxHunger + " Food:" + Math.floor(foodCount);
+    var text = t('hud.hunger.foodLine', {
+      hunger: Math.floor(hunger),
+      max: maxHunger,
+      food: Math.floor(foodCount)
+    }, '{hunger}/{max} Food:{food}');
     if (isEatingNow) {
-      text = "Eating... " + Math.floor(hunger) + "/" + maxHunger;
+      text = t('hud.hunger.eatingLine', {
+        hunger: Math.floor(hunger),
+        max: maxHunger
+      }, 'Eating... {hunger}/{max}');
     }
     hungerText.textContent = text;
 
     hungerFill.classList.remove("hunger-warn", "hunger-critical");
-    if (hunger <= 0) {
+    if (hunger <= criticalThreshold) {
       hungerFill.classList.add("hunger-critical");
-    } else if (hunger < 20) {
+    } else if (hunger < warningThreshold) {
       hungerFill.classList.add("hunger-warn");
     }
 
     if (hungerWrapper) {
-      if (hunger < 20) {
+      if (hunger < warningThreshold) {
         hungerWrapper.classList.add("low-hunger");
       } else {
         hungerWrapper.classList.remove("low-hunger");
@@ -1774,12 +1380,12 @@ try {
     var settlementStatus = GameActions.getSettlementStatus();
     if (!settlementStatus || !settlementStatus.alerts || !settlementStatus.alerts.length) return '';
 
-    var cacheKey = settlementStatus.cacheKey || JSON.stringify(settlementStatus.alerts);
+    var cacheKey = getCurrentLanguageId() + '|' + (settlementStatus.cacheKey || JSON.stringify(settlementStatus.alerts));
     if (_settlementHtmlCacheKey === cacheKey && _settlementHtmlCacheValue) {
       return _settlementHtmlCacheValue;
     }
 
-    var html = '<div class="objective-hint">Priority status</div>';
+    var html = '<div class="objective-hint">' + escapeHtml(t('hud.objective.priorityStatus', null, 'Priority status')) + '</div>';
     html += '<div class="objective-checklist">';
     settlementStatus.alerts.forEach(function(alert) {
       html += '<div class="objective-check ' + escapeHtml(alert.tone || 'info') + '">' +
@@ -1796,12 +1402,13 @@ try {
   function renderObjectiveTracker() {
     var tracker = document.getElementById("objective-tracker");
     if (!tracker) return;
+    var languageId = getCurrentLanguageId();
     var currentAgeEntity = GameRegistry.getEntity(GameState.getAge());
     var currentAgeLabel = currentAgeEntity ? currentAgeEntity.name : GameState.getAge();
     var coreVersion = (window.GameState && GameState.getCoreStateVersion) ? GameState.getCoreStateVersion() : 0;
     var settlementStatus = (window.GameActions && GameActions.getSettlementStatus) ? GameActions.getSettlementStatus() : null;
     var settlementCacheKey = settlementStatus && settlementStatus.cacheKey ? settlementStatus.cacheKey : 'settlement:none';
-    var trackerCachePrefix = GameState.getAge() + '|' + coreVersion + '|' + settlementCacheKey;
+    var trackerCachePrefix = languageId + '|' + GameState.getAge() + '|' + coreVersion + '|' + settlementCacheKey;
 
     var nextAge = getNextAgeObjective();
     if (!nextAge) {
@@ -1813,9 +1420,9 @@ try {
       }
 
       var clearedSettlementHtml = buildSettlementStatusHtml();
-      var readyHtml = '<div class="objective-meta"><span class="objective-label">Current Age</span><span class="objective-age">' + escapeHtml(currentAgeLabel) + '</span></div>' +
-        '<div class="objective-title">All Ages Unlocked</div>' +
-        '<div class="objective-detail">Current progression content is fully cleared.</div>' +
+      var readyHtml = '<div class="objective-meta"><span class="objective-label">' + escapeHtml(t('hud.objective.currentAge', null, 'Current Age')) + '</span><span class="objective-age">' + escapeHtml(currentAgeLabel) + '</span></div>' +
+        '<div class="objective-title">' + escapeHtml(t('hud.objective.allAgesUnlockedTitle', null, 'All Ages Unlocked')) + '</div>' +
+        '<div class="objective-detail">' + escapeHtml(t('hud.objective.allAgesUnlockedCopy', null, 'Current progression content is fully cleared.')) + '</div>' +
         clearedSettlementHtml;
       tracker.className = 'objective-tracker ready';
       setInnerHtmlIfChanged(tracker, readyHtml);
@@ -1870,11 +1477,11 @@ try {
 
     var trackerClassName = 'objective-tracker' + (canAdvance ? ' ready' : '');
     var settlementHtml = buildSettlementStatusHtml();
-    var trackerHtml = '<div class="objective-meta"><span class="objective-label">Current Age</span><span class="objective-age">' + escapeHtml(currentAgeLabel) + '</span></div>' +
-      '<div class="objective-title">' + escapeHtml(nextAge.entity.name) + (canAdvance ? ' Ready!' : '') + '</div>' +
+    var trackerHtml = '<div class="objective-meta"><span class="objective-label">' + escapeHtml(t('hud.objective.currentAge', null, 'Current Age')) + '</span><span class="objective-age">' + escapeHtml(currentAgeLabel) + '</span></div>' +
+      '<div class="objective-title">' + escapeHtml(nextAge.entity.name) + (canAdvance ? (' - ' + escapeHtml(t('hud.statsPanel.readyNow', null, 'Ready now'))) : '') + '</div>' +
       checklistHtml +
       settlementHtml +
-      '<div class="objective-actions"><button class="objective-advance-btn' + (canAdvance ? ' ready' : '') + '" onclick="GameActions.advanceAge(\'' + nextAge.entity.id + '\')"' + (canAdvance ? '' : ' disabled') + '>Advance Age</button></div>';
+      '<div class="objective-actions"><button class="objective-advance-btn' + (canAdvance ? ' ready' : '') + '" onclick="GameActions.advanceAge(\'' + nextAge.entity.id + '\')"' + (canAdvance ? '' : ' disabled') + '>' + escapeHtml(t('hud.objective.advanceAge', null, 'Advance Age')) + '</button></div>';
 
     var trackerCacheKey = trackerCachePrefix + '|' + nextAge.entity.id + '|' + (canAdvance ? '1' : '0');
     if (_objectiveTrackerCacheKey === trackerCacheKey && _objectiveTrackerCacheHtml === trackerHtml && _objectiveTrackerCacheClassName === trackerClassName) {
@@ -1896,6 +1503,7 @@ try {
         return GameState.isUnlocked(building.id) && !building.hiddenInBuildMenu;
       })
       .map(function(building, index) {
+        var localizedBuilding = GameRegistry.getEntity(building.id) || building;
         var balance = GameRegistry.getBalance(building.id) || {};
         var placedCount = GameState.getBuildingCount(building.id);
         var cost = balance.cost || {};
@@ -1905,8 +1513,8 @@ try {
         return {
           id: building.id,
           actionType: 'build',
-          icon: getEntityIcon(building),
-          name: building.name,
+          icon: _modalPanelsModule.getEntityIcon(building),
+          name: localizedBuilding.name,
           meta: placedCount > 0 ? ('x' + placedCount) : 'new',
           statusKey: canBuild ? 'ready' : 'need',
           ready: canBuild,
@@ -1930,6 +1538,7 @@ try {
         return GameState.isUnlocked(recipe.id);
       })
       .map(function(recipe, index) {
+        var localizedRecipe = GameRegistry.getEntity(recipe.id) || recipe;
         var info = CraftSystem.getRecipeInfo(recipe.id);
         var balance = info.balance || {};
         var outputIds = balance.output ? Object.keys(balance.output) : [];
@@ -1965,8 +1574,8 @@ try {
           id: recipe.id,
           actionType: actionType,
           actionId: actionId,
-          icon: getEntityIcon(primaryOutputEntity || recipe),
-          name: recipe.name,
+          icon: _modalPanelsModule.getEntityIcon(primaryOutputEntity || recipe),
+          name: localizedRecipe.name,
           meta: meta,
           statusKey: statusKey,
           ready: ready,
@@ -2118,383 +1727,42 @@ try {
   }
 
   function switchTab(tabName) {
-    if (_activeTab === tabName) {
+    if (_activeTab === tabName && _modalActive) {
       closePanels();
       return;
     }
 
-    // Close other panels first (but don't reset _activeTab yet)
-    document.querySelectorAll(".panel").forEach(function (p) { p.classList.remove("active"); });
-    document.querySelectorAll(".tab-btn").forEach(function (t) { t.classList.remove("active"); });
+    var modalTab = tabName;
+    if (modalTab === 'inventory') modalTab = 'resources';
+    if (modalTab === 'none') {
+      closePanels();
+      return;
+    }
+    if (modalTab !== 'resources' && modalTab !== 'build' && modalTab !== 'craft' && modalTab !== 'stats' && modalTab !== 'research') {
+      closePanels();
+      return;
+    }
 
     _activeTab = tabName;
-
-    var panel = document.getElementById("panel-" + tabName);
-    if (panel) panel.classList.add("active");
-
-    var tabs = document.querySelectorAll(".tab-btn");
-    tabs.forEach(function (tab) {
-      if (tab.getAttribute("data-tab") === tabName) tab.classList.add("active");
-    });
-
-    renderActivePanel();
+    openModal({ tab: modalTab });
   }
 
   function closePanels() {
     _activeTab = null;
-    document.querySelectorAll(".panel").forEach(function (p) { p.classList.remove("active"); });
-    document.querySelectorAll(".tab-btn").forEach(function (t) { t.classList.remove("active"); });
-    var noneBtn = document.querySelector('.tab-btn[data-tab="none"]');
-    if (noneBtn) noneBtn.classList.add("active");
+    if (_modalActive) {
+      closeModal();
+    }
   }
 
   function renderActivePanel() {
-    if (!_activeTab) return;
-
-    switch (_activeTab) {
-      case "build": renderBuildPanel(); break;
-      case "craft": renderCraftPanel(); break;
-      case "inventory": renderInventoryPanel(); break;
-      case "stats": renderStatsPanel(); break;
-    }
-  }
-
-  function buildUnlockConditionsHtml(entity) {
-    var progress = UnlockSystem.getUnlockProgress(entity);
-    var html = '<div style="margin-top:6px; font-size:11px; border-top: 1px solid rgba(255,255,255,0.1); padding-top:4px;">';
-    html += '<div style="color:#f0a500; font-weight:bold; margin-bottom:3px;">&#128274; Unlock requires:</div>';
-
-    progress.details.forEach(function (d) {
-      var icon = d.met ? '&#9989;' : '&#11036;';
-      var color = d.met ? '#4ecca3' : '#aaa';
-      var text = '';
-
-      if (d.type === 'age') {
-        var ageEntity = GameRegistry.getEntity(d.target);
-        text = 'Reach ' + (ageEntity ? ageEntity.name : d.target);
-      } else if (d.type === 'resource') {
-        var resEntity = GameRegistry.getEntity(d.id);
-        text = (resEntity ? resEntity.name : d.id) + ': ' + Math.floor(d.current) + '/' + d.target;
-      } else if (d.type === 'building') {
-        var buildingEntity = GameRegistry.getEntity(d.id);
-        text = (buildingEntity ? buildingEntity.name : d.id) + ': ' + d.current + '/' + d.target;
-      }
-
-      html += '<div style="color:' + color + ';">' + icon + ' ' + text + '</div>';
-    });
-
-    html += '</div>';
-    return html;
-  }
-
-  function renderBuildPanel() {
-    var panel = document.getElementById("panel-build");
-    if (!panel) return;
-
-    var buildings = GameRegistry.getEntitiesByType("building").filter(function(building) {
-      return !building.hiddenInBuildMenu;
-    });
-    var html = "";
-
-    buildings.forEach(function (building) {
-      var isUnlocked = GameState.isUnlocked(building.id);
-
-      if (!isUnlocked) {
-        // Locked card with inline conditions
-        html += '<div class="card" style="opacity: 0.5; position:relative;">';
-        html += '<span style="position:absolute; top:8px; right:12px; font-size:18px;">&#128274;</span>';
-        html += '<div><div class="card-name">' + escapeHtml(building.name) + '</div>';
-        html += '<div class="card-info">' + escapeHtml(building.description || '') + '</div>';
-        html += buildUnlockConditionsHtml(building);
-        html += '</div>';
-        html += '<button class="btn btn-primary" disabled style="opacity: 0.5; cursor: not-allowed;">&#128274; Locked</button>';
-        html += '</div>';
-        return;
-      }
-
-      var balance = GameRegistry.getBalance(building.id);
-      var count = GameState.getBuildingCount(building.id);
-      var canBuy = true;
-
-      html += '<div class="card" style="position:relative;">';
-      html += '<div><div class="card-name">' + escapeHtml(building.name) + (count > 0 ? ' (x' + count + ')' : '') + '</div>';
-      html += '<div class="card-info">' + escapeHtml(building.description || '') + '</div>';
-
-      if (balance && balance.cost) {
-        html += '<div class="card-cost">Cost: ';
-        var parts = [];
-        canBuy = true;
-        for (var resId in balance.cost) {
-          var resEntity = GameRegistry.getEntity(resId);
-          var name = resEntity ? resEntity.name : resId;
-          var needed = balance.cost[resId];
-          var has = GameState.hasSpendableResource(resId, needed);
-          if (!has) canBuy = false;
-          parts.push('<span class="' + (has ? 'cost-ok' : 'cost-lack') + '">' + name + ':' + needed + '</span>');
-        }
-        html += parts.join(' ') + '</div>';
-      }
-
-      if (balance && balance.produces) {
-        var prodParts = [];
-        for (var resId in balance.produces) {
-          var resEntity = GameRegistry.getEntity(resId);
-          var name = resEntity ? resEntity.name : resId;
-          var mult = UpgradeSystem.getProductionMultiplier(building.id);
-          var amount = Math.floor(balance.produces[resId] * mult);
-          prodParts.push('+' + amount + ' ' + name);
-        }
-        html += '<div class="card-cost" style="color:#4ecca3">Produces: ' + prodParts.join(', ') + '/s</div>';
-      }
-
-      html += '</div>';
-      html += '<button class="btn btn-primary" onclick="BuildingSystem.enterBuildMode(\'' + building.id + '\'); GameHUD.closeModal();"' + (canBuy ? '' : ' disabled') + '>Build</button>';
-      html += '</div>';
-    });
-
-    setInnerHtmlIfChanged(panel, html || '<div class="card">No buildings available yet.</div>');
-  }
-
-  function renderCraftPanel() {
-    var panel = document.getElementById("panel-craft");
-    if (!panel) return;
-
-    var recipes = CraftSystem.getAllRecipes();
-    var html = "";
-
-    recipes.forEach(function (recipe) {
-      var isUnlocked = GameState.isUnlocked(recipe.id);
-
-      if (!isUnlocked) {
-        // Locked card with inline conditions
-        html += '<div class="card" style="opacity: 0.5; position:relative;">';
-        html += '<span style="position:absolute; top:8px; right:12px; font-size:18px;">&#128274;</span>';
-        html += '<div><div class="card-name">' + escapeHtml(recipe.name) + '</div>';
-        html += '<div class="card-info">' + escapeHtml(recipe.description || '') + '</div>';
-        html += buildUnlockConditionsHtml(recipe);
-        html += '</div>';
-        html += '<button class="btn btn-primary" disabled style="opacity: 0.5; cursor: not-allowed;">&#128274; Locked</button>';
-        html += '</div>';
-        return;
-      }
-
-      var info = CraftSystem.getRecipeInfo(recipe.id);
-      var balance = info.balance;
-
-      html += '<div class="card" style="position:relative;">';
-      html += '<div><div class="card-name">' + escapeHtml(recipe.name) + '</div>';
-      html += '<div class="card-info">' + escapeHtml(recipe.description || '') + '</div>';
-
-      if (balance && balance.input) {
-        html += '<div class="card-cost">Input: ';
-        var parts = [];
-        for (var resId in balance.input) {
-          var entity = GameRegistry.getEntity(resId);
-          var name = entity ? entity.name : resId;
-          var needed = balance.input[resId];
-          var has = GameState.hasSpendableResource(resId, needed);
-          parts.push('<span class="' + (has ? 'cost-ok' : 'cost-lack') + '">' + name + ':' + needed + '</span>');
-        }
-        html += parts.join(' ') + '</div>';
-      }
-
-      if (balance && balance.output) {
-        var outParts = [];
-        for (var resId in balance.output) {
-          var entity = GameRegistry.getEntity(resId);
-          var name = entity ? entity.name : resId;
-          outParts.push('+' + balance.output[resId] + ' ' + name);
-        }
-        html += '<div class="card-cost" style="color:#4ecca3">Output: ' + outParts.join(', ') + '</div>';
-      }
-
-      html += '</div>';
-
-      // Check if output is equipment and already owned
-      var hasInInventory = false;
-      var outputEquipmentId = null;
-      var isEquipped = false;
-      if (balance && balance.output) {
-        for (var resId in balance.output) {
-          var entity = GameRegistry.getEntity(resId);
-          if (entity && entity.type === 'equipment') {
-            outputEquipmentId = resId;
-            var invCount = GameState.getInventoryCount(resId);
-            if (invCount > 0) {
-              hasInInventory = true;
-            }
-            // Check if already equipped
-            var player = GameState.getPlayer();
-            if (player.equipped[entity.slot] === resId) {
-              isEquipped = true;
-            }
-            break;
-          }
-        }
-      }
-
-      if (isEquipped) {
-        html += '<button class="btn btn-secondary" disabled style="opacity:0.6;">Equipped</button>';
-      } else if (hasInInventory && outputEquipmentId) {
-        html += '<button class="btn btn-success" onclick="GameActions.equip(\'' + outputEquipmentId + '\'); GameHUD.renderAll();">Use</button>';
-      } else {
-        html += '<button class="btn btn-primary" onclick="GameActions.craft(\'' + recipe.id + '\')"' + (info.canCraft ? '' : ' disabled') + '>Craft</button>';
-      }
-
-      html += '</div>';
-    });
-
-    setInnerHtmlIfChanged(panel, html || '<div class="card">No recipes available. Explore and gather resources!</div>');
-  }
-
-  function renderInventoryPanel() {
-    var panel = document.getElementById("panel-inventory");
-    if (!panel) return;
-
-    var player = GameState.getPlayer();
-    var inventory = GameState.getInventory();
-    var html = '<div class="card"><div class="card-name">Equipped</div>';
-
-    var slots = ["weapon", "offhand", "armor", "boots"];
-    slots.forEach(function (slot) {
-      var equippedId = player.equipped[slot];
-      if (equippedId) {
-        var entity = GameRegistry.getEntity(equippedId);
-        var statStr = getEquipmentStatSummary(equippedId, { shortLabels: true });
-        html += '<div class="inv-slot equipped" onclick="GameActions.unequip(\'' + slot + '\')">';
-        html += '<div style="font-weight:bold">' + escapeHtml(entity ? entity.name : equippedId) + '</div>';
-        if (statStr) html += '<div style="font-size:10px;color:#4ecca3">' + escapeHtml(statStr) + '</div>';
-        html += '<div style="font-size:10px;color:#888">[' + slot + '] click to unequip</div>';
-        html += '</div>';
-      } else {
-        html += '<div class="inv-slot" style="opacity:0.5">';
-        html += '<div>Empty ' + escapeHtml(getEquipmentSlotLabel(slot)) + '</div></div>';
-      }
-    });
-
-    html += '</div>';
-
-    // Inventory items
-    var hasItems = false;
-    html += '<div class="card"><div class="card-name">Inventory</div>';
-    html += '<div class="inventory-grid">';
-    for (var id in inventory) {
-      if (inventory[id] <= 0) continue;
-      hasItems = true;
-      var entity = GameRegistry.getEntity(id);
-      if (entity && entity.type === "equipment") {
-        html += '<div class="inv-slot" onclick="GameActions.equip(\'' + id + '\')">';
-        html += '<div style="font-weight:bold">' + escapeHtml(entity.name) + '</div>';
-        html += '<div style="font-size:10px">x' + inventory[id] + '</div>';
-        var inventoryStatStr = getEquipmentStatSummary(id, { shortLabels: true });
-        if (inventoryStatStr) html += '<div style="font-size:10px;color:#4ecca3">' + escapeHtml(inventoryStatStr) + '</div>';
-        html += '</div>';
-      }
-    }
-    if (!hasItems) {
-      html += '<div style="color:#666;font-size:12px;padding:10px">No items yet. Craft equipment!</div>';
-    }
-    html += '</div></div>';
-
-    setInnerHtmlIfChanged(panel, html);
-  }
-
-  function renderStatsPanel() {
-    var panel = document.getElementById("panel-stats");
-    if (!panel) return;
-
-    var player = GameState.getPlayer();
-    var html = '<div class="card">';
-    html += '<div class="card-name">Player Stats</div>';
-    html += '<div class="card-info">HP: ' + Math.floor(player.hp) + '/' + GameState.getPlayerMaxHp() + '</div>';
-    html += '<div class="card-info">Attack: ' + GameState.getPlayerAttack() + ' (base: ' + player.attack + ')</div>';
-    html += '<div class="card-info">Defense: ' + GameState.getPlayerDefense() + ' (base: ' + player.defense + ')</div>';
-    html += '<div class="card-info">Speed: ' + formatBalanceDisplayNumber(GameState.getPlayerSpeed ? GameState.getPlayerSpeed() : player.speed) + ' (base: ' + formatBalanceDisplayNumber(player.speed) + ')</div>';
-    html += '<div class="card-info">Position: ' + Math.floor(player.x) + ', ' + Math.floor(player.z) + '</div>';
-    html += '</div>';
-
-    // Buildings summary
-    html += '<div class="card"><div class="card-name">Buildings</div>';
-    var buildings = GameState.getAllBuildings();
-    var hasBuildings = false;
-    for (var id in buildings) {
-      hasBuildings = true;
-      var entity = GameRegistry.getEntity(id);
-      html += '<div class="card-info">' + (entity ? entity.name : id) + ': ' + buildings[id] + '</div>';
-    }
-    if (!hasBuildings) html += '<div class="card-info">No buildings yet.</div>';
-    html += '</div>';
-
-    // Next unlocks
-    var nextUnlocks = UnlockSystem.getNextUnlocks();
-    if (nextUnlocks.length > 0) {
-      html += '<div class="card"><div class="card-name">Next Unlocks</div>';
-      nextUnlocks.slice(0, 5).forEach(function (item) {
-        var pct = Math.round(item.progress.percent * 100);
-        html += '<div class="card-info">' + escapeHtml(item.entity.name) + ' (' + pct + '%)</div>';
-      });
-      html += '</div>';
+    if (_modalActive) {
+      updateModal();
+      return;
     }
 
-    // Age Advancement
-    var currentAge = GameState.getAge();
-    var ages = GameRegistry.getEntitiesByType("age");
-    var nextAge = null;
-    for (var i = 0; i < ages.length; i++) {
-      if (!GameState.isUnlocked(ages[i].id) && ages[i].id !== currentAge) {
-        var ageBalance = GameRegistry.getBalance(ages[i].id);
-        if (ageBalance && ageBalance.advanceFrom && ageBalance.advanceFrom.age === currentAge) {
-          nextAge = ages[i];
-          break;
-        }
-      }
+    if (_activeTab) {
+      switchTab(_activeTab);
     }
-
-    if (nextAge) {
-      var balance = GameRegistry.getBalance(nextAge.id);
-      html += '<div class="card"><div class="card-name">🏛️ Age Advancement: ' + escapeHtml(nextAge.name) + '</div>';
-      var canAdvance = true;
-      var requirements = [];
-
-      if (balance.advanceFrom.resources) {
-        for (var resId in balance.advanceFrom.resources) {
-          var needed = balance.advanceFrom.resources[resId];
-          var current = GameState.getSpendableResource(resId);
-          var met = current >= needed;
-          if (!met) canAdvance = false;
-          var resEntity = GameRegistry.getEntity(resId);
-          var resName = resEntity ? resEntity.name : resId;
-          var className = met ? 'cost-ok' : 'cost-lack';
-          requirements.push('<span class="' + className + '">' + resName + ': ' + Math.floor(current) + '/' + needed + '</span>');
-        }
-      }
-
-      if (balance.advanceFrom.buildings) {
-        for (var bldId in balance.advanceFrom.buildings) {
-          var needed = balance.advanceFrom.buildings[bldId];
-          var current = GameState.getBuildingCount(bldId);
-          var met = current >= needed;
-          if (!met) canAdvance = false;
-          var bldEntity = GameRegistry.getEntity(bldId);
-          var bldName = bldEntity ? bldEntity.name : bldId;
-          var className = met ? 'cost-ok' : 'cost-lack';
-          requirements.push('<span class="' + className + '">' + bldName + ': ' + current + '/' + needed + '</span>');
-        }
-      }
-
-      html += '<div class="card-info">' + requirements.join(' | ') + '</div>';
-      html += '<button class="btn ' + (canAdvance ? 'btn-craft' : 'btn-disabled') + '" ' + 
-              'onclick="GameActions.advanceAge(\'' + nextAge.id + '\')" ' +
-              (canAdvance ? '' : 'disabled') + '>Advance!</button>';
-      html += '</div>';
-    }
-
-    html += '<div style="margin-top:8px">';
-    html += '<button class="btn btn-secondary" onclick="GameActions.saveGame()">Save Now</button> ';
-    html += '<button class="btn btn-secondary" onclick="GameActions.resetGame()">Reset</button>';
-    html += '</div>';
-
-    setInnerHtmlIfChanged(panel, html);
   }
 
   function showNotification(msg, type = "default") {
@@ -2579,506 +1847,24 @@ try {
     return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
   
-  var _hoveredInstance = null;
-  var _selectedInstance = null;
-  
   function setHoveredInstance(uid) {
-    _hoveredInstance = uid;
+    _inspectorModule.setHoveredInstance(uid);
   }
   
   function selectInstance(uid) {
-    if (BuildingSystem.isBuildMode()) return;
-    _selectedInstance = uid;
-    showBuildingInspector(uid);
-    if (window.RangeIndicator) RangeIndicator.show(uid);
+    _inspectorModule.selectInstance(uid);
   }
   
   function showBuildingInspector(uid) {
-    var instance = GameState.getInstance(uid);
-    if (!instance) return;
-
-    var entity = GameRegistry.getEntity(instance.entityId);
-    if (!entity) return;
-
-    var inspector = document.getElementById("building-inspector");
-    if (!inspector) return;
-
-    var balance = GameRegistry.getBalance(instance.entityId);
-    var currentLevel = instance.level || 1;
-    var levelText = "Lv." + currentLevel;
-
-    // --- Upgrade section ---
-    var upgradeHtml = "";
-    var upgradeCheck = UpgradeSystem.canUpgrade(instance.entityId, uid);
-
-    if (upgradeCheck.can && upgradeCheck.upgrade) {
-      var nextLevel = upgradeCheck.level;
-      var upgrade = upgradeCheck.upgrade;
-      var costParts = [];
-      var canAfford = true;
-      if (upgrade.cost) {
-        for (var resId in upgrade.cost) {
-          var needed = upgrade.cost[resId];
-          var have = GameState.getSpendableResource(resId) || 0;
-          var res = GameRegistry.getEntity(resId);
-          var resName = res ? res.name : resId;
-          var color = have >= needed ? "#4ecca3" : "#e63946";
-          if (have < needed) canAfford = false;
-          costParts.push('<span style="color:' + color + '">' + needed + ' ' + escapeHtml(resName) + '</span>');
-        }
-      }
-      var benefits = [];
-      if (upgrade.productionMultiplier) benefits.push("x" + upgrade.productionMultiplier + " prod");
-      if (balance.workerCount && balance.workerCount[nextLevel]) benefits.push(balance.workerCount[nextLevel] + " workers");
-      if (balance.searchRadius && balance.searchRadius[nextLevel]) benefits.push(balance.searchRadius[nextLevel] + " range");
-
-      upgradeHtml = '<div class="inspector-section">' +
-        '<div style="color:#4ecca3; font-size:11px; font-weight:bold;">⬆ Lv.' + nextLevel + ': ' + costParts.join(", ") + '</div>' +
-        (benefits.length > 0 ? '<div style="color:#ffb74d; font-size:10px;">→ ' + benefits.join(", ") + '</div>' : '') +
-        '<button class="btn btn-primary" style="margin-top:4px; font-size:11px; padding:3px 10px;" onclick="GameActions.upgrade(\'' + instance.entityId + '\', \'' + uid + '\')" ' +
-        (canAfford ? '' : 'disabled style="opacity:0.5; cursor:not-allowed;"') + '>Upgrade</button>' +
-        '</div>';
-    } else if (upgradeCheck.reason === "Not enough resources" && balance.upgrades) {
-      var nextLevelKey = (instance.level || 1) + 1;
-      if (balance.upgrades[nextLevelKey]) {
-        var upgrade = balance.upgrades[nextLevelKey];
-        var costParts = [];
-        if (upgrade.cost) {
-          for (var resId in upgrade.cost) {
-            var needed = upgrade.cost[resId];
-            var have = GameState.getSpendableResource(resId) || 0;
-            var res = GameRegistry.getEntity(resId);
-            var resName = res ? res.name : resId;
-            var color = have >= needed ? "#4ecca3" : "#e63946";
-            costParts.push('<span style="color:' + color + '">' + needed + ' ' + escapeHtml(resName) + ' <small>(' + Math.floor(have) + ')</small></span>');
-          }
-        }
-        var benefits = [];
-        if (upgrade.productionMultiplier) benefits.push("x" + upgrade.productionMultiplier + " prod");
-        if (balance.workerCount && balance.workerCount[nextLevelKey]) benefits.push(balance.workerCount[nextLevelKey] + " workers");
-        if (balance.searchRadius && balance.searchRadius[nextLevelKey]) benefits.push(balance.searchRadius[nextLevelKey] + " range");
-
-        upgradeHtml = '<div class="inspector-section">' +
-          '<div style="color:#4ecca3; font-size:11px; font-weight:bold;">⬆ Lv.' + nextLevelKey + ': ' + costParts.join(", ") + '</div>' +
-          (benefits.length > 0 ? '<div style="color:#ffb74d; font-size:10px;">→ ' + benefits.join(", ") + '</div>' : '') +
-          '<button class="btn btn-primary" disabled style="margin-top:4px; font-size:11px; padding:3px 10px; opacity:0.5;">Need Resources</button>' +
-          '</div>';
-      }
-    } else if (upgradeCheck.reason === "Max level reached") {
-      upgradeHtml = '<div class="inspector-section" style="color:#4ecca3; font-size:11px;">⭐ Max Level</div>';
-    }
-
-    // --- Storage section ---
-    var storageHtml = "";
-    if (balance && balance.storageCapacity) {
-      var storageCapacity = GameState.getStorageCapacity(uid);
-      if (storageCapacity > 0) {
-        var storageUsed = GameState.getStorageUsed(uid);
-        var storagePct = storageCapacity > 0 ? Math.floor((storageUsed / storageCapacity) * 100) : 0;
-        var storageColor = storagePct >= 90 ? "#e63946" : (storagePct >= 70 ? "#f0a500" : "#4ecca3");
-
-        var storage = GameState.getBuildingStorage(uid);
-        var storageParts = [];
-        var hasResources = false;
-        for (var resId in storage) {
-          if (storage[resId] > 0) {
-            hasResources = true;
-            var res = GameRegistry.getEntity(resId);
-            storageParts.push(storage[resId] + " " + (res ? res.name : resId));
-          }
-        }
-
-        storageHtml = '<div class="inspector-section">' +
-          '<div style="font-size:11px;">Storage: <span style="color:' + storageColor + '; font-weight:bold;">' + storageUsed + '/' + storageCapacity + '</span>';
-
-        if (hasResources) {
-          storageHtml += ' <span style="color:#ffb74d;">(' + storageParts.join(", ") + ')</span>' +
-            '</div>' +
-            '<button class="btn btn-success" style="margin-top:4px; font-size:11px; padding:3px 10px;" onclick="GameActions.collectFromBuilding(\'' + uid + '\')">Collect</button>';
-        } else {
-          storageHtml += '</div><div style="color:#555; font-size:10px;">Empty</div>';
-        }
-        storageHtml += '</div>';
-      }
-    }
-
-    // --- Fuel section for fire buildings ---
-    var fuelHtml = "";
-    if (balance && balance.lightRadius) {
-      var fuelData = GameState.getFireFuelData ? GameState.getFireFuelData(uid) : null;
-      var currentFuel = fuelData ? fuelData.current : (balance.fuelCapacity || 999);
-      var maxFuel = balance.fuelCapacity || 999;
-      var fuelPct = maxFuel > 0 ? Math.floor((currentFuel / maxFuel) * 100) : 0;
-      var fuelColor = fuelPct > 50 ? "#4ecca3" : (fuelPct > 20 ? "#f0a500" : "#e94560");
-      var needsFuel = currentFuel < maxFuel;
-      var isNight = typeof DayNightSystem !== 'undefined' && DayNightSystem.isNight();
-      var coverageText = currentFuel <= 0
-        ? 'No active coverage - out of fuel.'
-        : (isNight ? 'Coverage active now for nearby workers.' : 'Coverage turns on automatically at night.');
-      var coverageColor = currentFuel <= 0 ? '#e63946' : (isNight ? '#ffb74d' : '#c7d6e8');
-
-      fuelHtml = '<div class="inspector-section">' +
-        '<div style="font-size:11px;">🔥 Fuel: <span style="color:' + fuelColor + '; font-weight:bold;">' + Math.floor(currentFuel) + '/' + maxFuel + '</span> (' + fuelPct + '%)</div>';
-      fuelHtml += '<div style="height:8px; background:rgba(15,52,96,0.9); border-radius:5px; overflow:hidden; border:1px solid rgba(255,255,255,0.08); margin-top:5px; box-shadow:inset 0 1px 2px rgba(0,0,0,0.28);">';
-      fuelHtml += '<div style="width:' + fuelPct + '%; height:100%; background:linear-gradient(90deg, ' + fuelColor + ', #ffd166); border-radius:4px; transition:width 0.3s linear;"></div>';
-      fuelHtml += '</div>';
-      fuelHtml += '<div style="color:#888; font-size:10px; margin-top:3px;">Burning down through the night. Refuel fills the bar back to max.</div>';
-      fuelHtml += '<div style="color:#ffb74d; font-size:10px; margin-top:3px;">Light radius: ' + balance.lightRadius + ' tiles</div>';
-      fuelHtml += '<div style="color:' + coverageColor + '; font-size:10px; margin-top:2px;">' + coverageText + '</div>';
-
-      if (balance.refuelCost) {
-        var refuelParts = [];
-        var canRefuel = needsFuel;
-        for (var resId in balance.refuelCost) {
-          var needed = balance.refuelCost[resId];
-          var have = GameState.getSpendableResource(resId);
-          var res = GameRegistry.getEntity(resId);
-          var resName = res ? res.name : resId;
-          var color = have >= needed ? "#4ecca3" : "#e63946";
-          if (have < needed) canRefuel = false;
-          refuelParts.push('<span style="color:' + color + '">' + needed + ' ' + escapeHtml(resName) + '</span>');
-        }
-        fuelHtml += '<div style="color:#888; font-size:10px; margin-top:2px;">Refuel: ' + refuelParts.join(", ") + '</div>';
-        fuelHtml += '<div style="color:#666; font-size:10px; margin-top:2px;">Double-click the campfire to quick refuel.</div>';
-        fuelHtml += '<button class="btn btn-secondary" style="margin-top:4px; font-size:10px; padding:2px 8px;" onclick="GameActions.refuel(\'' + uid + '\')" ' + (canRefuel ? '' : 'disabled') + '>' + (needsFuel ? 'Refuel' : 'Fuel Full') + '</button>';
-      }
-      fuelHtml += '</div>';
-    }
-
-    // --- Auto farming section ---
-    var farmHtml = "";
-    if (balance && balance.farming && window.GameActions && GameActions.getFarmPlotStatus) {
-      var farmStatus = GameActions.getFarmPlotStatus(uid);
-      if (farmStatus) {
-        var progressColor = farmStatus.nightWorkBlocked ? '#f4a261' : (farmStatus.ready ? '#4ecca3' : (farmStatus.riverBoosted ? '#66d9ff' : (farmStatus.watered ? '#57c7ff' : '#f0a500')));
-        var supportColor = farmStatus.hasWaterSupport ? (farmStatus.supportSourceType === 'river' ? '#66d9ff' : '#4ecca3') : '#888';
-        var lightColor = farmStatus.nightWorkBlocked ? '#f4a261' : (farmStatus.isNight ? '#ffb74d' : '#888');
-        var storedText = farmStatus.storedAmount > 0 ? farmStatus.storedSummaryText : 'Storage empty';
-        farmHtml = '<div class="inspector-section">' +
-          '<div style="font-size:11px; color:#aaa; margin-bottom:4px;">🌱 Crop: <span style="color:#e0e0e0; font-weight:bold;">' + escapeHtml(farmStatus.cropName) + '</span></div>' +
-          '<div style="font-size:11px; margin-bottom:4px;">Status: <span style="color:' + progressColor + '; font-weight:bold;">' + escapeHtml(farmStatus.statusText) + '</span></div>' +
-          '<div style="height:6px; background:rgba(15,52,96,0.9); border-radius:4px; overflow:hidden; border:1px solid rgba(255,255,255,0.08); margin-bottom:4px;">' +
-            '<div style="width:' + farmStatus.progressPercent + '%; height:100%; background:' + progressColor + '; transition:width 0.2s;"></div>' +
-          '</div>' +
-          '<div style="font-size:10px; color:#9fb3c8; margin-bottom:2px;">' + escapeHtml(farmStatus.detailText) + '</div>' +
-          '<div style="font-size:10px; color:#c7d6e8; margin-bottom:3px;">👷 Resident: ' + escapeHtml(farmStatus.workerStatusText) + '</div>' +
-          '<div style="font-size:10px; color:' + lightColor + '; margin-bottom:3px;">🔥 Night light: ' + escapeHtml(farmStatus.nightLightLabel) + '</div>' +
-          '<div style="font-size:10px; color:' + supportColor + '; margin-bottom:3px;">💧 ' + escapeHtml(farmStatus.supportSourceName) + '</div>' +
-          '<div style="font-size:10px; color:#888; margin-bottom:3px;">Current yield: ' + escapeHtml(farmStatus.currentYieldText || farmStatus.dryYieldText) + '</div>' +
-          '<div style="font-size:10px; color:#888; margin-bottom:3px;">Dry: ' + escapeHtml(farmStatus.dryYieldText) + ' • Watered: ' + escapeHtml(farmStatus.wateredYieldText) + '</div>' +
-          '<div style="font-size:10px; color:#888; margin-bottom:4px;">River boost: ' + escapeHtml(farmStatus.riverYieldText) + '</div>' +
-          '<div style="font-size:10px; color:#c7d6e8;">Stored: ' + escapeHtml(storedText) + '</div>' +
-        '</div>';
-      }
-    }
-
-    // --- Synergy section ---
-    var synergyHtml = "";
-    if (window.SynergySystem) {
-      var synergyBonus = SynergySystem.getSynergyBonus(uid);
-      if (synergyBonus.productionBonus > 0 || synergyBonus.speedBonus > 0) {
-        var bonusParts = [];
-        if (synergyBonus.productionBonus > 0) bonusParts.push("+" + Math.round(synergyBonus.productionBonus * 100) + "% prod");
-        if (synergyBonus.speedBonus > 0) bonusParts.push("+" + Math.round(synergyBonus.speedBonus * 100) + "% speed");
-        synergyHtml = '<div class="inspector-section">' +
-          '<div style="color:#4ecca3; font-size:11px;">⚡ ' + bonusParts.join(", ") + '</div>' +
-          '<div style="color:#666; font-size:9px;">From ' + synergyBonus.nearbyCount + ' nearby</div>' +
-          '</div>';
-      }
-    }
-
-    // --- Worker section ---
-    var workerHtml = "";
-    if (window.NPCSystem && balance && balance.workerCount) {
-      var workers = NPCSystem.getNPCsForBuilding(uid);
-      if (workers && workers.length > 0) {
-        workerHtml = '<div class="inspector-section">' +
-          '<div style="color:#aaa; font-size:11px;">👷 Workers: ' + workers.length + '/' + (balance.workerCount[currentLevel] || workers.length) + '</div>' +
-          '</div>';
-      }
-    }
-
-    // --- Military section ---
-    var militaryHtml = "";
-    if (window.GameActions && instance.entityId === 'building.barracks' && GameActions.getBarracksStatus) {
-      var barracksStatus = GameActions.getBarracksStatus(uid);
-      if (barracksStatus) {
-        var queueHtml = '';
-        if (barracksStatus.queue.length > 0) {
-          queueHtml = barracksStatus.queue.map(function(entry, index) {
-            return '<div style="font-size:10px; color:#d8d8d8; margin-top:3px;">' +
-              (index + 1) + '. ' + escapeHtml(entry.label) + ' • ' + entry.remainingSeconds + 's • ' + entry.progressPercent + '%</div>';
-          }).join('');
-        } else {
-          queueHtml = '<div style="font-size:10px; color:#777; margin-top:3px;">Queue empty</div>';
-        }
-
-        var reserveHtml = barracksStatus.reserves.length > 0
-          ? barracksStatus.reserves.map(function(entry) {
-              return escapeHtml(entry.label) + ': ' + entry.amount;
-            }).join(' • ')
-          : 'No trained reserves';
-        var towerSupportHtml = barracksStatus.availableUnits.filter(function(unit) {
-          return !!unit.towerSupportLabel;
-        }).map(function(unit) {
-          return escapeHtml(unit.label) + ': ' + escapeHtml(unit.towerSupportLabel);
-        }).join(' • ');
-        var modeButtons = [
-          '<button class="btn ' + (barracksStatus.commandMode === 'guard' ? 'btn-craft' : 'btn-secondary') + '" style="font-size:10px; padding:4px 8px;" onclick="GameActions.setBarracksCommandMode(\'' + uid + '\', \'guard\')">Guard Nearby</button>',
-          '<button class="btn ' + (barracksStatus.commandMode === 'follow' ? 'btn-craft' : 'btn-secondary') + '" style="font-size:10px; padding:4px 8px;" onclick="GameActions.setBarracksCommandMode(\'' + uid + '\', \'follow\')">Follow Player</button>'
-        ].join(' ');
-
-        var trainButtons = barracksStatus.availableUnits.map(function(unit) {
-          var disabled = !unit.unlocked || !unit.canAfford || !barracksStatus.canQueueMore;
-          var label = unit.unlocked ? unit.label : (unit.label + ' Lv.' + unit.unlockLevel);
-          var hint = unit.costText ? (' • ' + escapeHtml(unit.costText)) : '';
-          return '<button class="btn ' + (disabled ? 'btn-secondary' : 'btn-craft') + '" style="font-size:10px; padding:4px 8px;" onclick="GameActions.queueBarracksTraining(\'' + uid + '\', \'' + unit.unitType + '\')" ' + (disabled ? 'disabled' : '') + '>' + escapeHtml(label) + hint + '</button>';
-        }).join(' ');
-
-        militaryHtml = '<div class="inspector-section">' +
-          '<div style="color:#cfa66b; font-size:11px; margin-bottom:4px;">🛡️ Reserve ' + barracksStatus.reserveCount + '/' + barracksStatus.reserveCapacity + ' • Queue ' + barracksStatus.queueUsed + '/' + barracksStatus.queueCapacity + '</div>' +
-          '<div style="color:#888; font-size:10px; margin-bottom:4px;">Command radius: ' + barracksStatus.supportRange + ' • Training speed x' + barracksStatus.trainingSpeed.toFixed(2) + '</div>' +
-          '<div style="color:#d9c89f; font-size:10px; margin-bottom:4px;">Mode: ' + escapeHtml(barracksStatus.commandModeLabel) + '</div>' +
-          '<div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px;">' + modeButtons + '</div>' +
-          '<div style="color:#7fc8d8; font-size:10px; margin-bottom:4px;">Deployed: ' + barracksStatus.deployedCount + ' • Engaged: ' + barracksStatus.engagedCount + '</div>' +
-          '<div style="color:#9aa; font-size:10px; margin-bottom:4px;">' + escapeHtml(barracksStatus.troopStatusText) + '</div>' +
-          '<div style="color:#b9c8d8; font-size:10px; margin-bottom:4px;">' + escapeHtml(barracksStatus.troopSummaryText) + '</div>' +
-          '<div style="color:#8e9db0; font-size:10px; margin-bottom:4px;">Reserves: ' + escapeHtml(reserveHtml) + '</div>' +
-          (towerSupportHtml ? ('<div style="color:#9aa; font-size:10px; margin-bottom:4px;">Tower support: ' + escapeHtml(towerSupportHtml) + (barracksStatus.commandMode === 'follow' ? ' (paused while following)' : '') + '</div>') : '') +
-          '<div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px;">' + trainButtons + '</div>' +
-          '<div style="color:#9aa; font-size:10px;">Training queue</div>' +
-          queueHtml +
-          (barracksStatus.nextUnlock ? ('<div style="color:#777; font-size:10px; margin-top:4px;">Next unlock: ' + escapeHtml(barracksStatus.nextUnlock.label) + ' at Lv.' + barracksStatus.nextUnlock.level + '</div>') : '') +
-          '</div>';
-      }
-    } else if (window.GameActions && instance.entityId === 'building.watchtower' && GameActions.getWatchtowerStatus) {
-      var watchtowerStatus = GameActions.getWatchtowerStatus(uid);
-      if (watchtowerStatus) {
-        var supportBonusParts = [];
-        if (watchtowerStatus.rangeBonus > 0) supportBonusParts.push('+' + watchtowerStatus.rangeBonus.toFixed(1) + ' range');
-        if (watchtowerStatus.attackDamageBonus > 0) supportBonusParts.push('+' + watchtowerStatus.attackDamageBonus + ' damage');
-        if (watchtowerStatus.attackIntervalMultiplier < 0.999) supportBonusParts.push(Math.round((1 - watchtowerStatus.attackIntervalMultiplier) * 100) + '% faster');
-        if (watchtowerStatus.workerProtectRadiusBonus > 0) supportBonusParts.push('+' + watchtowerStatus.workerProtectRadiusBonus.toFixed(1) + ' worker cover');
-        var supportSummary = watchtowerStatus.linkedBarracksCount > 0
-          ? watchtowerStatus.reserveSupportLabel + ' • ' + watchtowerStatus.linkedBarracksCount + ' barracks'
-          : 'No barracks reserve link';
-        militaryHtml = '<div class="inspector-section">' +
-          '<div style="color:#e89b6b; font-size:11px; margin-bottom:4px;">🗼 ' + escapeHtml(watchtowerStatus.statusLabel) + '</div>' +
-          '<div style="color:#aaa; font-size:10px; margin-bottom:3px;">Damage: ' + watchtowerStatus.attackDamage + ' • Interval: ' + watchtowerStatus.attackIntervalSeconds.toFixed(1) + 's • Cooldown: ' + watchtowerStatus.cooldownRemaining.toFixed(1) + 's</div>' +
-          '<div style="color:#888; font-size:10px; margin-bottom:3px;">Worker cover: ' + watchtowerStatus.workerProtectRadius + ' • Shots: ' + watchtowerStatus.shotsFired + ' • Kills: ' + watchtowerStatus.kills + '</div>' +
-          '<div style="color:' + (watchtowerStatus.linkedBarracksCount > 0 ? '#cfa66b' : '#777') + '; font-size:10px; margin-bottom:3px;">Reserve link: ' + escapeHtml(supportSummary) + '</div>' +
-          (supportBonusParts.length ? ('<div style="color:#9aa; font-size:10px; margin-bottom:3px;">Support bonus: ' + escapeHtml(supportBonusParts.join(' • ')) + '</div>') : '') +
-          (watchtowerStatus.lastTargetName ? ('<div style="color:#9aa; font-size:10px;">Last target: ' + escapeHtml(watchtowerStatus.lastTargetName) + '</div>') : '') +
-          '</div>';
-      }
-    }
-
-    // --- Range info ---
-    var rangeHtml = "";
-    if (balance) {
-      var sR = (balance.searchRadius && balance.searchRadius[currentLevel]) ? balance.searchRadius[currentLevel] : 0;
-      var tR = balance.transferRange || 0;
-      var wR = balance.waterRadius || 0;
-      var lR = balance.lightRadius || 0;
-      var dR = (balance.guardRadius && balance.guardRadius[currentLevel]) ? balance.guardRadius[currentLevel] : 0;
-      if (!dR && balance.towerDefense && balance.towerDefense.range) {
-        dR = balance.towerDefense.range[currentLevel] || balance.towerDefense.range[1] || 0;
-      }
-      var rangeParts = [];
-      if (sR > 0) rangeParts.push('<span style="color:#00ff88;">' + (balance.farming ? 'Worker: ' : 'Harvest: ') + sR + '</span>');
-      if (tR > 0) rangeParts.push('<span style="color:#4488ff;">Transfer: ' + tR + '</span>');
-      if (wR > 0) rangeParts.push('<span style="color:#57c7ff;">Water: ' + wR + '</span>');
-      if (lR > 0) rangeParts.push('<span style="color:#ffb74d;">Light: ' + lR + '</span>');
-      if (dR > 0) rangeParts.push('<span style="color:#e76f51;">Defense: ' + dR + '</span>');
-      if (rangeParts.length > 0) {
-        rangeHtml = '<div class="inspector-section">' +
-          '<div style="color:#aaa; font-size:11px;">📡 ' + rangeParts.join(' | ') + '</div>' +
-          '</div>';
-      }
-    }
-
-    // --- Refund info ---
-    var refundText = "";
-    if (balance && balance.cost) {
-      var totalRefund = {};
-      for (var resId in balance.cost) {
-        totalRefund[resId] = Math.floor(balance.cost[resId] * 0.5);
-      }
-      if (balance.upgrades && currentLevel > 1) {
-        for (var lvl = 2; lvl <= currentLevel; lvl++) {
-          var upg = balance.upgrades[lvl];
-          if (upg && upg.cost) {
-            for (var resId in upg.cost) {
-              totalRefund[resId] = (totalRefund[resId] || 0) + Math.floor(upg.cost[resId] * 0.5);
-            }
-          }
-        }
-      }
-      var refundParts = [];
-      for (var resId in totalRefund) {
-        if (totalRefund[resId] > 0) {
-          var res = GameRegistry.getEntity(resId);
-          refundParts.push(totalRefund[resId] + " " + (res ? res.name : resId));
-        }
-      }
-      if (refundParts.length > 0) {
-        refundText = "Refund 50%: " + refundParts.join(", ");
-      }
-    }
-
-    var inspectorHtml =
-      '<div style="padding:10px 12px;">' +
-      '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
-        '<div style="font-weight:bold; font-size:14px; color:#e0e0e0;">' + escapeHtml(entity.name) + '</div>' +
-        '<span style="color:#4ecca3; font-size:11px; background:rgba(78,204,163,0.15); padding:2px 8px; border-radius:4px;">' + levelText + '</span>' +
-      '</div>' +
-      '<div style="color:#888; font-size:11px; margin-bottom:6px;">' + escapeHtml(entity.description || '') + '</div>' +
-      storageHtml +
-      farmHtml +
-      synergyHtml +
-      workerHtml +
-      militaryHtml +
-      rangeHtml +
-      fuelHtml +
-      upgradeHtml +
-      (refundText ? '<div style="color:#ffb74d; font-size:10px; margin-top:6px; padding-top:6px; border-top:1px solid rgba(255,255,255,0.06);">' + refundText + '</div>' : '') +
-      '<div style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.08); display:flex; gap:6px;">' +
-        '<button class="btn btn-danger" style="font-size:11px; padding:4px 12px;" onclick="GameHUD.confirmDestroy(\'' + uid + '\')">Delete</button>' +
-        '<button class="btn btn-secondary" style="font-size:11px; padding:4px 12px;" onclick="GameHUD.closeInspector()">Close</button>' +
-      '</div>' +
-      '</div>';
-
-    setInnerHtmlIfChanged(inspector, inspectorHtml);
-
-    inspector.classList.add("active");
+    _inspectorModule.showBuildingInspector(uid);
   }
   
   function confirmDestroy(uid) {
-    if (!confirm("Delete this structure?\nYou will receive a 50% refund.")) {
-      return;
-    }
-    if (window.RangeIndicator && RangeIndicator.getActiveUid() === uid) {
-      RangeIndicator.hide();
-    }
-    BuildingSystem.destroyBuilding(uid);
-    closeInspector();
-    showNotification("Structure removed.");
+    _inspectorModule.confirmDestroy(uid);
   }
   
   function closeInspector() {
-    _selectedInstance = null;
-    var inspector = document.getElementById("building-inspector");
-    if (inspector) inspector.classList.remove("active");
-    if (window.RangeIndicator) RangeIndicator.hide();
-  }
-
-  /**
-   * Show worker training modal
-   */
-  
-  // Handle Delete key
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Delete' && _hoveredInstance && !BuildingSystem.isBuildMode()) {
-      confirmDestroy(_hoveredInstance);
-    }
-  });
-
-  document.addEventListener('keydown', function(e) {
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      toggleQuickbarMode();
-      return;
-    }
-
-    var quickbarIndex = getQuickbarKeyIndex(e);
-    if (quickbarIndex === null) return;
-
-    e.preventDefault();
-    activateQuickbarSlot(quickbarIndex);
-  });
-
-  document.addEventListener('keydown', function(e) {
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-
-    if (e.key === 'F8' || e.key === 'F9') {
-      e.preventDefault();
-      toggleQualitySettingsPanel();
-      return;
-    }
-
-    if (e.key === 'Escape') {
-      if (_qualityPanelOpen) {
-        toggleQualitySettingsPanel(false);
-      }
-    }
-  });
-
-  function formatRewardSummary(rewardMap) {
-    if (!rewardMap) return '';
-
-    var parts = [];
-    for (var resId in rewardMap) {
-      if (!rewardMap[resId]) continue;
-      var entity = GameRegistry.getEntity(resId);
-      parts.push(rewardMap[resId] + ' ' + (entity ? entity.name : resId));
-    }
-
-    return parts.join(' + ');
-  }
-
-  function getNodeAccentColor(nodeInfo) {
-    if (!nodeInfo) return '#4ecca3';
-    if (nodeInfo.isGiant) return '#f0a500';
-    if (nodeInfo.stateLabel === 'Loaded' || nodeInfo.stateLabel === 'Mature') return '#4ecca3';
-    if (nodeInfo.stateLabel === 'Few Berries' || nodeInfo.stateLabel === 'Sapling') return '#7db4ff';
-    if (nodeInfo.stateLabel === 'Berrying' || nodeInfo.stateLabel === 'Young' || nodeInfo.stateLabel === 'Large') return '#f0a500';
-    return '#4ecca3';
-  }
-
-  function getWorldNodeTitle(objData, nodeInfo, entity) {
-    if (!nodeInfo) return entity ? entity.name : objData.type;
-    if (objData.type === 'node.tree' || objData.type === 'node.rock' || objData.type === 'node.berry_bush') {
-      return nodeInfo.name || nodeInfo.label;
-    }
-    return nodeInfo.label;
-  }
-
-  function getWorldNodeMeta(objData, nodeInfo) {
-    if (!nodeInfo) return '';
-
-    var rewardText = formatRewardSummary(nodeInfo.rewards);
-    if (objData.type === 'node.tree' || objData.type === 'node.rock') {
-      return rewardText;
-    }
-    if (objData.type === 'node.berry_bush') {
-      return rewardText || 'Food';
-    }
-
-    return (nodeInfo.stateLabel ? nodeInfo.stateLabel + ' • ' : '') + rewardText;
-  }
-
-  function shouldShowWorldNodeLabel(objData) {
-    if (!objData || !objData.type) return false;
-    return objData.type !== 'node.tree' && objData.type !== 'node.rock' && objData.type !== 'node.berry_bush';
-  }
-
-  function getInspectNodeMeta(objData, nodeInfo) {
-    if (!nodeInfo) return 'HP ' + objData.hp + '/' + objData.maxHp;
-
-    var rewardText = formatRewardSummary(nodeInfo.rewards);
-    if (objData.type === 'node.tree') {
-      return rewardText || 'Wood';
-    }
-    if (objData.type === 'node.rock') {
-      return rewardText || 'Stone';
-    }
-    if (objData.type === 'node.berry_bush') {
-      return rewardText || 'Food';
-    }
-
-    return (nodeInfo.stateLabel ? nodeInfo.stateLabel + ' • ' : '') + rewardText;
+    _inspectorModule.closeInspector();
   }
 
   function showObjectHpBar(objData, holdMs) {
@@ -3364,1331 +2150,6 @@ try {
     hideUnusedBuildingLabels(visibleMap, instances);
   }
 
-  function getSuggestedLowerPresetId() {
-    if (!window.GameQualitySettings || !GameQualitySettings.getPresetId) return null;
-
-    var currentPresetId = GameQualitySettings.getPresetId();
-    if (currentPresetId === 'high') return 'medium';
-    if (currentPresetId === 'medium') return 'low';
-    return null;
-  }
-
-  function updateQualityPerformanceAdvisor(dt) {
-    if (!dt || !window.GameQualitySettings || !GameQualitySettings.getConfigValue) return;
-
-    var suggestedPresetId = getSuggestedLowerPresetId();
-    if (!suggestedPresetId) {
-      _qualityPromptState.lowFpsSeconds = 0;
-      return;
-    }
-
-    if (Date.now() < _qualityPromptState.snoozeUntil) return;
-
-    var lowFpsThreshold = GameQualitySettings.getConfigValue('advisor.suggestDownFps', 0);
-    var lowFpsSeconds = GameQualitySettings.getConfigValue('advisor.suggestAfterSeconds', 0);
-    if (!(lowFpsThreshold > 0) || !(lowFpsSeconds > 0)) return;
-
-    if (_fpsSmoothed <= lowFpsThreshold) {
-      _qualityPromptState.lowFpsSeconds += dt;
-    } else {
-      _qualityPromptState.lowFpsSeconds = Math.max(0, _qualityPromptState.lowFpsSeconds - (dt * 1.5));
-    }
-
-    if (_qualityPromptState.visible || _qualityPromptState.lowFpsSeconds < lowFpsSeconds) return;
-
-    var suggestedPreset = window.GameQualitySettings.getPresetDefinition ? GameQualitySettings.getPresetDefinition(suggestedPresetId) : null;
-    _qualityPromptState.visible = true;
-    _qualityPromptState.suggestedPreset = suggestedPresetId;
-    _qualityPromptState.suggestedLabel = suggestedPreset && suggestedPreset.label ? suggestedPreset.label : suggestedPresetId;
-    _qualityPromptState.fps = Math.max(1, Math.round(_fpsSmoothed));
-    _qualityPromptState.frameMs = _fpsSmoothedMs.toFixed(1);
-    _qualityPromptState.lowFpsSeconds = 0;
-    renderQualityPrompt();
-  }
-
-  function updatePerformanceStats(dt) {
-    var panel = getFpsPanel();
-    if (!panel || !dt) return;
-
-    var instantFps = dt > 0 ? (1 / dt) : 0;
-    var instantMs = dt * 1000;
-
-    if (_fpsSmoothed <= 0) _fpsSmoothed = instantFps;
-    else _fpsSmoothed += (instantFps - _fpsSmoothed) * 0.18;
-
-    if (_fpsSmoothedMs <= 0) _fpsSmoothedMs = instantMs;
-    else _fpsSmoothedMs += (instantMs - _fpsSmoothedMs) * 0.18;
-
-    _fpsUpdateAccumulator += dt;
-    if (_fpsUpdateAccumulator < 0.12) return;
-    var advisorDelta = _fpsUpdateAccumulator;
-    _fpsUpdateAccumulator = 0;
-
-    var label = Math.round(_fpsSmoothed) + ' FPS';
-    var drawCalls = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('draw.calls') : null;
-    if (false && typeof drawCalls === 'number' && drawCalls > 0) {
-      label += ' | DC ' + Math.round(drawCalls);
-    }
-
-    var tooltipParts = [];
-    var frameMetric = (typeof GamePerf !== 'undefined' && GamePerf.getMetric) ? GamePerf.getMetric('frame.total') : null;
-    var hudMetric = (typeof GamePerf !== 'undefined' && GamePerf.getMetric) ? GamePerf.getMetric('hud.render') : null;
-    var overlayMetric = (typeof GamePerf !== 'undefined' && GamePerf.getMetric) ? GamePerf.getMetric('overlays.update') : null;
-    var tickMetric = (typeof GamePerf !== 'undefined' && GamePerf.getMetric) ? GamePerf.getMetric('tick.total') : null;
-    var saveMetric = (typeof GamePerf !== 'undefined' && GamePerf.getMetric) ? GamePerf.getMetric('save.write') : null;
-    var triangles = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('draw.triangles') : null;
-    var geometries = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('memory.geometries') : null;
-    var loadedChunks = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('terrain.loadedChunks') : null;
-    var visibleChunks = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('terrain.visibleChunks') : null;
-    var renderPixelRatio = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('render.pixelRatio') : null;
-    var currentQualityPreset = getCurrentQualityPreset();
-
-    if (frameMetric && frameMetric.avgMs > 0) tooltipParts.push('Frame ' + frameMetric.avgMs.toFixed(1) + ' ms');
-    if (hudMetric && hudMetric.avgMs > 0) tooltipParts.push('HUD ' + hudMetric.avgMs.toFixed(1) + ' ms');
-    if (overlayMetric && overlayMetric.avgMs > 0) tooltipParts.push('Overlay ' + overlayMetric.avgMs.toFixed(1) + ' ms');
-    if (tickMetric && tickMetric.avgMs > 0) tooltipParts.push('Tick ' + tickMetric.avgMs.toFixed(1) + ' ms');
-    if (saveMetric && saveMetric.avgMs > 0) tooltipParts.push('Save ' + saveMetric.avgMs.toFixed(1) + ' ms');
-    if (typeof triangles === 'number') tooltipParts.push('Triangles ' + Math.round(triangles));
-    if (typeof geometries === 'number') tooltipParts.push('Geometries ' + Math.round(geometries));
-    if (typeof loadedChunks === 'number' && typeof visibleChunks === 'number') tooltipParts.push('Chunks ' + Math.round(visibleChunks) + '/' + Math.round(loadedChunks));
-    if (typeof renderPixelRatio === 'number') tooltipParts.push('PixelRatio ' + renderPixelRatio.toFixed(2));
-    if (currentQualityPreset && currentQualityPreset.label) tooltipParts.push('Quality ' + currentQualityPreset.label);
-
-    setNodeText(panel, label);
-    setNodeTitle(panel, tooltipParts.join(' | '));
-    panel.classList.remove('warn', 'low');
-    if (_fpsSmoothed < 25) {
-      panel.classList.add('low');
-    } else if (_fpsSmoothed < 45) {
-      panel.classList.add('warn');
-    }
-
-    updateQualityPerformanceAdvisor(advisorDelta);
-  }
-
-  // === MODAL SYSTEM ===
-  var _modalActive = false;
-  var _modalTab = 'resources';
-  var _characterCanvas = null;
-
-  function toggleModal() {
-    if (_modalActive) {
-      closeModal();
-    } else {
-      openModal();
-    }
-  }
-
-  function openModal(options) {
-    if (!isHudVisible()) return;
-
-    if (typeof options === 'string') {
-      options = { tab: options };
-    }
-    if (options && options.tab) {
-      _modalTab = options.tab;
-    }
-    if (options && options.focusId) {
-      setModalFocusTarget(options.tab || _modalTab, options.focusId);
-    }
-
-    _modalActive = true;
-    var overlay = document.getElementById('modal-overlay');
-    if (overlay) {
-      overlay.classList.add('active');
-      initCharacterCanvas();
-      updateCharacterEquipment();
-      renderModalLeftSide();
-      switchModalTab(_modalTab);
-    }
-  }
-
-  function closeModal() {
-    _modalActive = false;
-    _modalFocusTarget = null;
-    clearModalFocusHighlight();
-    var overlay = document.getElementById('modal-overlay');
-    if (overlay) {
-      overlay.classList.remove('active');
-    }
-  }
-
-  function switchModalTab(tabName) {
-    _modalTab = tabName;
-    if (tabName === 'build' || tabName === 'craft') {
-      toggleQuickbarMode(tabName, true);
-    }
-    renderModalHeader();
-    
-    // Update tab buttons
-    document.querySelectorAll('.modal-tab').forEach(function(tab) {
-      tab.classList.remove('active');
-      if (tab.getAttribute('data-tab') === tabName) {
-        tab.classList.add('active');
-      }
-    });
-
-    // Update panels
-    document.querySelectorAll('.modal-panel').forEach(function(panel) {
-      panel.classList.remove('active');
-    });
-    
-    var targetPanel = document.getElementById('modal-panel-' + tabName);
-    if (targetPanel) {
-      targetPanel.classList.add('active');
-    }
-
-    renderModalPanel();
-    applyModalFocusTarget();
-  }
-
-  function initCharacterCanvas() {
-    var canvas = document.getElementById('character-canvas');
-    if (!canvas) return;
-
-    var ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    _characterCanvas = canvas;
-    
-    // Draw initial character
-    drawCharacter2D();
-  }
-
-  function drawCharacter2D() {
-    if (!_characterCanvas) return;
-    
-    var ctx = _characterCanvas.getContext('2d');
-    if (!ctx) return;
-    
-    var player = GameState.getPlayer();
-    
-    // Clear canvas
-    ctx.clearRect(0, 0, 300, 400);
-    
-    // Center position
-    var centerX = 150;
-    var centerY = 200;
-    
-    // Draw shadow
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-    ctx.beginPath();
-    ctx.ellipse(centerX, centerY + 80, 30, 10, 0, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // Draw legs
-    ctx.fillStyle = '#3a3a5c';
-    ctx.fillRect(centerX - 15, centerY + 20, 12, 35); // Left leg
-    ctx.fillRect(centerX + 3, centerY + 20, 12, 35);  // Right leg
-    
-    // Draw boots if equipped
-    if (player.equipped.boots) {
-      ctx.fillStyle = '#654321';
-      ctx.fillRect(centerX - 17, centerY + 48, 16, 12); // Left boot
-      ctx.fillRect(centerX + 1, centerY + 48, 16, 12);  // Right boot
-    }
-    
-    // Draw body
-    ctx.fillStyle = '#4488cc';
-    ctx.fillRect(centerX - 20, centerY - 25, 40, 50);
-    
-    // Draw armor if equipped
-    if (player.equipped.armor) {
-      ctx.fillStyle = 'rgba(112, 128, 144, 0.8)';
-      ctx.fillRect(centerX - 22, centerY - 27, 44, 52);
-      
-      // Armor details
-      ctx.strokeStyle = '#708090';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(centerX - 22, centerY - 27, 44, 52);
-    }
-    
-    // Draw arms
-    ctx.fillStyle = '#DEB887';
-    ctx.fillRect(centerX - 31, centerY - 15, 10, 35); // Left arm
-    ctx.fillRect(centerX + 21, centerY - 15, 10, 35); // Right arm
-    
-    // Draw shield if equipped (left hand)
-    if (player.equipped.offhand) {
-      ctx.fillStyle = '#8B7355';
-      ctx.beginPath();
-      // Rounded rectangle for shield
-      var x = centerX - 40;
-      var y = centerY - 10;
-      var w = 20;
-      var h = 30;
-      var r = 5;
-      ctx.moveTo(x + r, y);
-      ctx.lineTo(x + w - r, y);
-      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-      ctx.lineTo(x + w, y + h - r);
-      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-      ctx.lineTo(x + r, y + h);
-      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-      ctx.lineTo(x, y + r);
-      ctx.quadraticCurveTo(x, y, x + r, y);
-      ctx.closePath();
-      ctx.fill();
-      
-      // Shield boss
-      ctx.fillStyle = '#FFD700';
-      ctx.beginPath();
-      ctx.arc(centerX - 30, centerY + 5, 5, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    
-    // Draw weapon if equipped (right hand)
-    if (player.equipped.weapon) {
-      // Sword blade
-      ctx.fillStyle = '#C0C0C0';
-      ctx.fillRect(centerX + 28, centerY - 30, 6, 40);
-      
-      // Sword hilt
-      ctx.fillStyle = '#8B4513';
-      ctx.fillRect(centerX + 23, centerY + 10, 16, 5);
-      
-      // Sword tip
-      ctx.beginPath();
-      ctx.moveTo(centerX + 28, centerY - 30);
-      ctx.lineTo(centerX + 31, centerY - 40);
-      ctx.lineTo(centerX + 34, centerY - 30);
-      ctx.fill();
-    }
-    
-    // Draw head
-    ctx.fillStyle = '#DEB887';
-    ctx.beginPath();
-    ctx.arc(centerX, centerY - 45, 18, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // Draw eyes
-    ctx.fillStyle = '#000';
-    ctx.beginPath();
-    ctx.arc(centerX - 6, centerY - 48, 2, 0, Math.PI * 2);
-    ctx.arc(centerX + 6, centerY - 48, 2, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // Draw smile
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(centerX, centerY - 42, 8, 0.2, Math.PI - 0.2);
-    ctx.stroke();
-  }
-
-  function updateCharacterEquipment() {
-    // Re-draw character with updated equipment
-    drawCharacter2D();
-  }
-
-  function renderModalPanel() {
-    if (!_modalActive) return;
-    switch (_modalTab) {
-      case 'resources':
-        renderModalResources();
-        break;
-      case 'build':
-        renderModalBuild();
-        break;
-      case 'craft':
-        renderModalCraft();
-        break;
-      case 'stats':
-        renderModalStats();
-        break;
-      case 'research':
-        renderModalResearch();
-        break;
-    }
-  }
-
-  function updateModal() {
-    if (_modalActive) {
-      renderModalHeader();
-      updateCharacterEquipment();
-      renderModalLeftSide();
-      renderModalPanel();
-      applyModalFocusTarget();
-    }
-  }
-
-  function describeUnlockProgress(progress) {
-    if (!progress || !progress.details) return '';
-
-    var unmet = [];
-    progress.details.forEach(function(detail) {
-      if (detail.met) return;
-
-      if (detail.type === 'resource') {
-        var resEntity = GameRegistry.getEntity(detail.id);
-        unmet.push((resEntity ? resEntity.name : detail.id) + ' ' + Math.floor(detail.current) + '/' + detail.target);
-      } else if (detail.type === 'building') {
-        var buildingEntity = GameRegistry.getEntity(detail.id);
-        unmet.push((buildingEntity ? buildingEntity.name : detail.id) + ' ' + detail.current + '/' + detail.target);
-      } else if (detail.type === 'age') {
-        var ageEntity = GameRegistry.getEntity(detail.target);
-        unmet.push('Reach ' + (ageEntity ? ageEntity.name : detail.target));
-      } else if (detail.type === 'technology') {
-        var techEntity = GameRegistry.getEntity(detail.id);
-        unmet.push('Research ' + (techEntity ? techEntity.name : detail.id));
-      }
-    });
-
-    return unmet.slice(0, 2).join(' • ');
-  }
-
-  function getEntityIcon(entityOrId) {
-    var entity = typeof entityOrId === 'string' ? GameRegistry.getEntity(entityOrId) : entityOrId;
-    if (!entity) return '✨';
-
-    if (entity.type === 'resource') return getResourceIcon(entity.id);
-    if (entity.type === 'technology') return '🔬';
-    if (entity.type === 'recipe') return '🛠️';
-
-    if (entity.type === 'building') {
-      var buildingIcons = {
-        'building.berry_gatherer': '🏠',
-        'building.farm_plot': '🌾',
-        'building.tree_nursery': '🌲',
-        'building.warehouse': '📦',
-        'building.watchtower': '🗼',
-        'building.bridge': '🌉',
-        'building.well': '🪣',
-        'building.campfire': '🔥',
-        'building.barracks': '🛡️',
-        'building.blacksmith': '🔨',
-        'building.smelter': '♨️',
-        'building.blast_furnace': '🏭'
-      };
-      if (buildingIcons[entity.id]) return buildingIcons[entity.id];
-
-      var buildingBalance = GameRegistry.getBalance(entity.id) || {};
-      if (buildingBalance.produces) {
-        var outputIds = Object.keys(buildingBalance.produces);
-        if (outputIds.length) return getResourceIcon(outputIds[0]);
-      }
-
-      if (entity.id === 'building.warehouse') return '📦';
-      if (entity.id === 'building.bridge') return '🌉';
-      if (entity.id === 'building.well') return '🪣';
-      if (entity.id === 'building.campfire') return '🔥';
-      return '🏗️';
-    }
-
-    if (entity.type === 'equipment') {
-      var equipmentIcons = {
-        'equipment.wooden_sword': '🪵⚔',
-        'equipment.stone_spear': '🪨🗡',
-        'equipment.stone_shield': '🪨🛡',
-        'equipment.leather_armor': '🧥',
-        'equipment.leather_boots': '🥾',
-        'equipment.bronze_sword': '🥉⚔',
-        'equipment.bronze_shield': '🥉🛡',
-        'equipment.bronze_armor': '🥉🦺',
-        'equipment.iron_sword': '⚙️⚔',
-        'equipment.iron_shield': '⚙️🛡',
-        'equipment.iron_armor': '⚙️🦺',
-        'equipment.iron_boots': '⚙️🥾'
-      };
-      if (equipmentIcons[entity.id]) return equipmentIcons[entity.id];
-
-      var balance = GameRegistry.getBalance(entity.id);
-      var slot = entity.slot || (balance && balance.slot);
-      if (slot === 'weapon') return '⚔️';
-      if (slot === 'offhand') return '🛡️';
-      if (slot === 'armor') return '🦺';
-      if (slot === 'boots') return '👟';
-      return '🧰';
-    }
-
-    if (entity.type === 'consumable' || entity.type === 'item') return '🔥';
-    return '✨';
-  }
-
-  function formatBalanceDisplayNumber(value) {
-    if (window.GameRegistry && GameRegistry.formatBalanceNumber) {
-      return GameRegistry.formatBalanceNumber(value);
-    }
-
-    var numericValue = Number(value);
-    if (!isFinite(numericValue)) return String(value);
-    if (Math.abs(numericValue - Math.round(numericValue)) < 0.0001) {
-      return String(Math.round(numericValue));
-    }
-    return numericValue.toFixed(2).replace(/\.?0+$/, '');
-  }
-
-  function getEquipmentStats(equipmentId) {
-    if (!equipmentId) return null;
-    if (window.GameState && GameState.getEquipmentStats) {
-      return GameState.getEquipmentStats(equipmentId);
-    }
-
-    var balance = GameRegistry.getBalance(equipmentId) || {};
-    var entity = GameRegistry.getEntity(equipmentId) || {};
-    return balance.stats || entity.stats || null;
-  }
-
-  function getEquipmentStatSummary(equipmentId, options) {
-    var stats = getEquipmentStats(equipmentId);
-    if (!stats) return '';
-    if (window.GameRegistry && GameRegistry.getStatSummary) {
-      return GameRegistry.getStatSummary(stats, options);
-    }
-    return '';
-  }
-
-  function getEquipmentSlotLabel(slot) {
-    if (slot === 'weapon') return 'Weapon';
-    if (slot === 'offhand') return 'Shield';
-    if (slot === 'armor') return 'Armor';
-    if (slot === 'boots') return 'Boots';
-    return slot || 'Item';
-  }
-
-  function buildEquippedStatBreakdownText(baseValue, statKey) {
-    var text = 'Base: ' + formatBalanceDisplayNumber(baseValue);
-    var breakdown = (window.GameState && GameState.getEquippedStatBreakdown) ? GameState.getEquippedStatBreakdown(statKey) : [];
-
-    breakdown.forEach(function(entry) {
-      var sign = entry.value > 0 ? '+' : '-';
-      text += '<br>' + escapeHtml(getEquipmentSlotLabel(entry.slot)) + ': ' + sign + formatBalanceDisplayNumber(Math.abs(entry.value));
-    });
-
-    return text;
-  }
-
-  function getLevelValue(levelMap, preferredLevel) {
-    if (levelMap === undefined || levelMap === null) return 0;
-    if (typeof levelMap === 'number') return levelMap;
-
-    if (preferredLevel !== undefined && levelMap[preferredLevel] !== undefined) {
-      return levelMap[preferredLevel];
-    }
-
-    var keys = Object.keys(levelMap);
-    if (!keys.length) return 0;
-    keys.sort(function(a, b) {
-      return Number(a) - Number(b);
-    });
-    return levelMap[keys[0]];
-  }
-
-  function buildMetricGrid(items) {
-    var filtered = (items || []).filter(function(item) {
-      return item && item.value !== undefined && item.value !== null && item.value !== '';
-    });
-
-    if (!filtered.length) return '';
-
-    var html = '<div class="management-metrics">';
-    filtered.forEach(function(item) {
-      html += '<div class="management-metric">';
-      html += '<div class="management-metric-label">' + escapeHtml(item.label) + '</div>';
-      html += '<div class="management-metric-value">' + escapeHtml(String(item.value)) + '</div>';
-      html += '</div>';
-    });
-    html += '</div>';
-    return html;
-  }
-
-  function buildResourcePills(resourceMap, tone) {
-    if (!resourceMap) return { html: '', allAffordable: true };
-
-    var parts = [];
-    var allAffordable = true;
-
-    for (var resId in resourceMap) {
-      var amount = resourceMap[resId];
-      var entity = GameRegistry.getEntity(resId);
-      var isAffordable = (tone === 'output' || tone === 'neutral') ? true : GameState.hasSpendableResource(resId, amount);
-      if (!isAffordable) allAffordable = false;
-
-      var cssTone = 'neutral';
-      if (tone === 'output') {
-        cssTone = 'output';
-      } else if (tone !== 'neutral') {
-        cssTone = isAffordable ? 'ready' : 'lacking';
-      }
-
-      parts.push(
-        '<span class="resource-pill ' + cssTone + '">' +
-        '<span class="resource-pill-icon">' + getResourceIcon(resId) + '</span>' +
-        '<span>' + escapeHtml(entity ? entity.name : resId) + ' x' + amount + '</span>' +
-        '</span>'
-      );
-    }
-
-    return {
-      html: parts.join(''),
-      allAffordable: allAffordable
-    };
-  }
-
-  function buildRequirementChecklist(entity) {
-    var progress = UnlockSystem.getUnlockProgress(entity);
-    if (!progress || !progress.details || !progress.details.length) return '';
-
-    var html = '<div class="requirement-list">';
-    progress.details.forEach(function(detail) {
-      var text = '';
-
-      if (detail.type === 'age') {
-        var ageEntity = GameRegistry.getEntity(detail.target);
-        text = 'Reach ' + (ageEntity ? ageEntity.name : detail.target);
-      } else if (detail.type === 'resource') {
-        var resourceEntity = GameRegistry.getEntity(detail.id);
-        text = (resourceEntity ? resourceEntity.name : detail.id) + ' ' + Math.floor(detail.current) + '/' + detail.target;
-      } else if (detail.type === 'building') {
-        var buildingEntity = GameRegistry.getEntity(detail.id);
-        text = (buildingEntity ? buildingEntity.name : detail.id) + ' ' + detail.current + '/' + detail.target;
-      } else if (detail.type === 'technology') {
-        var techEntity = GameRegistry.getEntity(detail.id);
-        text = 'Research ' + (techEntity ? techEntity.name : detail.id);
-      }
-
-      if (!text) return;
-
-      html += '<div class="requirement-item' + (detail.met ? ' met' : '') + '">';
-      html += '<span class="requirement-dot">' + (detail.met ? '✓' : '○') + '</span>';
-      html += '<span>' + escapeHtml(text) + '</span>';
-      html += '</div>';
-    });
-    html += '</div>';
-    return html;
-  }
-
-  function buildTechnologyRequirementChecklist(requiredIds) {
-    if (!requiredIds || !requiredIds.length) return '';
-
-    var html = '<div class="requirement-list">';
-    requiredIds.forEach(function(reqId) {
-      var reqEntity = GameRegistry.getEntity(reqId);
-      var met = window.ResearchSystem && ResearchSystem.isResearched(reqId);
-      html += '<div class="requirement-item' + (met ? ' met' : '') + '">';
-      html += '<span class="requirement-dot">' + (met ? '✓' : '○') + '</span>';
-      html += '<span>Research ' + escapeHtml(reqEntity ? reqEntity.name : reqId) + '</span>';
-      html += '</div>';
-    });
-    html += '</div>';
-    return html;
-  }
-
-  function buildResearchEffectsList(effects) {
-    if (!effects) return '';
-
-    var effectItems = [];
-    if (effects.harvestSpeedBonus) effectItems.push('Harvest speed +' + Math.round(effects.harvestSpeedBonus * 100) + '%');
-    if (effects.productionBonus) effectItems.push('Production +' + Math.round(effects.productionBonus * 100) + '%');
-    if (effects.storageBonus) effectItems.push('Storage +' + Math.round(effects.storageBonus * 100) + '%');
-    if (effects.npcSpeedBonus) effectItems.push('Worker speed +' + Math.round(effects.npcSpeedBonus * 100) + '%');
-
-    if (!effectItems.length) return '';
-
-    var html = '<div class="effect-list">';
-    effectItems.forEach(function(item) {
-      html += '<div class="effect-item">⚡ ' + escapeHtml(item) + '</div>';
-    });
-    html += '</div>';
-    return html;
-  }
-
-  function renderModalLeftSide() {
-    var player = GameState.getPlayer();
-    var inventory = GameState.getInventory();
-    
-    // Render equipment slots
-    var equipContainer = document.getElementById('modal-equipment-slots');
-    if (equipContainer) {
-      var html = '';
-      
-      // Weapon slot
-      var weaponId = player.equipped.weapon;
-      html += '<div class="equipment-slot ' + (weaponId ? 'has-item' : '') + '" onclick="' + (weaponId ? 'GameActions.unequip(\'weapon\')' : '') + '">';
-      html += '<div class="equipment-slot-label">⚔️ Weapon</div>';
-      if (weaponId) {
-        var weaponEntity = GameRegistry.getEntity(weaponId);
-        html += '<div class="equipment-slot-item">' + (weaponEntity ? weaponEntity.name : weaponId) + '</div>';
-        var weaponStats = getEquipmentStatSummary(weaponId, { shortLabels: true });
-        if (weaponStats) html += '<div class="equipment-slot-stats">' + escapeHtml(weaponStats) + '</div>';
-      } else {
-        html += '<div class="equipment-slot-empty">Empty</div>';
-      }
-      html += '</div>';
-
-      // Offhand slot
-      var offhandId = player.equipped.offhand;
-      html += '<div class="equipment-slot ' + (offhandId ? 'has-item' : '') + '" onclick="' + (offhandId ? 'GameActions.unequip(\'offhand\')' : '') + '">';
-      html += '<div class="equipment-slot-label">🛡️ Shield</div>';
-      if (offhandId) {
-        var offhandEntity = GameRegistry.getEntity(offhandId);
-        html += '<div class="equipment-slot-item">' + (offhandEntity ? offhandEntity.name : offhandId) + '</div>';
-        var offhandStats = getEquipmentStatSummary(offhandId, { shortLabels: true });
-        if (offhandStats) html += '<div class="equipment-slot-stats">' + escapeHtml(offhandStats) + '</div>';
-      } else {
-        html += '<div class="equipment-slot-empty">Empty</div>';
-      }
-      html += '</div>';
-
-      // Armor slot
-      var armorId = player.equipped.armor;
-      html += '<div class="equipment-slot ' + (armorId ? 'has-item' : '') + '" onclick="' + (armorId ? 'GameActions.unequip(\'armor\')' : '') + '">';
-      html += '<div class="equipment-slot-label">🦺 Armor</div>';
-      if (armorId) {
-        var armorEntity = GameRegistry.getEntity(armorId);
-        html += '<div class="equipment-slot-item">' + (armorEntity ? armorEntity.name : armorId) + '</div>';
-        var armorStats = getEquipmentStatSummary(armorId, { shortLabels: true });
-        if (armorStats) html += '<div class="equipment-slot-stats">' + escapeHtml(armorStats) + '</div>';
-      } else {
-        html += '<div class="equipment-slot-empty">Empty</div>';
-      }
-      html += '</div>';
-
-      // Boots slot
-      var bootsId = player.equipped.boots;
-      html += '<div class="equipment-slot ' + (bootsId ? 'has-item' : '') + '" onclick="' + (bootsId ? 'GameActions.unequip(\'boots\')' : '') + '">';
-      html += '<div class="equipment-slot-label">👟 Boots</div>';
-      if (bootsId) {
-        var bootsEntity = GameRegistry.getEntity(bootsId);
-        html += '<div class="equipment-slot-item">' + (bootsEntity ? bootsEntity.name : bootsId) + '</div>';
-        var bootsStats = getEquipmentStatSummary(bootsId, { shortLabels: true });
-        if (bootsStats) html += '<div class="equipment-slot-stats">' + escapeHtml(bootsStats) + '</div>';
-      } else {
-        html += '<div class="equipment-slot-empty">Empty</div>';
-      }
-      html += '</div>';
-      
-      equipContainer.innerHTML = html;
-    }
-    
-    // Render inventory grid
-    var invContainer = document.getElementById('modal-inventory-grid');
-    if (invContainer) {
-      var html = '';
-
-      for (var itemId in inventory) {
-        if (inventory[itemId] <= 0) continue;
-        var entity = GameRegistry.getEntity(itemId);
-        if (!entity || (entity.type !== 'equipment' && entity.type !== 'consumable')) continue;
-
-        var onClick = entity.type === 'equipment'
-          ? 'onclick="GameActions.equip(\'' + itemId + '\')"'
-          : '';
-        var cssClass = entity.type === 'consumable' ? 'inv-slot consumable-slot' : 'inv-slot';
-
-        html += '<div class="' + cssClass + '" ' + onClick + '>';
-        html += '<div>' + (entity ? entity.name : itemId) + '</div>';
-        html += '<div>x' + inventory[itemId] + '</div>';
-        var itemSummary = entity.type === 'equipment'
-          ? getEquipmentStatSummary(itemId, { shortLabels: true })
-          : entity.description;
-        if (itemSummary) {
-          html += '<div style="font-size:9px;color:#888;">' + escapeHtml(itemSummary) + '</div>';
-        }
-        html += '</div>';
-      }
-
-      if (!html) {
-        html = '<div style="grid-column: 1/-1; text-align:center; color:#666; font-size:11px; padding:10px;">No items</div>';
-      }
-
-      invContainer.innerHTML = html;
-    }
-  }
-
-  function renderModalResources() {
-    var panel = document.getElementById('modal-panel-resources');
-    if (!panel) return;
-
-    var resources = GameRegistry.getEntitiesByType('resource');
-    var stats = TickSystem.getResourceStats();
-    var html = '<div class="panel-section">';
-    html += '<div class="section-header">';
-    html += '<div><div class="section-kicker">Economy Snapshot</div><div class="section-title">Available Resources</div><div class="section-copy">These totals reflect everything you can spend right now.</div></div>';
-    html += '</div>';
-    html += '<div class="resources-grid">';
-
-    resources.forEach(function(res) {
-      if (!GameState.isUnlocked(res.id)) return;
-      
-      var amount = GameState.getSpendableResource(res.id);
-      var net = stats.net ? stats.net[res.id] : 0;
-      
-      var netStr = '';
-      var netColor = '#888';
-      if (net > 0.001) {
-        netStr = '+' + net.toFixed(1) + '/sec';
-        netColor = '#4ecca3';
-      } else if (net < -0.001) {
-        netStr = net.toFixed(1) + '/sec';
-        netColor = '#e94560';
-      }
-
-      html += '<div class="resource-card">';
-  html += '<div class="resource-card-icon">' + getResourceIcon(res.id) + '</div>';
-      html += '<div class="resource-card-info">';
-      html += '<div class="resource-card-name">' + escapeHtml(res.name) + '</div>';
-      html += '<div class="resource-card-amount">' + Math.floor(amount) + '</div>';
-      if (netStr) {
-        html += '<div style="font-size:11px;color:' + netColor + ';">' + netStr + '</div>';
-      }
-      html += '</div>';
-      html += '</div>';
-    });
-
-    html += '</div></div>';
-    panel.innerHTML = html;
-  }
-
-  function renderModalBuild() {
-    var panel = document.getElementById('modal-panel-build');
-    if (!panel) return;
-
-    var buildings = GameRegistry.getEntitiesByType('building').filter(function(building) {
-      return !building.hiddenInBuildMenu;
-    });
-    var readyCards = [];
-    var blockedCards = [];
-    var lockedCards = [];
-    var totalPlaced = 0;
-    var summaryReadyLabel = t('hud.modal.build.sections.readyCount', null, 'Ready to place');
-    var summaryBlockedLabel = t('hud.modal.build.sections.blockedCount', null, 'Need more stock');
-    var summaryPlacedLabel = t('hud.modal.build.sections.totalPlaced', null, 'Structures placed');
-
-    buildings.forEach(function(building) {
-      var balance = GameRegistry.getBalance(building.id) || {};
-      var count = GameState.getBuildingCount(building.id);
-      var isUnlocked = GameState.isUnlocked(building.id);
-      var costInfo = buildResourcePills(balance.cost, 'cost');
-      var productionInfo = buildResourcePills(balance.produces, 'output');
-      var consumptionInfo = buildResourcePills(balance.consumesPerSecond, 'neutral');
-      var defenseRange = (balance.guardRadius && getLevelValue(balance.guardRadius, 1)) || (balance.towerDefense && balance.towerDefense.range ? (getLevelValue(balance.towerDefense.range, 1) || balance.towerDefense.range[1]) : null);
-      var metrics = buildMetricGrid([
-        { label: t('hud.modal.build.metrics.workers', null, 'Workers'), value: getLevelValue(balance.workerCount, 1) || null },
-        { label: t('hud.modal.build.metrics.range', null, 'Range'), value: getLevelValue(balance.searchRadius, 1) ? t('hud.modal.build.metrics.tiles', { count: getLevelValue(balance.searchRadius, 1) }, '{count} tiles') : null },
-        { label: t('hud.modal.build.metrics.defense', null, 'Defense'), value: defenseRange ? t('hud.modal.build.metrics.tiles', { count: defenseRange }, '{count} tiles') : null },
-        { label: t('hud.modal.build.metrics.storage', null, 'Storage'), value: getLevelValue(balance.storageCapacity, 1) || null },
-        { label: t('hud.modal.build.metrics.transfer', null, 'Transfer'), value: balance.transferRange ? t('hud.modal.build.metrics.tiles', { count: balance.transferRange }, '{count} tiles') : null },
-        { label: t('hud.modal.build.metrics.light', null, 'Light'), value: balance.lightRadius ? t('hud.modal.build.metrics.tiles', { count: balance.lightRadius }, '{count} tiles') : null },
-        { label: t('hud.modal.build.metrics.guards', null, 'Guards'), value: getLevelValue(balance.guardCount, 1) || null }
-      ]);
-
-      totalPlaced += count;
-      
-      if (!isUnlocked) {
-        lockedCards.push(
-          '<div class="management-card locked" data-modal-focus-id="' + building.id + '">' +
-          '<div class="management-card-top">' +
-          '<div class="management-card-identity">' +
-          '<div class="management-icon build">' + getEntityIcon(building) + '</div>' +
-          '<div><div class="management-card-name">' + escapeHtml(building.name) + '</div><div class="management-card-copy">' + escapeHtml(building.description || '') + '</div></div>' +
-          '</div>' +
-          '<div class="management-badges"><span class="management-badge locked">' + escapeHtml(t('hud.modal.build.badges.locked', null, 'Locked')) + '</span></div>' +
-          '</div>' +
-          buildRequirementChecklist(building) +
-          '<div class="card-actions"><button class="btn btn-secondary" disabled>' + escapeHtml(t('hud.modal.build.action.locked', null, 'Locked')) + '</button></div>' +
-          '</div>'
-        );
-        return;
-      }
-
-      var canBuy = costInfo.allAffordable;
-      var cardHtml = '';
-      cardHtml += '<div class="management-card' + (canBuy ? ' ready' : '') + '" data-modal-focus-id="' + building.id + '">';
-      cardHtml += '<div class="management-card-top">';
-      cardHtml += '<div class="management-card-identity">';
-      cardHtml += '<div class="management-icon build">' + getEntityIcon(building) + '</div>';
-      cardHtml += '<div><div class="management-card-name">' + escapeHtml(building.name) + '</div><div class="management-card-copy">' + escapeHtml(building.description || '') + '</div></div>';
-      cardHtml += '</div>';
-      cardHtml += '<div class="management-badges">';
-      cardHtml += '<span class="management-badge neutral">' + escapeHtml(t('hud.modal.build.badges.placed', { count: count }, 'Placed x{count}')) + '</span>';
-      cardHtml += '<span class="management-badge ' + (canBuy ? 'ready' : 'pending') + '">' + escapeHtml(canBuy ? t('hud.modal.build.badges.ready', null, 'Ready') : t('hud.modal.build.badges.needStock', null, 'Need stock')) + '</span>';
-      cardHtml += '</div></div>';
-      cardHtml += metrics;
-      if (costInfo.html) {
-        cardHtml += '<div class="management-block"><div class="management-block-label">' + escapeHtml(t('hud.modal.build.blocks.constructionCost', null, 'Construction Cost')) + '</div><div class="resource-pill-row">' + costInfo.html + '</div></div>';
-      }
-      if (productionInfo.html) {
-        cardHtml += '<div class="management-block"><div class="management-block-label">' + escapeHtml(t('hud.modal.build.blocks.produces', null, 'Produces')) + '</div><div class="resource-pill-row">' + productionInfo.html + '</div></div>';
-      }
-      if (consumptionInfo.html) {
-        cardHtml += '<div class="management-block"><div class="management-block-label">' + escapeHtml(t('hud.modal.build.blocks.consumes', null, 'Consumes')) + '</div><div class="resource-pill-row">' + consumptionInfo.html + '</div></div>';
-      }
-      cardHtml += '<div class="card-actions"><button class="btn btn-primary" onclick="BuildingSystem.enterBuildMode(\'' + building.id + '\'); GameHUD.closeModal();"' + (canBuy ? '' : ' disabled') + '>' + escapeHtml(count > 0 ? t('hud.modal.build.action.placeAnother', null, 'Place another') : t('hud.modal.build.action.placeStructure', null, 'Place structure')) + '</button></div>';
-      cardHtml += '</div>';
-
-      if (canBuy) {
-        readyCards.push(cardHtml);
-      } else {
-        blockedCards.push(cardHtml);
-      }
-    });
-
-    var html = '';
-    html += '<div class="panel-section">';
-    html += '<div class="section-header"><div><div class="section-kicker">' + escapeHtml(t('hud.modal.build.sections.planningKicker', null, 'Settlement Planning')) + '</div><div class="section-title">' + escapeHtml(t('hud.modal.build.sections.planningTitle', null, 'Construction Queue')) + '</div><div class="section-copy">' + escapeHtml(t('hud.modal.build.sections.planningCopy', null, 'See which structures you can place now, which ones still need resources, and which blueprints remain locked.')) + '</div></div></div>';
-    html += '<div class="summary-list">';
-    html += '<div class="summary-row"><span>' + escapeHtml(summaryReadyLabel) + '</span><span class="summary-value">' + readyCards.length + '</span></div>';
-    html += '<div class="summary-row"><span>' + escapeHtml(summaryBlockedLabel) + '</span><span class="summary-value">' + blockedCards.length + '</span></div>';
-    html += '<div class="summary-row total"><span>' + escapeHtml(summaryPlacedLabel) + '</span><span class="summary-value">' + totalPlaced + '</span></div>';
-    html += '</div></div>';
-
-    if (readyCards.length) {
-      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">' + escapeHtml(t('hud.modal.build.sections.readyKicker', null, 'Ready Now')) + '</div><div class="section-title">' + escapeHtml(t('hud.modal.build.sections.readyTitle', null, 'Immediate Builds')) + '</div><div class="section-copy">' + escapeHtml(t('hud.modal.build.sections.readyCopy', null, 'These structures are affordable with your current spendable stockpile.')) + '</div></div></div><div class="management-grid">' + readyCards.join('') + '</div></div>';
-    }
-
-    if (blockedCards.length) {
-      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">' + escapeHtml(t('hud.modal.build.sections.blockedKicker', null, 'Blocked')) + '</div><div class="section-title">' + escapeHtml(t('hud.modal.build.sections.blockedTitle', null, 'Need More Materials')) + '</div><div class="section-copy">' + escapeHtml(t('hud.modal.build.sections.blockedCopy', null, 'These blueprints are unlocked, but your current stockpile is still short.')) + '</div></div></div><div class="management-grid">' + blockedCards.join('') + '</div></div>';
-    }
-
-    if (lockedCards.length) {
-      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">' + escapeHtml(t('hud.modal.build.sections.lockedKicker', null, 'Future Blueprints')) + '</div><div class="section-title">' + escapeHtml(t('hud.modal.build.sections.lockedTitle', null, 'Locked Structures')) + '</div><div class="section-copy">' + escapeHtml(t('hud.modal.build.sections.lockedCopy', null, 'Track the requirements that unlock your next set of buildings.')) + '</div></div></div><div class="management-grid">' + lockedCards.join('') + '</div></div>';
-    }
-
-    panel.innerHTML = html || '<div class="empty-state">' + escapeHtml(t('hud.modal.build.sections.empty', null, 'No building blueprints are available yet.')) + '</div>';
-  }
-
-  function renderModalCraft() {
-    var panel = document.getElementById('modal-panel-craft');
-    if (!panel) return;
-
-    var recipes = CraftSystem.getAllRecipes();
-    var readyCards = [];
-    var waitingCards = [];
-    var lockedCards = [];
-    var equippedCards = [];
-    var summaryReadyLabel = t('hud.modal.craft.sections.readyCount', null, 'Ready now');
-    var summaryWaitingLabel = t('hud.modal.craft.sections.waitingCount', null, 'Need materials');
-    var summaryEquippedLabel = t('hud.modal.craft.sections.equippedCount', null, 'Already equipped');
-
-    recipes.forEach(function(recipe) {
-      var isUnlocked = GameState.isUnlocked(recipe.id);
-      var recipeInfo = CraftSystem.getRecipeInfo(recipe.id);
-      var balance = recipeInfo.balance || {};
-      var inputInfo = buildResourcePills(balance.input, 'cost');
-      var outputInfo = buildResourcePills(balance.output, 'output');
-      var outputKeys = balance.output ? Object.keys(balance.output) : [];
-      var primaryOutputId = outputKeys.length ? outputKeys[0] : null;
-      var primaryOutputEntity = primaryOutputId ? GameRegistry.getEntity(primaryOutputId) : null;
-      
-      if (!isUnlocked) {
-        lockedCards.push(
-          '<div class="management-card locked" data-modal-focus-id="' + recipe.id + '">' +
-          '<div class="management-card-top">' +
-          '<div class="management-card-identity">' +
-          '<div class="management-icon craft">' + getEntityIcon(primaryOutputEntity || recipe) + '</div>' +
-          '<div><div class="management-card-name">' + escapeHtml(recipe.name) + '</div><div class="management-card-copy">' + escapeHtml(recipe.description || '') + '</div></div>' +
-          '</div>' +
-          '<div class="management-badges"><span class="management-badge locked">' + escapeHtml(t('hud.modal.craft.badges.locked', null, 'Locked')) + '</span></div>' +
-          '</div>' +
-          buildRequirementChecklist(recipe) +
-          '<div class="card-actions"><button class="btn btn-secondary" disabled>' + escapeHtml(t('hud.modal.craft.action.locked', null, 'Locked')) + '</button></div>' +
-          '</div>'
-        );
-        return;
-      }
-
-      var canCraft = recipeInfo.canCraft;
-      var hasInInventory = false;
-      var outputEquipmentId = null;
-      var isEquipped = false;
-      if (balance && balance.output) {
-        for (var resultId in balance.output) {
-          var resultEntity = GameRegistry.getEntity(resultId);
-          if (resultEntity && resultEntity.type === 'equipment') {
-            outputEquipmentId = resultId;
-            var invCount = GameState.getInventoryCount(resultId);
-            if (invCount > 0) {
-              hasInInventory = true;
-            }
-            var player = GameState.getPlayer();
-            if (player.equipped[resultEntity.slot] === resultId) {
-              isEquipped = true;
-            }
-            break;
-          }
-        }
-      }
-
-      var badges = '';
-      var actionHtml = '';
-      var statusClass = 'pending';
-      var statusText = t('hud.modal.craft.badges.needMaterials', null, 'Need materials');
-
-      if (isEquipped) {
-        statusClass = 'done';
-        statusText = t('hud.modal.craft.badges.equipped', null, 'Equipped');
-        actionHtml = '<button class="btn btn-secondary" disabled>' + escapeHtml(t('hud.modal.craft.action.equipped', null, 'Equipped')) + '</button>';
-      } else if (hasInInventory && outputEquipmentId) {
-        statusClass = 'ready';
-        statusText = t('hud.modal.craft.badges.readyToUse', null, 'Ready to use');
-        actionHtml = '<button class="btn btn-success" onclick="GameActions.equip(\'' + outputEquipmentId + '\'); GameHUD.updateModal();">' + escapeHtml(t('hud.modal.craft.action.useItem', null, 'Use item')) + '</button>';
-      } else {
-        statusClass = canCraft ? 'ready' : 'pending';
-        statusText = canCraft ? t('hud.modal.craft.badges.readyToCraft', null, 'Ready to craft') : t('hud.modal.craft.badges.needMaterials', null, 'Need materials');
-        actionHtml = '<button class="btn btn-primary" onclick="GameActions.craft(\'' + recipe.id + '\')"' + (canCraft ? '' : ' disabled') + '>' + escapeHtml(t('hud.modal.craft.action.craft', null, 'Craft')) + '</button>';
-      }
-
-      if (primaryOutputEntity && primaryOutputEntity.type === 'equipment') {
-        badges += '<span class="management-badge neutral">' + escapeHtml((primaryOutputEntity.slot || '').replace(/^./, function(ch) { return ch.toUpperCase(); })) + '</span>';
-      }
-      badges += '<span class="management-badge ' + statusClass + '">' + statusText + '</span>';
-
-      var cardHtml = '';
-      cardHtml += '<div class="management-card' + (statusClass === 'done' ? ' complete' : (statusClass === 'ready' ? ' ready' : '')) + '" data-modal-focus-id="' + recipe.id + '">';
-      cardHtml += '<div class="management-card-top">';
-      cardHtml += '<div class="management-card-identity">';
-      cardHtml += '<div class="management-icon craft">' + getEntityIcon(primaryOutputEntity || recipe) + '</div>';
-      cardHtml += '<div><div class="management-card-name">' + escapeHtml(recipe.name) + '</div><div class="management-card-copy">' + escapeHtml(recipe.description || '') + '</div></div>';
-      cardHtml += '</div>';
-      cardHtml += '<div class="management-badges">' + badges + '</div>';
-      cardHtml += '</div>';
-      cardHtml += buildMetricGrid([
-        { label: t('hud.modal.craft.blocks.result', null, 'Result'), value: primaryOutputEntity ? primaryOutputEntity.type : t('hud.modal.craft.blocks.recipe', null, 'Recipe') },
-        { label: t('hud.modal.craft.blocks.yield', null, 'Yield'), value: primaryOutputId ? ('x' + balance.output[primaryOutputId]) : null }
-      ]);
-      if (outputInfo.html) {
-        cardHtml += '<div class="management-block"><div class="management-block-label">' + escapeHtml(t('hud.modal.craft.blocks.output', null, 'Output')) + '</div><div class="resource-pill-row">' + outputInfo.html + '</div></div>';
-      }
-      if (inputInfo.html) {
-        cardHtml += '<div class="management-block"><div class="management-block-label">' + escapeHtml(t('hud.modal.craft.blocks.input', null, 'Required Materials')) + '</div><div class="resource-pill-row">' + inputInfo.html + '</div></div>';
-      }
-      cardHtml += '<div class="card-actions">' + actionHtml + '</div>';
-      cardHtml += '</div>';
-
-      if (statusClass === 'done') {
-        equippedCards.push(cardHtml);
-      } else if (statusClass === 'ready') {
-        readyCards.push(cardHtml);
-      } else {
-        waitingCards.push(cardHtml);
-      }
-    });
-
-    var html = '';
-    html += '<div class="panel-section">';
-    html += '<div class="section-header"><div><div class="section-kicker">' + escapeHtml(t('hud.modal.craft.sections.workshopKicker', null, 'Workshop Flow')) + '</div><div class="section-title">' + escapeHtml(t('hud.modal.craft.sections.workshopTitle', null, 'Crafting Queue')) + '</div><div class="section-copy">' + escapeHtml(t('hud.modal.craft.sections.workshopCopy', null, 'Review what can be crafted now, what is waiting on materials, and which upgrades are already equipped.')) + '</div></div></div>';
-    html += '<div class="summary-list">';
-    html += '<div class="summary-row"><span>' + escapeHtml(summaryReadyLabel) + '</span><span class="summary-value">' + readyCards.length + '</span></div>';
-    html += '<div class="summary-row"><span>' + escapeHtml(summaryWaitingLabel) + '</span><span class="summary-value">' + waitingCards.length + '</span></div>';
-    html += '<div class="summary-row total"><span>' + escapeHtml(summaryEquippedLabel) + '</span><span class="summary-value">' + equippedCards.length + '</span></div>';
-    html += '</div></div>';
-
-    if (readyCards.length) {
-      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">' + escapeHtml(t('hud.modal.craft.sections.readyKicker', null, 'Ready Now')) + '</div><div class="section-title">' + escapeHtml(t('hud.modal.craft.sections.readyTitle', null, 'Craft Immediately')) + '</div><div class="section-copy">' + escapeHtml(t('hud.modal.craft.sections.readyCopy', null, 'These recipes can be completed with your current stockpile.')) + '</div></div></div><div class="management-grid">' + readyCards.join('') + '</div></div>';
-    }
-
-    if (waitingCards.length) {
-      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">' + escapeHtml(t('hud.modal.craft.sections.waitingKicker', null, 'Waiting')) + '</div><div class="section-title">' + escapeHtml(t('hud.modal.craft.sections.waitingTitle', null, 'Material Shortages')) + '</div><div class="section-copy">' + escapeHtml(t('hud.modal.craft.sections.waitingCopy', null, 'Gather or process more resources before these recipes can be completed.')) + '</div></div></div><div class="management-grid">' + waitingCards.join('') + '</div></div>';
-    }
-
-    if (equippedCards.length) {
-      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">' + escapeHtml(t('hud.modal.craft.sections.equippedKicker', null, 'Equipped')) + '</div><div class="section-title">' + escapeHtml(t('hud.modal.craft.sections.equippedTitle', null, 'Current Gear')) + '</div><div class="section-copy">' + escapeHtml(t('hud.modal.craft.sections.equippedCopy', null, 'These crafted equipment pieces are already active on your survivor.')) + '</div></div></div><div class="management-grid">' + equippedCards.join('') + '</div></div>';
-    }
-
-    if (lockedCards.length) {
-      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">' + escapeHtml(t('hud.modal.craft.sections.lockedKicker', null, 'Future Recipes')) + '</div><div class="section-title">' + escapeHtml(t('hud.modal.craft.sections.lockedTitle', null, 'Locked Crafting')) + '</div><div class="section-copy">' + escapeHtml(t('hud.modal.craft.sections.lockedCopy', null, 'Unlock new recipes by reaching the next age and settlement milestones.')) + '</div></div></div><div class="management-grid">' + lockedCards.join('') + '</div></div>';
-    }
-
-    panel.innerHTML = html || '<div class="empty-state">' + escapeHtml(t('hud.modal.craft.sections.empty', null, 'No crafting recipes are available yet.')) + '</div>';
-  }
-
-  function renderModalStats() {
-    var panel = document.getElementById('modal-panel-stats');
-    if (!panel) return;
-
-    var player = GameState.getPlayer();
-    var currentAgeEntity = GameRegistry.getEntity(GameState.getAge());
-    var maxHp = GameState.getPlayerMaxHp();
-    var attack = GameState.getPlayerAttack();
-    var defense = GameState.getPlayerDefense();
-    var speed = GameState.getPlayerSpeed ? GameState.getPlayerSpeed() : 3;
-    var nextAge = getNextAgeObjective();
-    var nextUnlocks = UnlockSystem.getNextUnlocks();
-    var buildings = GameState.getAllBuildings();
-    var buildingEntries = Object.keys(buildings).map(function(id) {
-      var entity = GameRegistry.getEntity(id);
-      return {
-        id: id,
-        name: entity ? entity.name : id,
-        count: buildings[id]
-      };
-    }).sort(function(a, b) {
-      return b.count - a.count;
-    });
-    var totalBuildings = buildingEntries.reduce(function(sum, entry) {
-      return sum + entry.count;
-    }, 0);
-
-    var html = '';
-
-    html += '<div class="panel-section">';
-    html += '<div class="section-header">';
-    html += '<div><div class="section-kicker">Survivor Overview</div><div class="section-title">' + escapeHtml(currentAgeEntity ? currentAgeEntity.name : GameState.getAge()) + '</div><div class="section-copy">Your current combat, travel, and survivability profile.</div></div>';
-    html += '</div>';
-    html += '<div class="stats-grid">';
-
-    html += '<div class="stat-card hp">';
-    html += '<div class="stat-label">❤️ Health</div>';
-    html += '<div class="stat-value">' + Math.floor(player.hp) + ' / ' + maxHp + '</div>';
-    html += '<div class="stat-breakdown">' + buildEquippedStatBreakdownText(100, 'maxHp') + '</div></div>';
-
-    html += '<div class="stat-card attack">';
-    html += '<div class="stat-label">⚔️ Attack</div>';
-    html += '<div class="stat-value">' + attack + '</div>';
-    html += '<div class="stat-breakdown">' + buildEquippedStatBreakdownText(player.attack, 'attack') + '</div></div>';
-
-    html += '<div class="stat-card defense">';
-    html += '<div class="stat-label">🛡️ Defense</div>';
-    html += '<div class="stat-value">' + defense + '</div>';
-    html += '<div class="stat-breakdown">' + buildEquippedStatBreakdownText(player.defense, 'defense') + '</div></div>';
-
-    html += '<div class="stat-card speed">';
-    html += '<div class="stat-label">⚡ Speed</div>';
-    html += '<div class="stat-value">' + speed.toFixed(1) + '</div>';
-    html += '<div class="stat-breakdown">' + buildEquippedStatBreakdownText(player.speed, 'speed') + '</div></div>';
-
-    html += '</div>';
-    html += '<div class="summary-list compact">';
-    html += '<div class="summary-row"><span>Current age</span><span class="summary-value">' + escapeHtml(currentAgeEntity ? currentAgeEntity.name : GameState.getAge()) + '</span></div>';
-    html += '<div class="summary-row"><span>World position</span><span class="summary-value">' + Math.floor(player.x) + ', ' + Math.floor(player.z) + '</span></div>';
-    html += '</div>';
-    html += '</div>';
-
-    if (nextAge) {
-      var nextAgeBalance = nextAge.balance;
-      var canAdvance = true;
-      var progressItems = [];
-
-      if (nextAgeBalance.advanceFrom.resources) {
-        for (var resId in nextAgeBalance.advanceFrom.resources) {
-          var resourceCurrent = GameState.getSpendableResource(resId);
-          var resourceTarget = nextAgeBalance.advanceFrom.resources[resId];
-          var resourceEntity = GameRegistry.getEntity(resId);
-          var resourceMet = resourceCurrent >= resourceTarget;
-          if (!resourceMet) canAdvance = false;
-          progressItems.push({
-            label: resourceEntity ? resourceEntity.name : resId,
-            current: resourceCurrent,
-            target: resourceTarget,
-            met: resourceMet,
-            isBuilding: false
-          });
-        }
-      }
-
-      if (nextAgeBalance.advanceFrom.buildings) {
-        for (var buildingId in nextAgeBalance.advanceFrom.buildings) {
-          var buildingCurrent = GameState.getBuildingCount(buildingId);
-          var buildingTarget = nextAgeBalance.advanceFrom.buildings[buildingId];
-          var buildingEntity = GameRegistry.getEntity(buildingId);
-          var buildingMet = buildingCurrent >= buildingTarget;
-          if (!buildingMet) canAdvance = false;
-          progressItems.push({
-            label: buildingEntity ? buildingEntity.name : buildingId,
-            current: buildingCurrent,
-            target: buildingTarget,
-            met: buildingMet,
-            isBuilding: true
-          });
-        }
-      }
-
-      html += '<div class="panel-section emphasis">';
-      html += '<div class="section-header">';
-      html += '<div><div class="section-kicker">Main Objective</div><div class="section-title">Advance to ' + escapeHtml(nextAge.entity.name) + '</div><div class="section-copy">Fill every bar below to complete the current age milestone.</div></div>';
-      html += '<div class="section-action-group">';
-      html += '<span class="status-chip ' + (canAdvance ? 'ready' : 'pending') + '">' + (canAdvance ? 'Ready now' : 'In progress') + '</span>';
-      html += '<button class="btn ' + (canAdvance ? 'btn-primary' : 'btn-secondary') + '" onclick="GameActions.advanceAge(\'' + nextAge.entity.id + '\')"' + (canAdvance ? '' : ' disabled') + '>Advance</button>';
-      html += '</div></div>';
-
-      html += '<div class="progress-list">';
-      progressItems.forEach(function(item) {
-        var percent = item.target > 0 ? Math.min(100, (item.current / item.target) * 100) : 100;
-        html += '<div class="progress-item">';
-        html += '<div class="progress-item-top"><span>' + escapeHtml(item.label) + '</span><span class="progress-value">' + Math.floor(item.current) + '/' + item.target + '</span></div>';
-        html += '<div class="progress-track"><div class="progress-fill' + (item.met ? ' ready' : '') + '" style="width:' + percent + '%"></div></div>';
-        html += '</div>';
-      });
-      html += '</div></div>';
-    } else {
-      html += '<div class="panel-section emphasis">';
-      html += '<div class="section-header">';
-      html += '<div><div class="section-kicker">Main Objective</div><div class="section-title">Current Content Cleared</div><div class="section-copy">You have reached the end of the current age progression track.</div></div>';
-      html += '<div class="section-action-group"><span class="status-chip ready">Complete</span></div>';
-      html += '</div></div>';
-    }
-
-    html += '<div class="panel-section">';
-    html += '<div class="section-header">';
-    html += '<div><div class="section-kicker">Settlement</div><div class="section-title">Built Structures</div><div class="section-copy">A quick view of how your current economy footprint is distributed.</div></div>';
-    html += '</div>';
-
-    if (buildingEntries.length > 0) {
-      html += '<div class="summary-list">';
-      html += '<div class="summary-row total"><span>Total buildings</span><span class="summary-value">' + totalBuildings + '</span></div>';
-      buildingEntries.slice(0, 6).forEach(function(entry) {
-        html += '<div class="summary-row"><span>' + escapeHtml(entry.name) + '</span><span class="summary-value">x' + entry.count + '</span></div>';
-      });
-      html += '</div>';
-    } else {
-      html += '<div class="empty-state">No buildings placed yet.</div>';
-    }
-    html += '</div>';
-
-    if (nextUnlocks.length > 0) {
-      html += '<div class="panel-section">';
-      html += '<div class="section-header">';
-      html += '<div><div class="section-kicker">Look Ahead</div><div class="section-title">Upcoming Unlocks</div><div class="section-copy">These are the closest content unlocks based on current progress.</div></div>';
-      html += '</div>';
-      html += '<div class="unlock-list">';
-      nextUnlocks.slice(0, 4).forEach(function(item) {
-        var percent = Math.round(item.progress.percent * 100);
-        var hint = describeUnlockProgress(item.progress);
-        html += '<div class="unlock-card">';
-        html += '<div class="unlock-name">' + escapeHtml(item.entity.name) + '</div>';
-        html += '<div class="unlock-meta">' + percent + '% ready' + (hint ? ' • ' + escapeHtml(hint) : '') + '</div>';
-        html += '<div class="progress-track compact"><div class="progress-fill" style="width:' + percent + '%"></div></div>';
-        html += '</div>';
-      });
-      html += '</div></div>';
-    }
-
-    html += '<div class="panel-section">';
-    html += '<div class="section-header">';
-    html += '<div><div class="section-kicker">Session</div><div class="section-title">Utility Actions</div><div class="section-copy">Autosave is always active. Use Save Now only when you want an immediate checkpoint.</div></div>';
-    html += '</div>';
-    html += '<div class="management-actions">';
-    html += '<button class="btn btn-secondary" onclick="GameActions.saveGame()">Save Now</button>';
-    html += '<button class="btn btn-danger" onclick="GameActions.resetGame()">Reset Progress</button>';
-    html += '</div>';
-    html += '</div>';
-
-    panel.innerHTML = html;
-  }
-
-  function renderModalResearch() {
-    var panel = document.getElementById('modal-panel-research');
-    if (!panel) return;
-
-    var allTechs = GameRegistry.getEntitiesByType('technology');
-    if (!allTechs || allTechs.length === 0) {
-      panel.innerHTML = '<div class="empty-state">No technologies are available yet.</div>';
-      return;
-    }
-
-    var readyCards = [];
-    var waitingCards = [];
-    var lockedCards = [];
-    var completeCards = [];
-
-    allTechs.forEach(function(tech) {
-      var balance = GameRegistry.getBalance(tech.id);
-      var isResearched = window.ResearchSystem && ResearchSystem.isResearched(tech.id);
-      var isUnlocked = GameState.isUnlocked(tech.id);
-      var canResearch = window.ResearchSystem && ResearchSystem.canResearch(tech.id);
-
-      // Check prerequisites
-      var prereqsMet = true;
-      var prereqNames = [];
-      if (balance && balance.requires) {
-        balance.requires.forEach(function(reqId) {
-          var reqEntity = GameRegistry.getEntity(reqId);
-          prereqNames.push(reqEntity ? reqEntity.name : reqId);
-          if (!ResearchSystem.isResearched(reqId)) prereqsMet = false;
-        });
-      }
-
-      var costInfo = buildResourcePills(balance && balance.researchCost, 'cost');
-      var effectsHtml = buildResearchEffectsList(balance && balance.effects);
-      var statusClass = 'pending';
-      var statusText = 'Need resources';
-      var actionHtml = '<button class="btn btn-secondary" disabled>Need resources</button>';
-
-      if (isResearched) {
-        statusClass = 'done';
-        statusText = 'Completed';
-        actionHtml = '<button class="btn btn-secondary" disabled>Completed</button>';
-      } else if (canResearch) {
-        statusClass = 'ready';
-        statusText = 'Ready to research';
-        actionHtml = '<button class="btn btn-primary" onclick="GameActions.researchTech(\'' + tech.id + '\')">Research</button>';
-      } else if (isUnlocked && prereqsMet) {
-        statusClass = 'pending';
-        statusText = 'Need resources';
-      } else {
-        statusClass = 'locked';
-        statusText = isUnlocked ? 'Need prerequisites' : 'Locked';
-        actionHtml = '<button class="btn btn-secondary" disabled>' + statusText + '</button>';
-      }
-
-      var cardHtml = '';
-      cardHtml += '<div class="management-card' + (statusClass === 'done' ? ' complete' : (statusClass === 'ready' ? ' ready' : '') ) + (statusClass === 'locked' ? ' locked' : '') + '">';
-      cardHtml += '<div class="management-card-top">';
-      cardHtml += '<div class="management-card-identity">';
-      cardHtml += '<div class="management-icon research">' + getEntityIcon(tech) + '</div>';
-      cardHtml += '<div><div class="management-card-name">' + escapeHtml(tech.name) + '</div><div class="management-card-copy">' + escapeHtml(tech.description || '') + '</div></div>';
-      cardHtml += '</div>';
-      cardHtml += '<div class="management-badges"><span class="management-badge ' + statusClass + '">' + statusText + '</span></div>';
-      cardHtml += '</div>';
-      cardHtml += buildMetricGrid([
-        { label: 'Prerequisites', value: balance && balance.requires ? balance.requires.length : 0 },
-        { label: 'Bonuses', value: balance && balance.effects ? Object.keys(balance.effects).length : 0 }
-      ]);
-      if (effectsHtml) {
-        cardHtml += '<div class="management-block"><div class="management-block-label">Effects</div>' + effectsHtml + '</div>';
-      }
-      if (costInfo.html && !isResearched) {
-        cardHtml += '<div class="management-block"><div class="management-block-label">Research Cost</div><div class="resource-pill-row">' + costInfo.html + '</div></div>';
-      }
-      if (balance && balance.requires && balance.requires.length && !prereqsMet) {
-        cardHtml += '<div class="management-block"><div class="management-block-label">Required Tech</div>' + buildTechnologyRequirementChecklist(balance.requires) + '</div>';
-      }
-      if (!isUnlocked) {
-        cardHtml += '<div class="management-block"><div class="management-block-label">Unlock Path</div>' + buildRequirementChecklist(tech) + '</div>';
-      }
-      cardHtml += '<div class="card-actions">' + actionHtml + '</div>';
-      cardHtml += '</div>';
-
-      if (isResearched) {
-        completeCards.push(cardHtml);
-      } else if (canResearch) {
-        readyCards.push(cardHtml);
-      } else if (!isUnlocked || !prereqsMet) {
-        lockedCards.push(cardHtml);
-      } else {
-        waitingCards.push(cardHtml);
-      }
-    });
-
-    var html = '';
-    html += '<div class="panel-section">';
-    html += '<div class="section-header"><div><div class="section-kicker">Knowledge Track</div><div class="section-title">Research Overview</div><div class="section-copy">Prioritize immediate upgrades, track blocked technology, and review the bonuses you have already secured.</div></div></div>';
-    html += '<div class="summary-list">';
-    html += '<div class="summary-row"><span>Ready to research</span><span class="summary-value">' + readyCards.length + '</span></div>';
-    html += '<div class="summary-row"><span>Waiting</span><span class="summary-value">' + waitingCards.length + '</span></div>';
-    html += '<div class="summary-row total"><span>Completed</span><span class="summary-value">' + completeCards.length + '</span></div>';
-    html += '</div></div>';
-
-    if (readyCards.length) {
-      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Ready Now</div><div class="section-title">Immediate Upgrades</div><div class="section-copy">These technologies can be researched right now with your current stockpile.</div></div></div><div class="management-grid">' + readyCards.join('') + '</div></div>';
-    }
-
-    if (waitingCards.length) {
-      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Waiting</div><div class="section-title">Need More Resources</div><div class="section-copy">The tech is unlocked and all prerequisites are met, but the research cost is still out of reach.</div></div></div><div class="management-grid">' + waitingCards.join('') + '</div></div>';
-    }
-
-    if (lockedCards.length) {
-      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Blocked</div><div class="section-title">Locked Technology</div><div class="section-copy">These upgrades still need an unlock condition or prerequisite tech before you can invest in them.</div></div></div><div class="management-grid">' + lockedCards.join('') + '</div></div>';
-    }
-
-    if (completeCards.length) {
-      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Archive</div><div class="section-title">Completed Research</div><div class="section-copy">Permanent bonuses already active across your settlement.</div></div></div><div class="management-grid">' + completeCards.join('') + '</div></div>';
-    }
-
-    panel.innerHTML = html;
-  }
-
   return {
     init: init,
     renderAll: renderAll,
@@ -4731,6 +2192,7 @@ try {
     toggleQualitySettingsPanel: toggleQualitySettingsPanel,
     applyDebugSettingsState: applyDebugSettingsState,
     setLanguage: setLanguage,
+    resetAllGameData: resetAllGameData,
     isHudVisible: isHudVisible
   };
   })();

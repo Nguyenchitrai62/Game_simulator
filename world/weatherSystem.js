@@ -89,7 +89,9 @@ window.WeatherSystem = (function () {
   }
 
   function getRainBounds() {
-    var playerPos = (typeof GamePlayer !== 'undefined' && GamePlayer.getPosition) ? GamePlayer.getPosition() : { x: 8, z: 8 };
+    var playerPos = (typeof GamePlayer !== 'undefined' && GamePlayer.getPosition)
+      ? GamePlayer.getPosition()
+      : ((typeof GameState !== 'undefined' && GameState.getPlayerSpawnPosition) ? GameState.getPlayerSpawnPosition() : { x: 0, z: 0 });
     var camera = (typeof GameScene !== 'undefined' && GameScene.getCamera) ? GameScene.getCamera() : null;
     var width = 46;
     var depth = 54;

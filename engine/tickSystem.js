@@ -2,8 +2,30 @@ window.TickSystem = (function () {
   var _tickCount = 0;
   var _resourceStats = {};
   var _lastNet = {};
-  var AUTOSAVE_INTERVAL_TICKS = 12;
-  var PAUSED_AUTOSAVE_INTERVAL_TICKS = 24;
+
+  function getSimulationConfig() {
+    return (window.GAME_BALANCE && GAME_BALANCE.simulation) || {};
+  }
+
+  function getAutosaveIntervalTicks() {
+    return Math.max(0, Number(getSimulationConfig().autosaveIntervalTicks) || 0);
+  }
+
+  function getPausedAutosaveIntervalTicks() {
+    return Math.max(0, Number(getSimulationConfig().pausedAutosaveIntervalTicks) || 0);
+  }
+
+  function getAnimalRespawnRetryDelayMs() {
+    return Number(((window.GAME_BALANCE && GAME_BALANCE.animalRespawn) || {}).retryDelayMs) || 0;
+  }
+
+  function getAnimalRespawnPlayerSafeDistance() {
+    return Number(((window.GAME_BALANCE && GAME_BALANCE.animalRespawn) || {}).playerSafeDistance) || 0;
+  }
+
+  function getEntityRespawnTimeSeconds(balance) {
+    return Number(balance && balance.respawnTime) || 0;
+  }
 
   function getLiveInstances() {
     if (GameState.getAllInstancesLive) return GameState.getAllInstancesLive();
@@ -61,7 +83,8 @@ window.TickSystem = (function () {
       GameHUD.renderAll('tick');
     }
 
-    if (_tickCount % AUTOSAVE_INTERVAL_TICKS === 0) {
+    var autosaveIntervalTicks = getAutosaveIntervalTicks();
+    if (autosaveIntervalTicks > 0 && _tickCount % autosaveIntervalTicks === 0) {
       GameStorage.save({ delayMs: 1200 });
     }
 
@@ -598,7 +621,7 @@ for (var resId in building.balance.consumesPerSecond) {
   }
 
   function scheduleAnimalRespawn(target, balance) {
-    var respawnTime = balance ? (balance.respawnTime || 60) : 60;
+    var respawnTime = getEntityRespawnTimeSeconds(balance);
     target.respawnAt = Date.now() + (respawnTime * 1000);
 
     function tryAnimalRespawn() {
@@ -613,8 +636,9 @@ for (var resId in building.balance.consumesPerSecond) {
         var playerPos = GamePlayer.getPosition();
         var dx = Math.abs(target.worldX - playerPos.x);
         var dz = Math.abs(target.worldZ - playerPos.z);
-        if (dx < 2 && dz < 2) {
-          setTimeout(tryAnimalRespawn, 5000);
+        var safeDistance = getAnimalRespawnPlayerSafeDistance();
+        if (dx < safeDistance && dz < safeDistance) {
+          setTimeout(tryAnimalRespawn, getAnimalRespawnRetryDelayMs());
           return;
         }
       }
@@ -831,20 +855,18 @@ for (var resId in building.balance.consumesPerSecond) {
   }
 
   function applyHunger() {
-    var balance = window.GAME_BALANCE || {};
-    var hungerConfig = balance.hunger || { drainPerSecond: 0.1, starvingHpDrain: 1, regenHungerMult: 2.0 };
-    var drain = hungerConfig.drainPerSecond || 0.1;
+    var drain = GameState.getHungerDrainPerSecond();
 
     // Double hunger drain when regenerating HP
     var isRegen = (typeof GamePlayer !== 'undefined') && GamePlayer.isRegenerating && GamePlayer.isRegenerating();
-    var regenMult = isRegen ? (hungerConfig.regenHungerMult || 2.0) : 1.0;
+    var regenMult = isRegen ? GameState.getRegenHungerMultiplier() : 1.0;
 
     var currentHunger = GameState.getHunger();
     var newHunger = currentHunger - (drain * regenMult);
 
     // Starving: drain HP
     if (newHunger <= 0) {
-      var hpDrain = hungerConfig.starvingHpDrain || 1;
+      var hpDrain = GameState.getStarvingHpDrain();
       var player = GameState.getPlayer();
       var newHp = player.hp - hpDrain;
       GameState.setPlayerHP(newHp);
@@ -854,17 +876,19 @@ for (var resId in building.balance.consumesPerSecond) {
       if (newHp <= 0) {
         GameState.setPlayerHP(GameState.getPlayerMaxHp());
         if (typeof GamePlayer !== 'undefined' && GamePlayer.setPosition) {
-          GamePlayer.setPosition(8, 8);
+          var spawn = GameState.getPlayerSpawnPosition();
+          GamePlayer.setPosition(spawn.x, spawn.z);
         }
         // Lose 30% resources
+        var resourceLossFraction = GameState.getStarvationResourceLossFraction();
         var resources = GameState.getAllResources();
         for (var id in resources) {
-          var lost = Math.floor(resources[id] * 0.3);
+          var lost = Math.floor(resources[id] * resourceLossFraction);
           if (lost > 0) GameState.addResource(id, -lost);
         }
-        GameState.setHunger(GameState.getMaxHunger() * 0.5);
+        GameState.setHunger(GameState.getMaxHunger() * GameState.getStarvationRespawnHungerFraction());
         if (typeof GameHUD !== 'undefined' && GameHUD.showNotification) {
-          GameHUD.showNotification("You starved. Lost 30% of carried resources.");
+          GameHUD.showNotification("You starved. Lost " + Math.round(resourceLossFraction * 100) + "% of carried resources.");
         }
       }
     }
@@ -887,7 +911,7 @@ for (var resId in building.balance.consumesPerSecond) {
       var fuelData = GameState.getFireFuelData(uid);
 
       if (!fuelData) {
-        var maxFuel = balance.fuelCapacity || 999;
+        var maxFuel = Number(balance.fuelCapacity) || 0;
         GameState.setFireFuel(uid, maxFuel);
         fuelData = GameState.getFireFuelData(uid);
       }
@@ -906,7 +930,8 @@ for (var resId in building.balance.consumesPerSecond) {
 
   function tickPausedOnly() {
     _tickCount++;
-    if (_tickCount % PAUSED_AUTOSAVE_INTERVAL_TICKS === 0) {
+    var pausedAutosaveIntervalTicks = getPausedAutosaveIntervalTicks();
+    if (pausedAutosaveIntervalTicks > 0 && _tickCount % pausedAutosaveIntervalTicks === 0) {
       GameStorage.save({ delayMs: 1600 });
     }
   }

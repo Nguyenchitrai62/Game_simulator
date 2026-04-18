@@ -1,5 +1,17 @@
 window.GameActions = (function () {
 
+  function t(path, tokens, fallback) {
+    if (window.GameI18n && GameI18n.t) {
+      return GameI18n.t(path, tokens, fallback);
+    }
+
+    var text = fallback || path;
+    if (!tokens) return text;
+    return String(text).replace(/\{(\w+)\}/g, function(match, key) {
+      return Object.prototype.hasOwnProperty.call(tokens, key) ? tokens[key] : match;
+    });
+  }
+
   function startBuild(buildingId) {
     BuildingSystem.placeAtPlayer(buildingId);
   }
@@ -11,7 +23,7 @@ window.GameActions = (function () {
       var recipeEntity = GameRegistry.getEntity(recipeId);
       GameStorage.save();
       var name = recipeEntity ? recipeEntity.name : recipeId;
-      GameHUD.showSuccess(`Crafted: ${name}`);
+      GameHUD.showSuccess(t('hud.actions.crafted', { name: name }, 'Crafted: {name}'));
       if (typeof GamePlayer !== 'undefined' && GamePlayer.updateEquipmentVisuals) {
         GamePlayer.updateEquipmentVisuals();
       }
@@ -42,19 +54,41 @@ window.GameActions = (function () {
   function saveGame() {
     if (GameStorage.saveNow) GameStorage.saveNow();
     else GameStorage.save();
-    GameHUD.showNotification("Saved now. Autosave remains active.");
+    GameHUD.showNotification(t('hud.actions.savedNow', null, 'Saved now. Autosave remains active.'));
   }
 
   function resetGame() {
-    if (!confirm("Reset all progress?")) return;
+    if (!confirm(t('hud.actions.resetConfirm', null, 'Reset all progress?'))) return;
+    if (window.GameStorage && GameStorage.suspendPersistence) {
+      GameStorage.suspendPersistence();
+    }
     GameStorage.clearSave();
     window.location.reload();
+  }
+
+  function resetAllGameData() {
+    if (!confirm(t('hud.settings.fullReset.confirm', null, 'Completely reset the game?\n\nThis will erase saves, world data, language, tutorials, graphics preset, and runtime toggles. This cannot be undone.'))) {
+      return false;
+    }
+
+    if (window.GameStorage && GameStorage.suspendPersistence) {
+      GameStorage.suspendPersistence();
+    }
+
+    if (window.GameStorage && GameStorage.clearAllData) {
+      GameStorage.clearAllData();
+    } else if (window.GameStorage && GameStorage.clearSave) {
+      GameStorage.clearSave();
+    }
+
+    window.location.reload();
+    return true;
   }
 
   function upgrade(buildingId, instanceUid) {
     var check = UpgradeSystem.canUpgrade(buildingId, instanceUid);
     if (!check.can) {
-      GameHUD.showError(check.reason || "Cannot upgrade");
+      GameHUD.showError(check.reason || t('hud.actions.cannotUpgrade', null, 'Cannot upgrade'));
       return;
     }
 
@@ -63,18 +97,18 @@ window.GameActions = (function () {
       var entity = GameRegistry.getEntity(buildingId);
       var buildingName = entity ? entity.name : buildingId;
       GameStorage.save();
-      GameHUD.showSuccess(buildingName + " upgraded to Level " + newLevel + "!");
+      GameHUD.showSuccess(t('hud.actions.upgradeSuccess', { name: buildingName, level: newLevel }, '{name} upgraded to Level {level}!'));
       GameHUD.renderAll();
       GameHUD.selectInstance(instanceUid);
     } else {
-      GameHUD.showError("Upgrade failed");
+      GameHUD.showError(t('hud.actions.upgradeFailed', null, 'Upgrade failed'));
     }
   }
 
   function collectFromBuilding(instanceUid) {
     var instance = GameState.getInstance(instanceUid);
     if (!instance) {
-      GameHUD.showError("Building not found");
+      GameHUD.showError(t('hud.actions.buildingNotFound', null, 'Building not found'));
       return;
     }
     
@@ -93,7 +127,7 @@ window.GameActions = (function () {
     
     if (hasSomething) {
       GameStorage.save();
-      GameHUD.showSuccess("Collected: " + parts.join(", "));
+      GameHUD.showSuccess(t('hud.actions.collected', { items: parts.join(', ') }, 'Collected: {items}'));
       GameHUD.renderAll();
       
       // Refresh inspector to show empty storage
@@ -102,7 +136,7 @@ window.GameActions = (function () {
         GameHUD.selectInstance(instanceUid);
       }
     } else {
-      GameHUD.showNotification("Storage is empty.");
+      GameHUD.showNotification(t('hud.actions.storageEmpty', null, 'Storage is empty.'));
     }
   }
 
@@ -117,14 +151,14 @@ window.GameActions = (function () {
     var maxFuel = balance.fuelCapacity || 999;
     var currentFuel = fuelData ? fuelData.current : maxFuel;
     if (currentFuel >= maxFuel) {
-      GameHUD.showNotification("Fuel is already full.");
+      GameHUD.showNotification(t('hud.actions.fuelAlreadyFull', null, 'Fuel is already full.'));
       return;
     }
 
     // Check if can afford refuel
     for (var resId in balance.refuelCost) {
       if (!GameState.hasSpendableResource(resId, balance.refuelCost[resId])) {
-        GameHUD.showError("Not enough fuel.");
+        GameHUD.showError(t('hud.actions.notEnoughFuel', null, 'Not enough fuel.'));
         return;
       }
     }
@@ -141,7 +175,7 @@ window.GameActions = (function () {
     }
 
     GameStorage.save();
-    GameHUD.showSuccess("Refueled successfully.");
+    GameHUD.showSuccess(t('hud.actions.refueledSuccess', null, 'Refueled successfully.'));
     GameHUD.renderAll();
     GameHUD.selectInstance(instanceUid);
     if (instance.entityId === 'building.campfire' && typeof GamePlayer !== 'undefined' && GamePlayer.triggerSpeechCue) {
@@ -264,7 +298,7 @@ window.GameActions = (function () {
       instanceUid: instanceUid,
       level: level,
       commandMode: commandMode,
-      commandModeLabel: troopSummary ? troopSummary.modeLabel : (commandMode === 'follow' ? 'Follow Player' : 'Guard Nearby'),
+      commandModeLabel: localizeBarracksModeLabel(troopSummary ? troopSummary.modeLabel : (commandMode === 'follow' ? 'Follow Player' : 'Guard Nearby')),
       queue: queueEntries,
       queueUsed: queueEntries.length,
       queueCapacity: queueCapacity,
@@ -274,10 +308,10 @@ window.GameActions = (function () {
       reserves: reserveEntries,
       deployedCount: troopSummary ? troopSummary.troopCount : reserveCount,
       engagedCount: troopSummary ? troopSummary.engagedCount : 0,
-      troopSummaryText: troopSummary ? troopSummary.unitSummaryText : (reserveEntries.length ? reserveEntries.map(function(entry) {
+      troopSummaryText: troopSummary ? (troopSummary.unitSummaryText === 'No deployed troops' ? t('hud.barracks.noDeployedTroops', null, 'No deployed troops') : troopSummary.unitSummaryText) : (reserveEntries.length ? reserveEntries.map(function(entry) {
         return entry.label + ': ' + entry.amount;
-      }).join(' | ') : 'No deployed troops'),
-      troopStatusText: troopSummary ? troopSummary.statusText : 'Train units to deploy them around this barracks.',
+      }).join(' | ') : t('hud.barracks.noDeployedTroops', null, 'No deployed troops')),
+      troopStatusText: localizeBarracksStatusText(troopSummary ? troopSummary.statusText : 'Train units to deploy them around this barracks.'),
       supportRange: supportRange,
       availableUnits: availableUnits,
       nextUnlock: nextUnlock,
@@ -288,14 +322,14 @@ window.GameActions = (function () {
   function setBarracksCommandMode(instanceUid, mode) {
     var instance = GameState.getInstance(instanceUid);
     if (!instance || instance.entityId !== 'building.barracks') {
-      GameHUD.showError('Barracks not found.');
+      GameHUD.showError(t('hud.barracks.notFound', null, 'Barracks not found.'));
       return false;
     }
 
     var nextMode = mode === 'follow' ? 'follow' : 'guard';
     var state = GameState.getBarracksStateLive ? GameState.getBarracksStateLive(instanceUid) : GameState.getBarracksState(instanceUid);
     if (!state) {
-      GameHUD.showError('Barracks save state unavailable.');
+      GameHUD.showError(t('hud.barracks.saveUnavailable', null, 'Barracks save state unavailable.'));
       return false;
     }
 
@@ -313,8 +347,8 @@ window.GameActions = (function () {
 
     GameStorage.save();
     GameHUD.showSuccess(nextMode === 'follow'
-      ? 'Barracks troops are now following the player.'
-      : 'Barracks troops are guarding nearby animals.');
+      ? t('hud.barracks.followSuccess', null, 'Barracks troops are now following the player.')
+      : t('hud.barracks.guardSuccess', null, 'Barracks troops are guarding nearby animals.'));
     GameHUD.renderAll();
     GameHUD.selectInstance(instanceUid);
     GameHUD.updateModal();
@@ -324,38 +358,38 @@ window.GameActions = (function () {
   function queueBarracksTraining(instanceUid, unitType) {
     var unitData = getBarracksUnitConfig(instanceUid, unitType);
     if (!unitData) {
-      GameHUD.showError('Barracks not found.');
+      GameHUD.showError(t('hud.barracks.notFound', null, 'Barracks not found.'));
       return false;
     }
 
     var status = getBarracksStatus(instanceUid);
     if (!status) {
-      GameHUD.showError('Barracks data unavailable.');
+      GameHUD.showError(t('hud.barracks.dataUnavailable', null, 'Barracks data unavailable.'));
       return false;
     }
 
     var unitConfig = unitData.unitConfig;
     var unlockLevel = unitConfig.unlockLevel || 1;
     if (status.level < unlockLevel) {
-      GameHUD.showError((unitConfig.label || unitType) + ' unlocks at Barracks level ' + unlockLevel + '.');
+      GameHUD.showError(t('hud.barracks.unlocksAtLevel', { label: unitConfig.label || unitType, level: unlockLevel }, '{label} unlocks at Barracks level {level}.'));
       return false;
     }
     if (status.queueUsed >= status.queueCapacity) {
-      GameHUD.showError('Training queue is full.');
+      GameHUD.showError(t('hud.barracks.queueFull', null, 'Training queue is full.'));
       return false;
     }
     if ((status.reserveCount + status.queueUsed) >= status.reserveCapacity) {
-      GameHUD.showError('Barracks reserve is full. Upgrade to support more units.');
+      GameHUD.showError(t('hud.barracks.reserveFull', null, 'Barracks reserve is full. Upgrade to support more units.'));
       return false;
     }
     if (!canAffordCostMap(unitConfig.cost || {})) {
-      GameHUD.showError('Not enough resources to train ' + (unitConfig.label || unitType) + '.');
+      GameHUD.showError(t('hud.barracks.notEnoughResourcesTrain', { label: unitConfig.label || unitType }, 'Not enough resources to train {label}.'));
       return false;
     }
 
     var state = GameState.getBarracksState ? GameState.getBarracksState(instanceUid) : null;
     if (!state) {
-      GameHUD.showError('Barracks save state unavailable.');
+      GameHUD.showError(t('hud.barracks.saveUnavailable', null, 'Barracks save state unavailable.'));
       return false;
     }
 
@@ -373,7 +407,7 @@ window.GameActions = (function () {
     GameState.setBarracksState(instanceUid, state);
 
     GameStorage.save();
-    GameHUD.showSuccess('Queued ' + (unitConfig.label || unitType) + ' training.');
+    GameHUD.showSuccess(t('hud.barracks.queuedTraining', { label: unitConfig.label || unitType }, 'Queued {label} training.'));
     GameHUD.renderAll();
     GameHUD.selectInstance(instanceUid);
     GameHUD.updateModal();
@@ -443,11 +477,13 @@ window.GameActions = (function () {
       baseWorkerProtectRadius: baseProtectRadius,
       workerProtectRadiusBonus: protectRadiusBonus,
       targetPriorityBonus: (towerDefense.targetPriorityBonus || 0) + (Number(reserveSupport.targetPriorityBonus) || 0),
-      reserveSupportLabel: reserveSupport.supportLabel || 'No barracks reserve link',
+      reserveSupportLabel: reserveSupport.supportLabel === 'No barracks reserve link'
+        ? t('hud.inspector.noBarracksReserveLink', null, 'No barracks reserve link')
+        : (reserveSupport.supportLabel || t('hud.inspector.noBarracksReserveLink', null, 'No barracks reserve link')),
       linkedBarracksCount: reserveSupport.linkedBarracksCount || 0,
       swordsmanSupport: reserveSupport.swordsman || 0,
       archerSupport: reserveSupport.archer || 0,
-      statusLabel: state ? state.statusLabel : 'Scanning for threats',
+      statusLabel: localizeWatchtowerStatusLabel(state ? state.statusLabel : 'Scanning for threats'),
       cooldownRemaining: state ? Math.max(0, Number(state.cooldownRemaining) || 0) : 0,
       lastTargetName: targetEntity ? targetEntity.name : '',
       shotsFired: state ? (state.shotsFired || 0) : 0,
@@ -506,13 +542,19 @@ window.GameActions = (function () {
     ].join('|');
   }
 
+  function getSettlementCountLabel(keyBase, count, singularFallback, pluralFallback) {
+    var isSingular = count === 1;
+    return t('hud.objective.settlement.' + keyBase + (isSingular ? 'One' : 'Many'), { count: count }, isSingular ? singularFallback : pluralFallback);
+  }
+
   function getSettlementStatus() {
     var isNight = typeof DayNightSystem !== 'undefined' && DayNightSystem.isNight();
+    var languageId = (window.GameI18n && GameI18n.getLanguage) ? GameI18n.getLanguage() : 'en';
     var tickCount = (window.TickSystem && TickSystem.getTickCount) ? TickSystem.getTickCount() : 0;
     var coreVersion = (window.GameState && GameState.getCoreStateVersion) ? GameState.getCoreStateVersion() : 0;
     var threatSummary = (window.NPCSystem && NPCSystem.getThreatenedWorkersSummary) ? NPCSystem.getThreatenedWorkersSummary() : null;
     var threatSignature = getSettlementThreatSignature(threatSummary);
-    var cacheKey = [tickCount, coreVersion, isNight ? 1 : 0, threatSignature].join('|');
+    var cacheKey = [languageId, tickCount, coreVersion, isNight ? 1 : 0, threatSignature].join('|');
     if (_settlementStatusCache.key === cacheKey && _settlementStatusCache.value) {
       return _settlementStatusCache.value;
     }
@@ -557,8 +599,8 @@ window.GameActions = (function () {
       status.alerts.push({
         tone: topResource.timeLeft < 60 ? 'critical' : 'warning',
         icon: '⏳',
-        label: topResource.label + ' deficit',
-        detail: formatShortDuration(topResource.timeLeft) + ' left'
+        label: t('hud.objective.settlement.resourceDeficit', { name: topResource.label }, '{name} deficit'),
+        detail: t('hud.objective.settlement.timeRemaining', { time: formatShortDuration(topResource.timeLeft) }, '{time} left')
       });
     }
 
@@ -598,8 +640,8 @@ window.GameActions = (function () {
       status.alerts.push({
         tone: 'warning',
         icon: '🔥',
-        label: 'Night-light gap',
-        detail: status.unlitPlots + ' plot' + (status.unlitPlots === 1 ? '' : 's') + ' paused'
+        label: t('hud.objective.settlement.nightLightGap', null, 'Night-light gap'),
+        detail: getSettlementCountLabel('plotPaused', status.unlitPlots, '{count} plot paused', '{count} plots paused')
       });
     }
 
@@ -607,39 +649,53 @@ window.GameActions = (function () {
     if (status.threatenedWorkers > 0) {
       var topThreat = threatSummary ? threatSummary.topThreat : null;
       var isActiveAttack = threatSummary && threatSummary.attackingCount > 0;
+      var threatDetail = getSettlementCountLabel('workerAffected', status.threatenedWorkers, '{count} worker affected', '{count} workers affected');
+      if (topThreat) {
+        threatDetail += ' • ' + t('hud.objective.settlement.threatNearBuilding', {
+          threat: topThreat.threatName,
+          building: topThreat.buildingName
+        }, '{threat} near {building}');
+      }
       status.alerts.push({
         tone: isActiveAttack ? 'critical' : 'warning',
         icon: '⚠️',
-        label: isActiveAttack ? 'Workers under attack' : 'Threat near workers',
-        detail: status.threatenedWorkers + ' worker' + (status.threatenedWorkers === 1 ? '' : 's') + ' affected' + (topThreat ? (' • ' + topThreat.threatName + ' near ' + topThreat.buildingName) : '')
+        label: isActiveAttack
+          ? t('hud.objective.settlement.workersUnderAttack', null, 'Workers under attack')
+          : t('hud.objective.settlement.threatNearWorkers', null, 'Threat near workers'),
+        detail: threatDetail
       });
     }
 
     if (status.watchtowerCount > 0 || status.barracksCount > 0 || status.reserveCount > 0 || status.trainingCount > 0) {
       var militaryParts = [];
-      if (status.watchtowerCount > 0) militaryParts.push(status.watchtowerCount + ' tower' + (status.watchtowerCount === 1 ? '' : 's'));
-      if (status.supportedTowerCount > 0) militaryParts.push(status.supportedTowerCount + ' supported');
-      if (status.reserveCount > 0) militaryParts.push(status.reserveCount + ' reserve');
-      if (status.trainingCount > 0) militaryParts.push(status.trainingCount + ' training');
-      if (!militaryParts.length && status.barracksCount > 0) militaryParts.push(status.barracksCount + ' barracks');
+      if (status.watchtowerCount > 0) militaryParts.push(getSettlementCountLabel('tower', status.watchtowerCount, '{count} tower', '{count} towers'));
+      if (status.supportedTowerCount > 0) militaryParts.push(t('hud.objective.settlement.supported', { count: status.supportedTowerCount }, '{count} supported'));
+      if (status.reserveCount > 0) militaryParts.push(getSettlementCountLabel('reserve', status.reserveCount, '{count} reserve', '{count} reserves'));
+      if (status.trainingCount > 0) militaryParts.push(getSettlementCountLabel('training', status.trainingCount, '{count} training', '{count} training'));
+      if (!militaryParts.length && status.barracksCount > 0) militaryParts.push(getSettlementCountLabel('barracks', status.barracksCount, '{count} barracks', '{count} barracks'));
 
       status.alerts.push({
         tone: (status.threatenedWorkers > 0 && status.watchtowerCount <= 0 && status.reserveCount <= 0) ? 'warning' : 'info',
         icon: '🛡️',
-        label: 'Military',
+        label: t('hud.objective.settlement.military', null, 'Military'),
         detail: militaryParts.join(' • ')
       });
     } else if (status.threatenedWorkers > 0) {
       status.alerts.push({
         tone: 'warning',
         icon: '🛡️',
-        label: 'Military',
-        detail: 'No active defense coverage'
+        label: t('hud.objective.settlement.military', null, 'Military'),
+        detail: t('hud.objective.settlement.noDefenseCoverage', null, 'No active defense coverage')
       });
     }
 
     if (!status.alerts.length) {
-      status.alerts.push({ tone: 'info', icon: '✓', label: 'Settlement stable', detail: 'No urgent shortages or threats' });
+      status.alerts.push({
+        tone: 'info',
+        icon: '✓',
+        label: t('hud.objective.settlement.stable', null, 'Settlement stable'),
+        detail: t('hud.objective.settlement.noUrgent', null, 'No urgent shortages or threats')
+      });
     }
 
     status.alerts.sort(function(a, b) {
@@ -664,8 +720,100 @@ window.GameActions = (function () {
   }
 
   function getFarmWorkerHint(instanceUid, farming) {
-    if (farming && farming.workerHint) return farming.workerHint;
-    return 'Needs a nearby resident worker.';
+    if (farming && farming.workerHint) {
+      if (farming.workerHint === 'Needs a nearby resident worker. Watering requires a Level 3 Resident House.') {
+        return t('hud.farm.workerHintLevel3', null, 'Needs a nearby resident worker. Watering requires a Level 3 Resident House.');
+      }
+      if (farming.workerHint === 'Needs a Level 2 Resident House nearby. Watering requires Level 3.') {
+        return t('hud.farm.workerHintLevel2', null, 'Needs a Level 2 Resident House nearby. Watering requires Level 3.');
+      }
+      return farming.workerHint;
+    }
+    return t('hud.farm.workerHint', null, 'Needs a nearby resident worker.');
+  }
+
+  function localizeFarmSupportLabel(label) {
+    if (!label) return label;
+    if (label === 'River boost applied') return t('hud.farm.support.riverBoostApplied', null, 'River boost applied');
+    if (label === 'River water applied') return t('hud.farm.support.riverWaterApplied', null, 'River water applied');
+    if (label === 'Well water applied') return t('hud.farm.support.wellWaterApplied', null, 'Well water applied');
+    return label;
+  }
+
+  function localizeFarmNightLabel(label) {
+    if (!label) return label;
+    if (label === 'Outside active light' || label === 'Outside active campfire light') {
+      return t('hud.farm.nightLight.outsideCampfire', null, 'Outside active campfire light');
+    }
+    if (label === 'Campfire coverage active') {
+      return t('hud.farm.nightLight.coverageActive', null, 'Campfire coverage active');
+    }
+    if (label === 'Daytime') {
+      return t('hud.farm.nightLight.daytime', null, 'Daytime');
+    }
+    return label;
+  }
+
+  function localizeFarmWorkerText(text) {
+    if (!text) return text;
+    if (text === 'Resident worker active') return t('hud.farm.worker.active', null, 'Resident worker active');
+    if (text === 'Night pause: outside active campfire light') return t('hud.farm.worker.nightPaused', null, 'Night pause: outside active campfire light');
+    if (text === 'Nearby resident needs Level 3 to water this plot') return t('hud.farm.worker.needsLevel3Water', null, 'Nearby resident needs Level 3 to water this plot');
+    if (text === 'Nearby resident worker available') return t('hud.farm.worker.available', null, 'Nearby resident worker available');
+    if (text === 'Nearby resident worker busy') return t('hud.farm.worker.busy', null, 'Nearby resident worker busy');
+    if (text === 'Walking to plot') return t('hud.farm.worker.walkToPlot', null, 'Walking to plot');
+    if (text === 'Walking to collect plot goods') return t('hud.farm.worker.walkToCollect', null, 'Walking to collect plot goods');
+    if (text === 'Walking to harvest plot') return t('hud.farm.worker.walkToHarvest', null, 'Walking to harvest plot');
+    if (text === 'Walking to river') return t('hud.farm.worker.walkToRiver', null, 'Walking to river');
+    if (text === 'Walking to well') return t('hud.farm.worker.walkToWell', null, 'Walking to well');
+    if (text === 'Walking to plant plot') return t('hud.farm.worker.walkToPlant', null, 'Walking to plant plot');
+    if (text === 'Walking to mature tree') return t('hud.farm.worker.walkToMatureTree', null, 'Walking to mature tree');
+    if (text === 'Walking to river for tree') return t('hud.farm.worker.walkToRiverTree', null, 'Walking to river for tree');
+    if (text === 'Walking to well for tree') return t('hud.farm.worker.walkToWellTree', null, 'Walking to well for tree');
+    if (text === 'Drawing river water for tree') return t('hud.farm.worker.drawRiverWaterTree', null, 'Drawing river water for tree');
+    if (text === 'Drawing well water for tree') return t('hud.farm.worker.drawWellWaterTree', null, 'Drawing well water for tree');
+    if (text === 'Drawing river water') return t('hud.farm.worker.drawRiverWater', null, 'Drawing river water');
+    if (text === 'Drawing well water') return t('hud.farm.worker.drawWellWater', null, 'Drawing well water');
+    if (text === 'Carrying water to young tree') return t('hud.farm.worker.carryWaterTree', null, 'Carrying water to young tree');
+    if (text === 'Carrying water to plot') return t('hud.farm.worker.carryWaterPlot', null, 'Carrying water to plot');
+    if (text === 'Watering growing tree') return t('hud.farm.worker.waterGrowingTree', null, 'Watering growing tree');
+    if (text === 'Collecting stored goods') return t('hud.farm.worker.collectingStored', null, 'Collecting stored goods');
+    if (text === 'Tending plot') return t('hud.farm.worker.tendingPlot', null, 'Tending plot');
+    if (text === 'Worker lost') return t('hud.farm.worker.workerLost', null, 'Worker lost');
+    if (text.indexOf('Planting ') === 0) return t('hud.farm.worker.planting', { crop: text.slice('Planting '.length) }, 'Planting {crop}');
+    if (text.indexOf('Watering ') === 0) return t('hud.farm.worker.watering', { crop: text.slice('Watering '.length) }, 'Watering {crop}');
+    if (text.indexOf('Harvesting ') === 0) return t('hud.farm.worker.harvesting', { crop: text.slice('Harvesting '.length) }, 'Harvesting {crop}');
+    return text;
+  }
+
+  function localizeBarracksModeLabel(label) {
+    if (label === 'Follow Player') return t('hud.inspector.followPlayer', null, 'Follow Player');
+    if (label === 'Guard Nearby') return t('hud.inspector.guardNearby', null, 'Guard Nearby');
+    return label;
+  }
+
+  function localizeBarracksStatusText(text) {
+    if (!text) return text;
+    if (text === 'Train units to deploy them around this barracks.') return t('hud.barracks.trainUnitsHint', null, 'Train units to deploy them around this barracks.');
+    if (text === 'Units are supporting the player in combat.') return t('hud.barracks.supportingPlayer', null, 'Units are supporting the player in combat.');
+    if (text === 'Units are marching with the player.') return t('hud.barracks.marchingWithPlayer', null, 'Units are marching with the player.');
+    if (text === 'Units are intercepting nearby animals.') return t('hud.barracks.interceptingAnimals', null, 'Units are intercepting nearby animals.');
+    if (text === 'Units are holding around the barracks.') return t('hud.barracks.holdingAroundBarracks', null, 'Units are holding around the barracks.');
+    return text;
+  }
+
+  function localizeWatchtowerStatusLabel(label) {
+    if (!label) return label;
+    if (label === 'Scanning for threats') return t('hud.watchtower.scanningForThreats', null, 'Scanning for threats');
+    if (label === 'Rearming') return t('hud.watchtower.rearming', null, 'Rearming');
+    if (label === 'Scanning with reserve support') return t('hud.watchtower.scanningWithReserveSupport', null, 'Scanning with reserve support');
+    if (label.indexOf('Coordinating ') === 0) return t('hud.watchtower.coordinatingTarget', { name: label.slice('Coordinating '.length) }, 'Coordinating {name}');
+    if (label.indexOf('Tracking ') === 0) return t('hud.watchtower.trackingTarget', { name: label.slice('Tracking '.length) }, 'Tracking {name}');
+    if (label.indexOf('Coordinated fire on ') === 0) return t('hud.watchtower.coordinatedFireOn', { name: label.slice('Coordinated fire on '.length) }, 'Coordinated fire on {name}');
+    if (label.indexOf('Firing on ') === 0) return t('hud.watchtower.firingOn', { name: label.slice('Firing on '.length) }, 'Firing on {name}');
+    if (label.indexOf('Reserve line dropped ') === 0) return t('hud.watchtower.reserveLineDropped', { name: label.slice('Reserve line dropped '.length) }, 'Reserve line dropped {name}');
+    if (label.indexOf('Dropped ') === 0) return t('hud.watchtower.dropped', { name: label.slice('Dropped '.length) }, 'Dropped {name}');
+    return label;
   }
 
   function formatYieldMap(yieldMap) {
@@ -904,47 +1052,57 @@ window.GameActions = (function () {
     var riverYieldText = formatYieldMap(farming.riverYield || getFarmYieldMap(instanceUid, { watered: true, riverBoosted: true }));
     var growthSeconds = getFarmGrowthSeconds(instanceUid, farmState);
     var workerHint = getFarmWorkerHint(instanceUid, farming);
-    var statusText = 'Idle';
+    var statusText = t('hud.farm.status.idle', null, 'Idle');
     var action = storedSummary.totalAmount > 0 ? 'collect' : 'auto';
-    var actionLabel = storedSummary.totalAmount > 0 ? 'Collect' : 'Auto';
+    var actionLabel = storedSummary.totalAmount > 0
+      ? t('hud.farm.actions.collect', null, 'Collect')
+      : t('hud.farm.actions.auto', null, 'Auto');
     var detailText = workerHint;
 
     if (farmState.planted && farmState.ready) {
-      statusText = 'Ready';
-      detailText = 'Worker is about to harvest ' + currentYieldText + '.';
+      statusText = t('hud.farm.status.ready', null, 'Ready');
+      detailText = t('hud.farm.detail.aboutToHarvest', { yield: currentYieldText }, 'Worker is about to harvest {yield}.');
     } else if (farmState.planted && farmState.watered) {
-      statusText = farmState.riverBoosted ? 'River-fed' : 'Watered';
-      detailText = 'Growing ' + progressPercent + '% • ' + growthSeconds + 's cycle • ' + currentYieldText;
+      statusText = farmState.riverBoosted
+        ? t('hud.farm.status.riverFed', null, 'River-fed')
+        : t('hud.farm.status.watered', null, 'Watered');
+      detailText = t('hud.farm.detail.growing', { progress: progressPercent, seconds: growthSeconds, yield: currentYieldText }, 'Growing {progress}% • {seconds}s cycle • {yield}');
     } else if (farmState.planted) {
-      statusText = hasWaterSupport ? 'Needs Water' : 'Dry';
-      detailText = hasWaterSupport ? ('Waiting for water • ' + progressPercent + '%') : ('No water source • ' + progressPercent + '%');
+      statusText = hasWaterSupport
+        ? t('hud.farm.status.needsWater', null, 'Needs Water')
+        : t('hud.farm.status.dry', null, 'Dry');
+      detailText = hasWaterSupport
+        ? t('hud.farm.detail.waitingForWater', { progress: progressPercent }, 'Waiting for water • {progress}%')
+        : t('hud.farm.detail.noWaterSource', { progress: progressPercent }, 'No water source • {progress}%');
     } else if (hasWorkerSupport) {
-      detailText = 'Nearby resident will plant automatically.';
+      detailText = t('hud.farm.detail.nearbyResidentWillPlant', null, 'Nearby resident will plant automatically.');
     } else {
-      statusText = 'Needs Worker';
+      statusText = t('hud.farm.status.needsWorker', null, 'Needs Worker');
     }
 
     if (nightWorkBlocked) {
-      statusText = farmState.ready ? 'Night Paused' : 'Unlit at Night';
+      statusText = farmState.ready
+        ? t('hud.farm.status.nightPaused', null, 'Night Paused')
+        : t('hud.farm.status.unlitAtNight', null, 'Unlit at Night');
       if (farmState.ready) {
-        detailText = cropName + ' is ready, but workers stop here at night until a fueled campfire covers this plot.';
+        detailText = t('hud.farm.detail.readyNightPaused', { crop: cropName }, '{crop} is ready, but workers stop here at night until a fueled campfire covers this plot.');
       } else if (farmState.planted) {
-        detailText = cropName + ' keeps growing, but workers pause here at night until active campfire light reaches this plot.';
+        detailText = t('hud.farm.detail.growingNightPaused', { crop: cropName }, '{crop} keeps growing, but workers pause here at night until active campfire light reaches this plot.');
       } else {
-        detailText = 'Workers will not plant here at night until active campfire light covers this plot.';
+        detailText = t('hud.farm.detail.plantNightBlocked', null, 'Workers will not plant here at night until active campfire light covers this plot.');
       }
     }
 
     if (workerStatus && workerStatus.text) {
-      detailText = workerStatus.text;
+      detailText = localizeFarmWorkerText(workerStatus.text);
       if (farmState.planted && !farmState.ready) {
         detailText += ' • ' + progressPercent + '%';
       }
     } else if (!hasWorkerSupport && storedSummary.totalAmount <= 0) {
       if (farmState.ready) {
-        detailText = cropName + ' is ready, but ' + workerHint.toLowerCase();
+        detailText = t('hud.farm.detail.readyButNeedsWorker', { crop: cropName, hint: workerHint }, '{crop} is ready, but {hint}');
       } else if (farmState.planted) {
-        detailText = cropName + ' is waiting for worker support.';
+        detailText = t('hud.farm.detail.waitingWorkerSupport', { crop: cropName }, '{crop} is waiting for worker support.');
       }
     }
 
@@ -970,9 +1128,11 @@ window.GameActions = (function () {
       hasWaterSupport: hasWaterSupport,
       isNight: isNight,
       nightWorkBlocked: nightWorkBlocked,
-      nightLightLabel: nightWorkBlocked ? 'Outside active campfire light' : (isNight ? (nightLightCoverage.label || 'Campfire coverage active') : 'Daytime'),
+      nightLightLabel: nightWorkBlocked
+        ? t('hud.farm.nightLight.outsideCampfire', null, 'Outside active campfire light')
+        : (isNight ? localizeFarmNightLabel(nightLightCoverage.label || 'Campfire coverage active') : t('hud.farm.nightLight.daytime', null, 'Daytime')),
       supportSourceType: support.type,
-      supportSourceName: support.label,
+      supportSourceName: localizeFarmSupportLabel(support.label),
       dryYieldText: dryYieldText,
       wateredYieldText: wateredYieldText,
       riverYieldText: riverYieldText,
@@ -981,22 +1141,22 @@ window.GameActions = (function () {
       workerHint: workerHint,
       storedAmount: storedSummary.totalAmount,
       storedSummaryText: storedSummary.text,
-      workerStatusText: workerStatus ? workerStatus.text : (nightWorkBlocked ? 'Night pause: outside active campfire light' : workerHint)
+      workerStatusText: workerStatus ? localizeFarmWorkerText(workerStatus.text) : (nightWorkBlocked ? t('hud.farm.worker.nightPaused', null, 'Night pause: outside active campfire light') : workerHint)
     };
   }
 
   function plantCrop(instanceUid) {
-    GameHUD.showNotification('Residents handle planting automatically.');
+    GameHUD.showNotification(t('hud.farm.actions.plantAuto', null, 'Residents handle planting automatically.'));
     return false;
   }
 
   function waterCrop(instanceUid) {
-    GameHUD.showNotification('Residents fetch water automatically.');
+    GameHUD.showNotification(t('hud.farm.actions.waterAuto', null, 'Residents fetch water automatically.'));
     return false;
   }
 
   function harvestCrop(instanceUid) {
-    GameHUD.showNotification('Residents harvest crops automatically.');
+    GameHUD.showNotification(t('hud.farm.actions.harvestAuto', null, 'Residents harvest crops automatically.'));
     return false;
   }
 
@@ -1010,20 +1170,20 @@ window.GameActions = (function () {
     var status = getFarmPlotStatus(instanceUid);
     if (!status) return false;
 
-    GameHUD.showNotification(status.detailText || 'Worker is tending this plot.');
+    GameHUD.showNotification(status.detailText || t('hud.actions.workerTendingPlot', null, 'Worker is tending this plot.'));
     return false;
   }
 
   function advanceAge(ageId) {
     var ageEntity = GameRegistry.getEntity(ageId);
     if (!ageEntity || ageEntity.type !== 'age') {
-      GameHUD.showError("Invalid age");
+      GameHUD.showError(t('hud.actions.invalidAge', null, 'Invalid age'));
       return;
     }
 
     var balance = GameRegistry.getBalance(ageId);
     if (!balance || !balance.advanceFrom) {
-      GameHUD.showError("Cannot advance to this age");
+      GameHUD.showError(t('hud.actions.cannotAdvanceToAge', null, 'Cannot advance to this age'));
       return;
     }
 
@@ -1031,7 +1191,7 @@ window.GameActions = (function () {
 
     // Check age requirement
     if (conditions.age && GameState.getAge() !== conditions.age) {
-      GameHUD.showError("Must be in " + conditions.age + " first");
+      GameHUD.showError(t('hud.actions.mustBeInAgeFirst', { age: conditions.age }, 'Must be in {age} first'));
       return;
     }
 
@@ -1042,7 +1202,7 @@ window.GameActions = (function () {
         if (!GameState.hasSpendableResource(resId, needed)) {
           var resEntity = GameRegistry.getEntity(resId);
           var resName = resEntity ? resEntity.name : resId;
-          GameHUD.showError("Need " + needed + " " + resName);
+          GameHUD.showError(t('hud.actions.needResource', { amount: needed, name: resName }, 'Need {amount} {name}'));
           return;
         }
       }
@@ -1056,7 +1216,7 @@ window.GameActions = (function () {
         if (current < needed) {
           var buildingEntity = GameRegistry.getEntity(buildingId);
           var buildingName = buildingEntity ? buildingEntity.name : buildingId;
-          GameHUD.showError("Need " + needed + " " + buildingName + " (have " + current + ")");
+          GameHUD.showError(t('hud.actions.needBuildingCount', { amount: needed, name: buildingName, current: current }, 'Need {amount} {name} (have {current})'));
           return;
         }
       }
@@ -1077,7 +1237,7 @@ window.GameActions = (function () {
     UnlockSystem.checkAll(); // Second pass for chain dependencies
 
     GameStorage.save();
-    GameHUD.showSuccess("Advanced to " + ageEntity.name + "!");
+    GameHUD.showSuccess(t('hud.actions.advancedToAge', { name: ageEntity.name }, 'Advanced to {name}!'));
     GameHUD.renderAll();
   }
 
@@ -1088,6 +1248,7 @@ window.GameActions = (function () {
     unequip: unequip,
     saveGame: saveGame,
     resetGame: resetGame,
+    resetAllGameData: resetAllGameData,
     advanceAge: advanceAge,
     upgrade: upgrade,
     collectFromBuilding: collectFromBuilding,
@@ -1110,11 +1271,11 @@ window.GameActions = (function () {
       if (ResearchSystem.research(techId)) {
         var techEntity = GameRegistry.getEntity(techId);
         GameStorage.save();
-        GameHUD.showSuccess('Researched: ' + (techEntity ? techEntity.name : techId));
+        GameHUD.showSuccess(t('hud.actions.researched', { name: techEntity ? techEntity.name : techId }, 'Researched: {name}'));
         GameHUD.renderAll();
         GameHUD.updateModal();
       } else {
-        GameHUD.showError('Cannot research this technology');
+        GameHUD.showError(t('hud.actions.cannotResearchTech', null, 'Cannot research this technology'));
       }
     }
   };
@@ -1438,8 +1599,9 @@ window.GameActions = (function () {
 
   // Save game immediately when page is closing/reloading
   window.addEventListener('beforeunload', function() {
-    if (window.GameStorage && window.GameState) {
-      GameStorage.save();
+    if (window.GameStorage && window.GameState && (!GameStorage.isPersistenceSuspended || !GameStorage.isPersistenceSuspended())) {
+      if (GameStorage.saveNow) GameStorage.saveNow();
+      else GameStorage.save();
     }
   });
 })();
