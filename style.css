@@ -1413,6 +1413,9 @@ body.debug-world-labels-hidden #object-hp-bar {
   overflow-wrap: anywhere;
   word-break: break-word;
 }
+.tutorial-bubble {
+  padding-right: 42px;
+}
 .world-speech-bubble {
   background: rgba(255, 240, 233, 0.97);
   color: #2a140f;
@@ -1438,6 +1441,23 @@ body.debug-world-labels-hidden #object-hp-bar {
 }
 .world-speech-bubble::after {
   border-top-color: rgba(255, 240, 233, 0.97);
+}
+.tutorial-bubble-arrow {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  min-width: 22px;
+  text-align: center;
+  font-size: 20px;
+  line-height: 1;
+  color: #b05800;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.45);
+  opacity: 0;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.tutorial-bubble.has-direction-arrow .tutorial-bubble-arrow {
+  opacity: 1;
 }
 .tut-key {
   display: inline-block;
@@ -1708,6 +1728,7 @@ body.debug-world-labels-hidden #object-hp-bar {
   width: 62px;
   min-height: 62px;
   padding: 7px 5px;
+  pointer-events: auto;
   border-radius: 14px;
   border: 1px solid rgba(255,255,255,0.08);
   background: rgba(8, 12, 24, 0.88);
@@ -2805,6 +2826,13 @@ body.debug-world-labels-hidden #object-hp-bar {
   border: 1px solid rgba(255,255,255,0.08);
   background: rgba(15, 52, 96, 0.36);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.management-card.focus-target {
+  border-color: rgba(240, 165, 0, 0.88);
+  box-shadow: 0 0 0 2px rgba(240, 165, 0, 0.2), 0 18px 36px rgba(0,0,0,0.26);
+  transform: translateY(-2px);
 }
 
 .management-card.ready {
@@ -3058,14 +3086,62 @@ body.debug-world-labels-hidden #object-hp-bar {
 
 /* Tooltip system */
 .tooltip-container { position: relative; }
+.quickbar-tooltip-container {
+  display: flex;
+}
 .tooltip-content {
   display: none; position: absolute; z-index: 10000;
-  background: var(--bg-secondary); border: 1px solid var(--accent-gold);
-  padding: 8px 12px; border-radius: 6px; font-size: 12px;
-  max-width: 200px; bottom: 100%; left: 50%; transform: translateX(-50%);
+  background: rgba(8, 12, 24, 0.96); border: 1px solid rgba(240, 165, 0, 0.55);
+  padding: 10px 12px; border-radius: 10px; font-size: 12px;
+  min-width: 190px; max-width: 240px; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
   box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  color: var(--text-primary);
+  line-height: 1.45;
+}
+.tooltip-content::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 8px solid rgba(8, 12, 24, 0.96);
 }
 .tooltip-container:hover .tooltip-content { display: block; }
+.tooltip-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-gold);
+  margin-bottom: 6px;
+}
+.tooltip-copy {
+  color: var(--text-secondary);
+}
+.tooltip-copy + .tooltip-copy {
+  margin-top: 6px;
+}
+.tooltip-resource-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.tooltip-resource-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-primary);
+}
+.tooltip-resource-row strong {
+  font-size: 11px;
+}
+.tooltip-resource-row span {
+  color: #ffb18f;
+  white-space: nowrap;
+}
 
 @media (max-width: 1100px) {
   .modal-container {

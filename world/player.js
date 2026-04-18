@@ -31,10 +31,11 @@ window.GamePlayer = (function () {
     try { return JSON.parse(localStorage.getItem('evolution_tutorial_v1') || '{}'); } catch(e) { return {}; }
   })();
   _tutState.seenResources = _tutState.seenResources || {};
-  var _tutBubbleEl = null, _tutBubbleTextEl = null;
+  var _tutBubbleEl = null, _tutBubbleTextEl = null, _tutBubbleArrowEl = null;
   var _tutKey = null;
   var _tutScreenPt = {};
   var _speechScanScreenPt = {};
+  var _directionTargetScreenPt = {};
   var _runtimeSpeech = null;
   var _worldSpeechEl = null, _worldSpeechTextEl = null;
   var _worldSpeechScreenPt = {};
@@ -314,6 +315,62 @@ window.GamePlayer = (function () {
   function _ensurePlayerSpeechElements() {
     if (!_tutBubbleEl) _tutBubbleEl = document.getElementById('tutorial-bubble');
     if (!_tutBubbleTextEl) _tutBubbleTextEl = document.getElementById('tutorial-bubble-text');
+    if (!_tutBubbleArrowEl) _tutBubbleArrowEl = document.getElementById('tutorial-bubble-arrow');
+  }
+
+  function _setPlayerSpeechDirectionArrow(glyph) {
+    _ensurePlayerSpeechElements();
+    if (!_tutBubbleEl || !_tutBubbleArrowEl) return;
+
+    if (!glyph) {
+      _tutBubbleEl.classList.remove('has-direction-arrow');
+      _tutBubbleArrowEl.textContent = '';
+      return;
+    }
+
+    _tutBubbleArrowEl.textContent = glyph;
+    _tutBubbleEl.classList.add('has-direction-arrow');
+  }
+
+  function _getDirectionArrowGlyph(deltaX, deltaY) {
+    if (Math.abs(deltaX) < 6 && Math.abs(deltaY) < 6) return '';
+
+    var directions = ['→', '↗', '↑', '↖', '←', '↙', '↓', '↘'];
+    var angle = Math.atan2(-deltaY, deltaX);
+    var sector = Math.round(angle / (Math.PI / 4));
+    var index = (sector % 8 + 8) % 8;
+    return directions[index];
+  }
+
+  function _updatePlayerSpeechDirectionArrow(playerScreenPoint) {
+    if (!_runtimeSpeech || !_runtimeSpeech.hintObjectId || !_tutKey || _isSpeechSuppressedByUi()) {
+      _setPlayerSpeechDirectionArrow('');
+      return;
+    }
+
+    if (!window.GameScene || !GameScene.projectWorldToScreen || !window.GameEntities || !GameEntities.getMeshForObjectId) {
+      _setPlayerSpeechDirectionArrow('');
+      return;
+    }
+
+    var mesh = GameEntities.getMeshForObjectId(_runtimeSpeech.hintObjectId);
+    if (!mesh || !mesh.visible || (mesh.userData && mesh.userData._hidden)) {
+      _setPlayerSpeechDirectionArrow('');
+      return;
+    }
+
+    var targetPoint = GameScene.projectWorldToScreen(
+      mesh.position.x,
+      (mesh.position.y || 0) + 1.1,
+      mesh.position.z,
+      _directionTargetScreenPt
+    );
+    if (!targetPoint || targetPoint.z >= 1) {
+      _setPlayerSpeechDirectionArrow('');
+      return;
+    }
+
+    _setPlayerSpeechDirectionArrow(_getDirectionArrowGlyph(targetPoint.x - playerScreenPoint.x, targetPoint.y - playerScreenPoint.y));
   }
 
   function _ensureWorldSpeechElements() {
@@ -342,6 +399,7 @@ window.GamePlayer = (function () {
 
     if (!_tutKey || _isSpeechSuppressedByUi()) {
       _tutBubbleEl.className = 'tutorial-bubble';
+      _setPlayerSpeechDirectionArrow('');
       return;
     }
 
@@ -360,6 +418,7 @@ window.GamePlayer = (function () {
       _tutBubbleEl.className = 'tutorial-bubble';
       _tutBubbleEl.dataset.needsReplay = '0';
     }
+    _setPlayerSpeechDirectionArrow('');
     if (_tutKey === 'lag' || key === 'lag') {
       _setLagAudioActive(false, _getSpeechValue('tutorials.lag.audioPath', ''));
     }
@@ -382,13 +441,14 @@ window.GamePlayer = (function () {
     }
   }
 
-  function _queuePlayerSpeech(key, config, tokens) {
+  function _queuePlayerSpeech(key, config, tokens, options) {
     if (!config || !config.text) return false;
 
     _runtimeSpeech = {
       key: key,
       html: _formatSpeechText(config.text, tokens),
-      remaining: _getSpeechDuration(config, 2.5)
+      remaining: _getSpeechDuration(config, 2.5),
+      hintObjectId: options && options.hintObjectId ? options.hintObjectId : null
     };
     _showTut(_runtimeSpeech.key, _runtimeSpeech.html);
     _playSpeechAudio(config.audioPath);
@@ -489,6 +549,7 @@ window.GamePlayer = (function () {
         if (!bestCandidate || distanceSq < bestCandidate.distanceSq) {
           bestCandidate = {
             resId: resId,
+            objectId: objData.id,
             name: resourceEntity ? resourceEntity.name : resId,
             distanceSq: distanceSq
           };
@@ -499,7 +560,7 @@ window.GamePlayer = (function () {
     if (!bestCandidate) return;
     _tutState.seenResources[bestCandidate.resId] = true;
     _saveTut();
-    _queuePlayerSpeech('resourceDiscovery', config, { name: bestCandidate.name });
+    _queuePlayerSpeech('resourceDiscovery', config, { name: bestCandidate.name }, { hintObjectId: bestCandidate.objectId });
   }
 
   function _showWorldSpeech(key, html) {
@@ -778,11 +839,13 @@ window.GamePlayer = (function () {
     _ensurePlayerSpeechElements();
     if (!_tutKey || !_tutBubbleEl) {
       if (_tutBubbleEl) _tutBubbleEl.className = 'tutorial-bubble';
+      _setPlayerSpeechDirectionArrow('');
       return;
     }
 
     if (_isSpeechSuppressedByUi()) {
       _tutBubbleEl.className = 'tutorial-bubble';
+      _setPlayerSpeechDirectionArrow('');
       return;
     }
 
@@ -795,8 +858,10 @@ window.GamePlayer = (function () {
         _applyPlayerBubbleVisibility();
         _tutBubbleEl.style.left = Math.round(pt.x) + 'px';
         _tutBubbleEl.style.top = Math.round(pt.y - 10) + 'px';
+        _updatePlayerSpeechDirectionArrow(pt);
       } else {
         _tutBubbleEl.className = 'tutorial-bubble';
+        _setPlayerSpeechDirectionArrow('');
       }
     }
   }

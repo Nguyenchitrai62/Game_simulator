@@ -182,6 +182,7 @@
   <!-- Tutorial Speech Bubble (above player head) -->
   <div class="tutorial-bubble" id="tutorial-bubble">
     <span id="tutorial-bubble-text"></span>
+    <span class="tutorial-bubble-arrow" id="tutorial-bubble-arrow" aria-hidden="true"></span>
   </div>
 
   <!-- World Speech Bubble (above animals / world objects) -->
@@ -231,8 +232,8 @@
     <button class="quickbar-backpack" id="quickbar-backpack" onclick="if (GameHUD.isModalActive()) { GameHUD.closeModal(); } else { GameHUD.openModal(); }">
       <span class="quickbar-backpack-icon">🎒</span>
       <span class="quickbar-backpack-copy">
-        <span class="quickbar-backpack-label">Bag</span>
-        <span class="quickbar-backpack-hint">B</span>
+        <span class="quickbar-backpack-label" data-i18n="dom.quickbarBagLabel">Bag</span>
+        <span class="quickbar-backpack-hint" data-i18n="dom.quickbarBagHint">B</span>
       </span>
     </button>
   </div>
@@ -245,15 +246,15 @@
         <div class="character-preview" id="character-preview">
           <canvas id="character-canvas" width="300" height="400"></canvas>
         </div>
-        <div class="character-name">Player</div>
+        <div class="character-name" data-i18n="dom.playerName">Player</div>
         
         <div class="equipment-section">
-          <h3>Equipment</h3>
+          <h3 data-i18n="dom.equipment">Equipment</h3>
           <div class="equipment-slots" id="modal-equipment-slots"></div>
         </div>
         
         <div class="inventory-section">
-          <h3>Inventory</h3>
+          <h3 data-i18n="dom.inventory">Inventory</h3>
           <div class="inventory-grid" id="modal-inventory-grid"></div>
         </div>
       </div>
@@ -271,19 +272,19 @@
           </div>
           <div class="modal-tabs">
             <button class="modal-tab active" data-tab="resources" onclick="GameHUD.switchModalTab('resources')">
-              <span class="tab-icon">💰</span> Resources
+              <span class="tab-icon">💰</span> <span data-i18n="dom.modalTab.resources">Resources</span>
             </button>
             <button class="modal-tab" data-tab="build" onclick="GameHUD.switchModalTab('build')">
-              <span class="tab-icon">🏗️</span> Build
+              <span class="tab-icon">🏗️</span> <span data-i18n="dom.modalTab.build">Build</span>
             </button>
             <button class="modal-tab" data-tab="craft" onclick="GameHUD.switchModalTab('craft')">
-              <span class="tab-icon">⚒️</span> Craft
+              <span class="tab-icon">⚒️</span> <span data-i18n="dom.modalTab.craft">Craft</span>
             </button>
             <button class="modal-tab" data-tab="stats" onclick="GameHUD.switchModalTab('stats')">
-              <span class="tab-icon">📊</span> Stats
+              <span class="tab-icon">📊</span> <span data-i18n="dom.modalTab.stats">Stats</span>
             </button>
             <button class="modal-tab" data-tab="research" onclick="GameHUD.switchModalTab('research')">
-              <span class="tab-icon">🔬</span> Research
+              <span class="tab-icon">🔬</span> <span data-i18n="dom.modalTab.research">Research</span>
             </button>
           </div>
         </div>
@@ -340,6 +341,7 @@
   <script src="content/expansion_military_defense.js"></script>
   <script src="content/expansion_hunt_prey.js"></script>
   <script src="balance/balance.js"></script>
+  <script src="ui/i18n.js"></script>
 
   <!-- Engine Core -->
   <script src="engine/registry.js"></script>

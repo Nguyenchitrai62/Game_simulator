@@ -236,6 +236,9 @@ try {
     var _qualityPanelOpen = false;
     var _qualitySettingsTab = 'graphics';
     var _qualitySettingsUnsubscribe = null;
+    var _languageUnsubscribe = null;
+    var _modalFocusTarget = null;
+    var _modalFocusTimer = null;
     var _qualityPromptState = {
       visible: false,
       suggestedPreset: null,
@@ -258,6 +261,13 @@ try {
         label: 'Graphics',
         title: 'Graphics Presets',
         description: 'Choose render quality here only. This tab should not directly manage the switches in the tabs below.'
+      },
+      {
+        id: 'language',
+        kicker: 'Text',
+        label: 'Language',
+        title: 'Display Language',
+        description: 'Control HUD language, localized content names, and speech text from one place.'
       },
       {
         id: 'overlay',
@@ -328,6 +338,142 @@ try {
       return isHudVisible() && isDebugSettingEnabled('notifications');
     }
 
+    function formatLocalizedText(text, tokens) {
+      var output = String(text == null ? '' : text);
+      if (!tokens) return output;
+
+      for (var tokenName in tokens) {
+        if (!tokens.hasOwnProperty(tokenName)) continue;
+        output = output.split('{' + tokenName + '}').join(String(tokens[tokenName]));
+      }
+
+      return output;
+    }
+
+    function t(path, tokens, fallback) {
+      if (window.GameI18n && GameI18n.t) {
+        return GameI18n.t(path, tokens, fallback);
+      }
+      if (fallback !== undefined) return formatLocalizedText(fallback, tokens);
+      return formatLocalizedText(path, tokens);
+    }
+
+    function getQuickbarModeLabel(mode) {
+      return t('hud.quickbar.mode.' + mode, null, mode === 'craft' ? 'Craft' : 'Build');
+    }
+
+    function getMissingResourceEntries(resourceMap) {
+      var entries = [];
+      if (!resourceMap) return entries;
+
+      for (var resId in resourceMap) {
+        if (!resourceMap.hasOwnProperty(resId)) continue;
+        var needed = Number(resourceMap[resId]) || 0;
+        var have = GameState.getSpendableResource(resId);
+        var missing = Math.max(0, needed - have);
+        if (missing <= 0) continue;
+        var entity = GameRegistry.getEntity(resId);
+        entries.push({
+          id: resId,
+          name: entity ? entity.name : resId,
+          needed: needed,
+          have: have,
+          missing: missing
+        });
+      }
+
+      return entries;
+    }
+
+    function buildQuickbarMissingTooltipHtml(item) {
+      if (!item || !item.missingResources || !item.missingResources.length) return '';
+
+      var title = item.modalTab === 'build'
+        ? t('hud.quickbar.tooltip.buildTitle', null, 'Missing materials to build')
+        : t('hud.quickbar.tooltip.craftTitle', null, 'Missing materials to craft');
+      var actionHint = item.modalTab === 'build'
+        ? t('hud.quickbar.tooltip.openBuild', null, 'Click to open the Build tab')
+        : t('hud.quickbar.tooltip.openCraft', null, 'Click to open the Craft tab');
+      var html = '<div class="tooltip-content">';
+      html += '<div class="tooltip-title">' + escapeHtml(title) + '</div>';
+      html += '<div class="tooltip-resource-list">';
+
+      item.missingResources.forEach(function(entry) {
+        html += '<div class="tooltip-resource-row">';
+        html += '<strong>' + escapeHtml(entry.name) + '</strong>';
+        html += '<span>' + escapeHtml(t('hud.quickbar.tooltip.needMore', { amount: Math.ceil(entry.missing) }, 'Need {amount} more')) + '</span>';
+        html += '</div>';
+      });
+
+      html += '</div>';
+      html += '<div class="tooltip-copy">' + escapeHtml(actionHint) + '</div>';
+      html += '</div>';
+      return html;
+    }
+
+    function clearModalFocusHighlight() {
+      if (_modalFocusTimer) {
+        clearTimeout(_modalFocusTimer);
+        _modalFocusTimer = null;
+      }
+
+      var focusedCards = document.querySelectorAll('.management-card.focus-target');
+      for (var i = 0; i < focusedCards.length; i++) {
+        focusedCards[i].classList.remove('focus-target');
+      }
+    }
+
+    function setModalFocusTarget(tabName, focusId) {
+      if (!tabName || !focusId) {
+        _modalFocusTarget = null;
+        return;
+      }
+
+      _modalFocusTarget = {
+        tab: tabName,
+        id: focusId
+      };
+    }
+
+    function applyModalFocusTarget() {
+      if (!_modalFocusTarget || !_modalActive || _modalFocusTarget.tab !== _modalTab) return;
+
+      var panel = document.getElementById('modal-panel-' + _modalTab);
+      if (!panel) return;
+
+      var cards = panel.querySelectorAll('[data-modal-focus-id]');
+      var targetCard = null;
+      for (var i = 0; i < cards.length; i++) {
+        if (cards[i].getAttribute('data-modal-focus-id') === _modalFocusTarget.id) {
+          targetCard = cards[i];
+          break;
+        }
+      }
+
+      if (!targetCard) return;
+
+      clearModalFocusHighlight();
+      targetCard.classList.add('focus-target');
+      if (targetCard.scrollIntoView) {
+        targetCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+
+      _modalFocusTimer = setTimeout(function() {
+        targetCard.classList.remove('focus-target');
+        _modalFocusTimer = null;
+      }, 2200);
+      _modalFocusTarget = null;
+    }
+
+    function openModalAtTarget(tabName, focusId) {
+      setModalFocusTarget(tabName, focusId);
+      if (_modalActive) {
+        switchModalTab(tabName);
+      } else {
+        openModal({ tab: tabName, focusId: focusId });
+      }
+    }
+
     function getQualityConfigValue(path, fallbackValue) {
       return (window.GameQualitySettings && GameQualitySettings.getConfigValue) ? GameQualitySettings.getConfigValue(path, fallbackValue) : fallbackValue;
     }
@@ -385,47 +531,69 @@ try {
     function getQualitySettingsTabMeta(tabId) {
       var resolvedTabId = normalizeQualitySettingsTab(tabId);
       for (var i = 0; i < QUALITY_SETTINGS_TABS.length; i++) {
-        if (QUALITY_SETTINGS_TABS[i].id === resolvedTabId) return QUALITY_SETTINGS_TABS[i];
+        if (QUALITY_SETTINGS_TABS[i].id === resolvedTabId) {
+          return {
+            id: QUALITY_SETTINGS_TABS[i].id,
+            kicker: t('hud.settings.tabs.' + resolvedTabId + '.kicker', null, QUALITY_SETTINGS_TABS[i].kicker),
+            label: t('hud.settings.tabs.' + resolvedTabId + '.label', null, QUALITY_SETTINGS_TABS[i].label),
+            title: t('hud.settings.tabs.' + resolvedTabId + '.title', null, QUALITY_SETTINGS_TABS[i].title),
+            description: t('hud.settings.tabs.' + resolvedTabId + '.description', null, QUALITY_SETTINGS_TABS[i].description)
+          };
+        }
       }
-      return QUALITY_SETTINGS_TABS[0];
+      return {
+        id: QUALITY_SETTINGS_TABS[0].id,
+        kicker: t('hud.settings.tabs.graphics.kicker', null, QUALITY_SETTINGS_TABS[0].kicker),
+        label: t('hud.settings.tabs.graphics.label', null, QUALITY_SETTINGS_TABS[0].label),
+        title: t('hud.settings.tabs.graphics.title', null, QUALITY_SETTINGS_TABS[0].title),
+        description: t('hud.settings.tabs.graphics.description', null, QUALITY_SETTINGS_TABS[0].description)
+      };
     }
 
     function getQualitySettingsGroup(tabId) {
       return DEBUG_SETTINGS_GROUPS[normalizeQualitySettingsTab(tabId)] || null;
     }
 
+    function getLocalizedQualityPresetLabel(presetId, fallbackLabel) {
+      return t('hud.settings.graphics.presets.' + presetId + '.label', null, fallbackLabel || presetId);
+    }
+
+    function getLocalizedQualityPresetCopy(presetId, fallbackCopy) {
+      return t('hud.settings.graphics.presets.' + presetId + '.summary', null, fallbackCopy || '');
+    }
+
     function getQualityPresetAudience(presetId) {
-      if (presetId === 'high') return 'Stronger desktops';
-      if (presetId === 'medium') return 'Balanced default';
-      if (presetId === 'low') return 'Older laptops';
-      return 'Adaptive profile';
+      if (presetId === 'high') return t('hud.settings.graphics.audience.high', null, 'Stronger desktops');
+      if (presetId === 'medium') return t('hud.settings.graphics.audience.medium', null, 'Balanced default');
+      if (presetId === 'low') return t('hud.settings.graphics.audience.low', null, 'Older laptops');
+      return t('hud.settings.graphics.audience.adaptive', null, 'Adaptive profile');
     }
 
     function getQualityShadowLabel(config) {
-      if (!config || !config.scene || !config.scene.shadows) return 'Shadows Off';
-      if (config.scene.shadowMapSize >= 2048) return 'Shadows High';
-      if (config.scene.shadowMapSize >= 1024) return 'Shadows Medium';
-      return 'Shadows On';
+      if (!config || !config.scene || !config.scene.shadows) return t('hud.settings.graphics.pills.shadowsOff', null, 'Shadows Off');
+      if (config.scene.shadowMapSize >= 2048) return t('hud.settings.graphics.pills.shadowsHigh', null, 'Shadows High');
+      if (config.scene.shadowMapSize >= 1024) return t('hud.settings.graphics.pills.shadowsMedium', null, 'Shadows Medium');
+      return t('hud.settings.graphics.pills.shadowsOn', null, 'Shadows On');
     }
 
     function getQualityWeatherLabel(config) {
-      if (!config || !config.debug || !config.debug.weather || !config.weather || !config.weather.rainDropCount) return 'Weather Off';
-      if (config.weather.rainDropCount >= 600) return 'Weather Full';
-      if (config.weather.rainDropCount >= 300) return 'Weather Light';
-      return 'Weather Minimal';
+      if (!config || !config.debug || !config.debug.weather || !config.weather || !config.weather.rainDropCount) return t('hud.settings.graphics.pills.weatherOff', null, 'Weather Off');
+      if (config.weather.rainDropCount >= 600) return t('hud.settings.graphics.pills.weatherFull', null, 'Weather Full');
+      if (config.weather.rainDropCount >= 300) return t('hud.settings.graphics.pills.weatherLight', null, 'Weather Light');
+      return t('hud.settings.graphics.pills.weatherMinimal', null, 'Weather Minimal');
     }
 
     function getQualityOverlayLabel(config) {
-      if (!config || !config.debug || !config.debug.worldLabels || !config.scene) return 'Overlays Minimal';
-      if (config.scene.nodeHpLabelDistance >= 999) return 'Overlays Full';
-      return 'Overlays Balanced';
+      if (!config || !config.debug || !config.debug.worldLabels || !config.scene) return t('hud.settings.graphics.pills.overlaysMinimal', null, 'Overlays Minimal');
+      if (config.scene.nodeHpLabelDistance >= 999) return t('hud.settings.graphics.pills.overlaysFull', null, 'Overlays Full');
+      return t('hud.settings.graphics.pills.overlaysBalanced', null, 'Overlays Balanced');
     }
 
     function getQualityRefreshLabel(config) {
-      if (!config || !config.minimap) return 'Map Refresh Standard';
-      if (config.minimap.fullRefreshMs <= 150) return 'Map Refresh Fast';
-      if (config.minimap.fullRefreshMs <= 200) return 'Map Refresh Balanced';
-      return 'Map Refresh Eco';
+      if (!config || !config.minimap) return t('hud.settings.graphics.pills.mapRefreshStandard', null, 'Map Refresh Standard');
+      if (config.minimap.fullRefreshMs <= 150) return t('hud.settings.graphics.pills.mapRefreshFast', null, 'Map Refresh Fast');
+      if (config.minimap.fullRefreshMs <= 200) return t('hud.settings.graphics.pills.mapRefreshBalanced', null, 'Map Refresh Balanced');
+      return t('hud.settings.graphics.pills.mapRefreshEco', null, 'Map Refresh Eco');
     }
 
     function buildQualityPillListHtml(presetId) {
@@ -437,9 +605,9 @@ try {
       var pills = [
         getQualityShadowLabel(config),
         getQualityWeatherLabel(config),
-        debugConfig.particles ? 'Particles On' : 'Particles Off',
+        debugConfig.particles ? t('hud.settings.graphics.pills.particlesOn', null, 'Particles On') : t('hud.settings.graphics.pills.particlesOff', null, 'Particles Off'),
         getQualityOverlayLabel(config),
-        'Render Scale ' + Math.round((sceneConfig.maxPixelRatioCap || 1) * 100) + '%',
+        t('hud.settings.graphics.pills.renderScale', { percent: Math.round((sceneConfig.maxPixelRatioCap || 1) * 100) }, 'Render Scale {percent}%'),
         getQualityRefreshLabel(config)
       ];
 
@@ -453,11 +621,11 @@ try {
 
     function buildQualitySettingsSidebarHtml(activeTabId) {
       var html = '<aside class="quality-settings-sidebar">';
-      html += '<div class="quality-settings-sidebar-label">Settings Sections</div>';
+      html += '<div class="quality-settings-sidebar-label">' + escapeHtml(t('hud.settings.sidebar.label', null, 'Settings Sections')) + '</div>';
       html += '<div class="quality-settings-tab-nav">';
 
       for (var i = 0; i < QUALITY_SETTINGS_TABS.length; i++) {
-        var tab = QUALITY_SETTINGS_TABS[i];
+        var tab = getQualitySettingsTabMeta(QUALITY_SETTINGS_TABS[i].id);
         var tabClass = 'quality-settings-tab-button';
         if (tab.id === activeTabId) tabClass += ' active';
         html += '<button class="' + tabClass + '" type="button" onclick="GameHUD.switchQualitySettingsTab(\'' + tab.id + '\')">' +
@@ -467,7 +635,7 @@ try {
       }
 
       html += '</div>';
-      html += '<div class="quality-settings-sidebar-note">Use the sidebar to separate graphics presets from overlay, FX, and simulation switches.</div>';
+      html += '<div class="quality-settings-sidebar-note">' + escapeHtml(t('hud.settings.sidebar.note', null, 'Use the sidebar to separate graphics presets, language, overlay, FX, and simulation switches.')) + '</div>';
       html += '</aside>';
       return html;
     }
@@ -476,77 +644,85 @@ try {
       var group = getQualitySettingsGroup(tabId);
       if (!group) return '';
 
+      var groupTitle = t('hud.settings.runtime.' + tabId + '.title', null, group.title);
+      var groupCopy = t('hud.settings.runtime.' + tabId + '.copy', null, group.copy || '');
+
       var html = '<div class="quality-settings-body quality-settings-body-runtime">';
       html += '<section class="quality-settings-section">';
       html += '<div class="quality-settings-section-head">' +
         '<div>' +
-          '<div class="quality-settings-section-kicker">' + escapeHtml(group.title) + '</div>' +
-          '<div class="quality-settings-section-title">' + escapeHtml(group.title) + ' Controls</div>' +
+          '<div class="quality-settings-section-kicker">' + escapeHtml(groupTitle) + '</div>' +
+          '<div class="quality-settings-section-title">' + escapeHtml(t('hud.settings.runtime.controlsTitle', { title: groupTitle }, '{title} Controls')) + '</div>' +
         '</div>' +
       '</div>';
-      html += '<div class="quality-settings-copy">' + escapeHtml(group.copy || '') + '</div>';
+      html += '<div class="quality-settings-copy">' + escapeHtml(groupCopy) + '</div>';
       html += '<div class="quality-settings-toggle-list">';
 
       for (var itemIndex = 0; itemIndex < group.items.length; itemIndex++) {
         var item = group.items[itemIndex];
+        var itemLabel = t('hud.settings.runtime.' + tabId + '.items.' + item.key + '.label', null, item.label);
+        var itemHint = t('hud.settings.runtime.' + tabId + '.items.' + item.key + '.hint', null, item.hint);
         html += '<label class="debug-setting-row">' +
           '<span class="debug-setting-copy-block">' +
-            '<span class="debug-setting-name">' + escapeHtml(item.label) + '</span>' +
-            '<span class="debug-setting-hint">' + escapeHtml(item.hint) + '</span>' +
+            '<span class="debug-setting-name">' + escapeHtml(itemLabel) + '</span>' +
+            '<span class="debug-setting-hint">' + escapeHtml(itemHint) + '</span>' +
           '</span>' +
           '<input type="checkbox" data-settings-toggle="' + item.key + '"' + (isDebugSettingEnabled(item.key) ? ' checked' : '') + '>' +
         '</label>';
       }
 
       html += '</div>';
-      html += '<div class="quality-settings-toolbar"><button class="debug-settings-reset" type="button" data-settings-reset="true">Reset Runtime Toggles</button></div>';
-      html += '<div class="quality-settings-compact-note">Changes here only affect this runtime category. Graphics presets stay isolated in the Graphics tab.</div>';
+      html += '<div class="quality-settings-toolbar"><button class="debug-settings-reset" type="button" data-settings-reset="true">' + escapeHtml(t('hud.settings.runtime.reset', null, 'Reset Runtime Toggles')) + '</button></div>';
+      html += '<div class="quality-settings-compact-note">' + escapeHtml(t('hud.settings.runtime.note', null, 'Changes here only affect this runtime category. Graphics and Language stay in their own tabs.')) + '</div>';
       html += '</section>';
       html += '</div>';
       return html;
     }
 
     function buildQualityGraphicsTabHtml(snapshot, current) {
-      var currentCopy = current.summary || current.description || 'Choose how much visual detail and rendering cost the game should target.';
+      var currentLabel = getLocalizedQualityPresetLabel(current.id, current.label || 'High');
+      var currentCopy = getLocalizedQualityPresetCopy(current.id, current.summary || current.description || t('hud.settings.graphics.current.copy', null, 'Choose how much visual detail and rendering cost the game should target.'));
       var html = '<div class="quality-settings-body quality-settings-body-graphics">';
       html += '<section class="quality-settings-section quality-settings-section-current">';
       html += '<div class="quality-settings-section-head">' +
         '<div>' +
-          '<div class="quality-settings-section-kicker">Current Profile</div>' +
-          '<div class="quality-settings-section-title">' + escapeHtml((current.label || 'High') + ' preset active') + '</div>' +
+          '<div class="quality-settings-section-kicker">' + escapeHtml(t('hud.settings.graphics.current.kicker', null, 'Current Profile')) + '</div>' +
+          '<div class="quality-settings-section-title">' + escapeHtml(t('hud.settings.graphics.current.title', { name: currentLabel }, '{name} preset active')) + '</div>' +
         '</div>' +
-        '<div class="quality-settings-status">Live</div>' +
+        '<div class="quality-settings-status">' + escapeHtml(t('hud.settings.common.live', null, 'Live')) + '</div>' +
       '</div>';
       html += '<div class="quality-settings-copy">' + escapeHtml(currentCopy) + '</div>';
       html += buildQualityPillListHtml(current.id);
-      html += '<div class="quality-settings-note">Changing a preset here updates graphics quality only in this Settings flow. Overlay, World FX, and Simulation stay in their own tabs.</div>';
+      html += '<div class="quality-settings-note">' + escapeHtml(t('hud.settings.graphics.current.note', null, 'Changing a preset here updates graphics quality only in this Settings flow. Language, Overlay, World FX, and Simulation stay in their own tabs.')) + '</div>';
       html += '<div class="quality-settings-inline-meta">' +
-        '<div class="quality-settings-inline-item"><span class="quality-settings-inline-label">Shortcut</span><strong>F9</strong></div>' +
-        '<div class="quality-settings-inline-item"><span class="quality-settings-inline-label">Assist</span><strong>Opt-in only</strong></div>' +
+        '<div class="quality-settings-inline-item"><span class="quality-settings-inline-label">' + escapeHtml(t('hud.settings.common.shortcut', null, 'Shortcut')) + '</span><strong>F9</strong></div>' +
+        '<div class="quality-settings-inline-item"><span class="quality-settings-inline-label">' + escapeHtml(t('hud.settings.common.assist', null, 'Assist')) + '</span><strong>' + escapeHtml(t('hud.settings.common.optInOnly', null, 'Opt-in only')) + '</strong></div>' +
       '</div>';
       html += '</section>';
 
       html += '<section class="quality-settings-section quality-settings-section-presets">';
       html += '<div class="quality-settings-section-head">' +
         '<div>' +
-          '<div class="quality-settings-section-kicker">Graphics Preset</div>' +
-          '<div class="quality-settings-section-title">Choose the look and performance target</div>' +
+          '<div class="quality-settings-section-kicker">' + escapeHtml(t('hud.settings.graphics.presets.kicker', null, 'Graphics Preset')) + '</div>' +
+          '<div class="quality-settings-section-title">' + escapeHtml(t('hud.settings.graphics.presets.title', null, 'Choose the look and performance target')) + '</div>' +
         '</div>' +
       '</div>';
       html += '<div class="quality-settings-choice-list">';
       for (var i = 0; i < snapshot.presets.length; i++) {
         var preset = snapshot.presets[i];
+        var presetLabel = getLocalizedQualityPresetLabel(preset.id, preset.label);
+        var presetCopy = getLocalizedQualityPresetCopy(preset.id, preset.summary || preset.description || '');
         var rowClass = 'quality-choice-row';
         if (preset.id === snapshot.preset) rowClass += ' active';
         html += '<button class="' + rowClass + '" type="button" onclick="GameHUD.applyQualityPreset(\'' + preset.id + '\')">' +
           '<span class="quality-choice-copy">' +
             '<span class="quality-choice-name-row">' +
-              '<span class="quality-choice-name">' + escapeHtml(preset.label) + '</span>' +
+              '<span class="quality-choice-name">' + escapeHtml(presetLabel) + '</span>' +
               '<span class="quality-choice-badge">' + escapeHtml(getQualityPresetAudience(preset.id)) + '</span>' +
             '</span>' +
-            '<span class="quality-choice-hint">' + escapeHtml(preset.summary || preset.description || '') + '</span>' +
+            '<span class="quality-choice-hint">' + escapeHtml(presetCopy) + '</span>' +
           '</span>' +
-          '<span class="quality-choice-state">' + (preset.id === snapshot.preset ? 'Active' : 'Apply') + '</span>' +
+          '<span class="quality-choice-state">' + escapeHtml(preset.id === snapshot.preset ? t('hud.settings.common.active', null, 'Active') : t('hud.settings.common.apply', null, 'Apply')) + '</span>' +
         '</button>';
       }
       html += '</div>';
@@ -555,16 +731,72 @@ try {
       return html;
     }
 
+    function buildLanguageSettingsTabHtml() {
+      if (!window.GameI18n || !GameI18n.getLanguages) return '';
+
+      var currentLanguage = GameI18n.getLanguage ? GameI18n.getLanguage() : 'en';
+      var currentMeta = GameI18n.getLanguageMeta ? GameI18n.getLanguageMeta(currentLanguage) : { nativeLabel: currentLanguage, label: currentLanguage };
+      var languages = GameI18n.getLanguages();
+      var html = '<div class="quality-settings-body quality-settings-body-language">';
+      html += '<section class="quality-settings-section quality-settings-section-language">';
+      html += '<div class="quality-settings-section-head">' +
+        '<div>' +
+          '<div class="quality-settings-section-kicker">' + escapeHtml(t('hud.settings.language.kicker', null, 'Language')) + '</div>' +
+          '<div class="quality-settings-section-title">' + escapeHtml(t('hud.settings.language.title', null, 'Display Language')) + '</div>' +
+        '</div>' +
+      '</div>';
+      html += '<div class="quality-settings-copy">' + escapeHtml(t('hud.settings.language.copy', null, 'Switch HUD text, localized content names, and speech overlays without reloading the save.')) + '</div>';
+      html += '<div class="quality-settings-inline-meta">';
+      html += '<div class="quality-settings-inline-item"><span class="quality-settings-inline-label">' + escapeHtml(t('hud.settings.language.active', null, 'Active')) + '</span><strong>' + escapeHtml(currentMeta.nativeLabel || currentMeta.label || currentLanguage) + '</strong></div>';
+      html += '</div>';
+      html += '<div class="quality-settings-choice-list">';
+
+      for (var i = 0; i < languages.length; i++) {
+        var language = languages[i];
+        var rowClass = 'quality-choice-row';
+        if (language.id === currentLanguage) rowClass += ' active';
+        html += '<button class="' + rowClass + '" type="button" onclick="GameHUD.setLanguage(\'' + language.id + '\')">' +
+          '<span class="quality-choice-copy">' +
+            '<span class="quality-choice-name-row">' +
+              '<span class="quality-choice-name">' + escapeHtml(language.nativeLabel || language.label || language.id) + '</span>' +
+              '<span class="quality-choice-badge">' + escapeHtml(language.label || language.id) + '</span>' +
+            '</span>' +
+          '</span>' +
+          '<span class="quality-choice-state">' + escapeHtml(language.id === currentLanguage ? t('hud.settings.language.active', null, 'Active') : t('hud.settings.language.apply', null, 'Use')) + '</span>' +
+        '</button>';
+      }
+
+      html += '</div>';
+      html += '</section>';
+      html += '</div>';
+      return html;
+    }
+
+    function setLanguage(languageId) {
+      if (!window.GameI18n || !GameI18n.setLanguage) return null;
+
+      var appliedLanguage = GameI18n.setLanguage(languageId, 'hud-settings');
+      var meta = GameI18n.getLanguageMeta ? GameI18n.getLanguageMeta(appliedLanguage) : { nativeLabel: appliedLanguage, label: appliedLanguage };
+      renderQualitySettingsPanel();
+      updateQualitySettingsToggleState();
+      updateModal();
+      renderAll('language-change');
+      showNotification(t('hud.settings.language.changed', { name: meta.nativeLabel || meta.label || appliedLanguage }, 'Language: {name}'), 'info');
+      return appliedLanguage;
+    }
+
     function updateQualitySettingsToggleState() {
       var button = getQualitySettingsToggleButton();
       if (!button) return;
 
+      var buttonLabel = t('hud.settings.toggle', null, 'Settings');
+
       button.setAttribute('aria-expanded', _qualityPanelOpen ? 'true' : 'false');
-      button.setAttribute('aria-label', 'Setting (F9)');
-      button.setAttribute('title', 'Setting (F9)');
+      button.setAttribute('aria-label', buttonLabel + ' (F9)');
+      button.setAttribute('title', buttonLabel + ' (F9)');
       setNodeClassState(button, 'is-open', _qualityPanelOpen);
       setInnerHtmlIfChanged(button,
-        '<span class="quality-settings-toggle-text">Setting</span>'
+        '<span class="quality-settings-toggle-text">' + escapeHtml(buttonLabel) + '</span>'
       );
     }
 
@@ -592,11 +824,11 @@ try {
       var html = '<div class="quality-popup-content" onclick="event.stopPropagation()">' +
         '<div class="quality-settings-header">' +
         '<div>' +
-          '<div class="quality-settings-kicker">Settings</div>' +
-          '<div class="quality-settings-title">Sidebar Settings</div>' +
-          '<div class="quality-settings-copy">Adjust Graphics, Overlay, World FX, and Simulation in separate tabs so each category stays in its own lane.</div>' +
+          '<div class="quality-settings-kicker">' + escapeHtml(t('hud.settings.header.kicker', null, 'Settings')) + '</div>' +
+          '<div class="quality-settings-title">' + escapeHtml(t('hud.settings.header.title', null, 'Game Settings')) + '</div>' +
+          '<div class="quality-settings-copy">' + escapeHtml(t('hud.settings.header.copy', null, 'Adjust graphics, language, overlay, world FX, and simulation in separate tabs so each category stays in its own lane.')) + '</div>' +
         '</div>' +
-        '<button class="quality-settings-close" type="button" onclick="GameHUD.toggleQualitySettingsPanel(false)">Close</button>' +
+        '<button class="quality-settings-close" type="button" onclick="GameHUD.toggleQualitySettingsPanel(false)">' + escapeHtml(t('hud.settings.header.close', null, 'Close')) + '</button>' +
       '</div>';
 
       html += '<div class="quality-settings-layout">';
@@ -609,7 +841,7 @@ try {
       '</div>';
       html += activeTab.id === 'graphics'
         ? buildQualityGraphicsTabHtml(snapshot, current)
-        : buildQualityRuntimeSettingsTabHtml(activeTab.id);
+        : (activeTab.id === 'language' ? buildLanguageSettingsTabHtml() : buildQualityRuntimeSettingsTabHtml(activeTab.id));
       html += '</div>';
       html += '</div>';
       html += '</div>';
@@ -632,15 +864,15 @@ try {
       }
 
       var preset = window.GameQualitySettings && GameQualitySettings.getPresetDefinition ? GameQualitySettings.getPresetDefinition(_qualityPromptState.suggestedPreset) : null;
-      var label = preset && preset.label ? preset.label : _qualityPromptState.suggestedLabel || _qualityPromptState.suggestedPreset;
+      var label = getLocalizedQualityPresetLabel(_qualityPromptState.suggestedPreset, preset && preset.label ? preset.label : (_qualityPromptState.suggestedLabel || _qualityPromptState.suggestedPreset));
       var html = '<div class="quality-prompt-card">' +
-        '<div class="quality-prompt-kicker">Performance Advisory</div>' +
-        '<div class="quality-prompt-title">FPS is staying low</div>' +
-        '<div class="quality-prompt-copy">Average is around ' + escapeHtml(String(_qualityPromptState.fps || 0)) + ' FPS (' + escapeHtml(String(_qualityPromptState.frameMs || 0)) + ' ms). Switch to <strong>' + escapeHtml(label) + '</strong> to reduce CPU and rendering load?</div>' +
+        '<div class="quality-prompt-kicker">' + escapeHtml(t('hud.settings.prompt.kicker', null, 'Performance Advisory')) + '</div>' +
+        '<div class="quality-prompt-title">' + escapeHtml(t('hud.settings.prompt.title', null, 'FPS is staying low')) + '</div>' +
+        '<div class="quality-prompt-copy">' + escapeHtml(t('hud.settings.prompt.copy', { fps: String(_qualityPromptState.fps || 0), frameMs: String(_qualityPromptState.frameMs || 0), name: label }, 'Average is around {fps} FPS ({frameMs} ms). Switch to {name} to reduce CPU and rendering load?')) + '</div>' +
         '<div class="quality-prompt-actions">' +
-          '<button class="quality-prompt-btn accept" type="button" onclick="GameHUD.acceptQualitySuggestion()">Switch to ' + escapeHtml(label) + '</button>' +
-          '<button class="quality-prompt-btn" type="button" onclick="GameHUD.snoozeQualityPrompt()">Not now</button>' +
-          '<button class="quality-prompt-btn subtle" type="button" onclick="GameHUD.dismissQualityPrompt()">Keep current</button>' +
+          '<button class="quality-prompt-btn accept" type="button" onclick="GameHUD.acceptQualitySuggestion()">' + escapeHtml(t('hud.settings.prompt.accept', { name: label }, 'Switch to {name}')) + '</button>' +
+          '<button class="quality-prompt-btn" type="button" onclick="GameHUD.snoozeQualityPrompt()">' + escapeHtml(t('hud.settings.prompt.snooze', null, 'Not now')) + '</button>' +
+          '<button class="quality-prompt-btn subtle" type="button" onclick="GameHUD.dismissQualityPrompt()">' + escapeHtml(t('hud.settings.prompt.dismiss', null, 'Keep current')) + '</button>' +
         '</div>' +
       '</div>';
 
@@ -679,7 +911,7 @@ try {
       applyQualitySettingsState();
 
       if (nextPreset && nextPreset.label) {
-        showNotification('Graphics preset: ' + nextPreset.label, 'info');
+        showNotification(t('hud.settings.graphics.changed', { name: getLocalizedQualityPresetLabel(nextPreset.id, nextPreset.label) }, 'Graphics preset: {name}'), 'info');
       }
 
       return nextPreset;
@@ -802,6 +1034,15 @@ try {
       GameQualitySettings.syncRuntime('hud-init', { syncDebug: true });
     }
     bindQualitySettingsUi();
+    if (!_languageUnsubscribe && window.GameI18n && GameI18n.subscribe) {
+      _languageUnsubscribe = GameI18n.subscribe(function() {
+        renderQuickbar();
+        renderModalHeader();
+        updateModal();
+        updateQualitySettingsToggleState();
+        renderQualitySettingsPanel();
+      });
+    }
     renderQualitySettingsPanel();
     renderQualityPrompt();
     applyDebugSettingsState('init');
@@ -1468,29 +1709,29 @@ try {
   function getModalTabMeta(tabName) {
     var metaMap = {
       resources: {
-        kicker: 'Economy',
-        title: 'Stockpile',
-        subtitle: 'Track reserves, monitor income, and spot shortages before they hurt momentum.'
+        kicker: t('hud.modal.header.resources.kicker', null, 'Economy'),
+        title: t('hud.modal.header.resources.title', null, 'Stockpile'),
+        subtitle: t('hud.modal.header.resources.subtitle', null, 'Track reserves, monitor income, and spot shortages before they hurt momentum.')
       },
       build: {
-        kicker: 'Settlement',
-        title: 'Construction',
-        subtitle: 'Expand your production network and place the next building with intention.'
+        kicker: t('hud.modal.header.build.kicker', null, 'Settlement'),
+        title: t('hud.modal.header.build.title', null, 'Construction'),
+        subtitle: t('hud.modal.header.build.subtitle', null, 'Expand your production network and place the next building with intention.')
       },
       craft: {
-        kicker: 'Workshop',
-        title: 'Crafting',
-        subtitle: 'Turn gathered materials into tools, gear, and milestone unlocks.'
+        kicker: t('hud.modal.header.craft.kicker', null, 'Workshop'),
+        title: t('hud.modal.header.craft.title', null, 'Crafting'),
+        subtitle: t('hud.modal.header.craft.subtitle', null, 'Turn gathered materials into tools, gear, and milestone unlocks.')
       },
       stats: {
-        kicker: 'Progression',
-        title: 'Journal',
-        subtitle: 'Review your survivor, settlement growth, and the next age objective in one place.'
+        kicker: t('hud.modal.header.stats.kicker', null, 'Progression'),
+        title: t('hud.modal.header.stats.title', null, 'Journal'),
+        subtitle: t('hud.modal.header.stats.subtitle', null, 'Review your survivor, settlement growth, and the next age objective in one place.')
       },
       research: {
-        kicker: 'Knowledge',
-        title: 'Research',
-        subtitle: 'Spend resources on permanent bonuses and long-term efficiency.'
+        kicker: t('hud.modal.header.research.kicker', null, 'Knowledge'),
+        title: t('hud.modal.header.research.title', null, 'Research'),
+        subtitle: t('hud.modal.header.research.subtitle', null, 'Spend resources on permanent bonuses and long-term efficiency.')
       }
     };
 
@@ -1656,16 +1897,10 @@ try {
       })
       .map(function(building, index) {
         var balance = GameRegistry.getBalance(building.id) || {};
-        var canBuild = true;
         var placedCount = GameState.getBuildingCount(building.id);
         var cost = balance.cost || {};
-
-        for (var resId in cost) {
-          if (!GameState.hasSpendableResource(resId, cost[resId])) {
-            canBuild = false;
-            break;
-          }
-        }
+        var missingResources = getMissingResourceEntries(cost);
+        var canBuild = missingResources.length === 0;
 
         return {
           id: building.id,
@@ -1673,8 +1908,11 @@ try {
           icon: getEntityIcon(building),
           name: building.name,
           meta: placedCount > 0 ? ('x' + placedCount) : 'new',
-          status: canBuild ? 'Ready' : 'Need',
+          statusKey: canBuild ? 'ready' : 'need',
           ready: canBuild,
+          missingResources: missingResources,
+          modalTab: 'build',
+          modalFocusId: building.id,
           sortOrder: canBuild ? 0 : 1,
           sourceIndex: index
         };
@@ -1700,9 +1938,10 @@ try {
         var actionType = 'craft';
         var actionId = recipe.id;
         var ready = info.canCraft;
-        var status = ready ? 'Craft' : 'Need';
+        var statusKey = ready ? 'ready' : 'need';
         var sortOrder = ready ? 0 : 2;
         var meta = primaryOutputId && balance.output ? ('x' + balance.output[primaryOutputId]) : 'recipe';
+        var missingResources = getMissingResourceEntries(balance.input);
 
         if (primaryOutputEntity && primaryOutputEntity.type === 'equipment') {
           var inventoryCount = GameState.getInventoryCount(primaryOutputId);
@@ -1716,8 +1955,9 @@ try {
             actionType = 'equip';
             actionId = primaryOutputId;
             ready = true;
-            status = 'Use';
+            statusKey = 'use';
             sortOrder = 0;
+            missingResources = [];
           }
         }
 
@@ -1728,8 +1968,11 @@ try {
           icon: getEntityIcon(primaryOutputEntity || recipe),
           name: recipe.name,
           meta: meta,
-          status: status,
+          statusKey: statusKey,
           ready: ready,
+          missingResources: missingResources,
+          modalTab: 'craft',
+          modalFocusId: recipe.id,
           sortOrder: sortOrder,
           sourceIndex: index
         };
@@ -1756,7 +1999,7 @@ try {
     if (toggleButton.className !== toggleClassName) {
       toggleButton.className = toggleClassName;
     }
-    setInnerHtmlIfChanged(toggleButton, '<span class="quickbar-toggle-label">' + (_quickbarMode === 'craft' ? 'Craft' : 'Build') + '</span>' +
+    setInnerHtmlIfChanged(toggleButton, '<span class="quickbar-toggle-label">' + escapeHtml(getQuickbarModeLabel(_quickbarMode)) + '</span>' +
       '<span class="quickbar-toggle-hint">Tab</span>');
 
     var selectedId = _quickbarSelected[_quickbarMode];
@@ -1768,8 +2011,8 @@ try {
         html += '<button class="quickbar-slot empty" type="button" disabled>' +
           '<span class="quickbar-slot-key">' + (i + 1) + '</span>' +
           '<span class="quickbar-slot-icon">·</span>' +
-          '<span class="quickbar-slot-name">Empty</span>' +
-          '<span class="quickbar-slot-meta"><span>-</span><span class="quickbar-slot-status">None</span></span>' +
+          '<span class="quickbar-slot-name">' + escapeHtml(t('hud.quickbar.empty.name', null, 'Empty')) + '</span>' +
+          '<span class="quickbar-slot-meta"><span>-</span><span class="quickbar-slot-status">' + escapeHtml(t('hud.quickbar.empty.status', null, 'None')) + '</span></span>' +
           '</button>';
         continue;
       }
@@ -1779,12 +2022,19 @@ try {
         slotClass += ' selected';
       }
 
-      html += '<button class="' + slotClass + '" type="button" onclick="GameHUD.activateQuickbarSlot(' + i + ')" title="' + escapeHtml(item.name) + '">' +
+      var statusLabel = t('hud.quickbar.status.' + item.statusKey, null, item.ready ? 'Ready' : 'Need');
+      var buttonHtml = '<button class="' + slotClass + '" type="button" onclick="GameHUD.activateQuickbarSlot(' + i + ')" title="' + escapeHtml(item.name) + '">' +
         '<span class="quickbar-slot-key">' + (i + 1) + '</span>' +
         '<span class="quickbar-slot-icon">' + item.icon + '</span>' +
         '<span class="quickbar-slot-name">' + escapeHtml(item.name) + '</span>' +
-        '<span class="quickbar-slot-meta"><span>' + escapeHtml(String(item.meta)) + '</span><span class="quickbar-slot-status">' + escapeHtml(item.status) + '</span></span>' +
+        '<span class="quickbar-slot-meta"><span>' + escapeHtml(String(item.meta)) + '</span><span class="quickbar-slot-status">' + escapeHtml(statusLabel) + '</span></span>' +
         '</button>';
+
+      if (!item.ready && item.missingResources && item.missingResources.length) {
+        html += '<div class="tooltip-container quickbar-tooltip-container">' + buttonHtml + buildQuickbarMissingTooltipHtml(item) + '</div>';
+      } else {
+        html += buttonHtml;
+      }
     }
 
     setInnerHtmlIfChanged(slots, html);
@@ -1810,7 +2060,7 @@ try {
     renderQuickbar();
 
     if (!silent) {
-      showNotification('Quickbar: ' + (_quickbarMode === 'craft' ? 'Craft' : 'Build') + ' mode', 'info');
+      showNotification(t('hud.quickbar.notification.modeSwitched', { mode: getQuickbarModeLabel(_quickbarMode) }, 'Quickbar: {mode} mode'), 'info');
     }
   }
 
@@ -1822,6 +2072,10 @@ try {
     renderQuickbar();
 
     if (item.actionType === 'build') {
+      if (!item.ready) {
+        openModalAtTarget(item.modalTab || 'build', item.modalFocusId || item.id);
+        return;
+      }
       if (_modalActive) closeModal();
       BuildingSystem.enterBuildMode(item.id);
       return;
@@ -1832,6 +2086,10 @@ try {
     }
 
     if (item.actionType === 'craft') {
+      if (!item.ready) {
+        openModalAtTarget(item.modalTab || 'craft', item.modalFocusId || item.id);
+        return;
+      }
       GameActions.craft(item.actionId);
       return;
     }
@@ -1841,7 +2099,7 @@ try {
       return;
     }
 
-    showNotification(item.status === 'Using' ? 'This item is already equipped.' : 'This slot is not ready yet.', 'info');
+    showNotification(t('hud.quickbar.notification.notReady', null, 'This slot is not ready yet.'), 'info');
   }
 
   function getQuickbarKeyIndex(event) {
@@ -2252,11 +2510,11 @@ try {
       default: '📍'
     };
     var labelMap = {
-      error: 'Alert',
-      success: 'Success',
-      info: 'Info',
-      warning: 'Notice',
-      default: 'Update'
+      error: t('hud.notificationLabel.error', null, 'Alert'),
+      success: t('hud.notificationLabel.success', null, 'Success'),
+      info: t('hud.notificationLabel.info', null, 'Info'),
+      warning: t('hud.notificationLabel.warning', null, 'Notice'),
+      default: t('hud.notificationLabel.default', null, 'Update')
     };
     var resolvedType = iconMap[type] ? type : 'default';
 
@@ -3221,8 +3479,18 @@ try {
     }
   }
 
-  function openModal() {
+  function openModal(options) {
     if (!isHudVisible()) return;
+
+    if (typeof options === 'string') {
+      options = { tab: options };
+    }
+    if (options && options.tab) {
+      _modalTab = options.tab;
+    }
+    if (options && options.focusId) {
+      setModalFocusTarget(options.tab || _modalTab, options.focusId);
+    }
 
     _modalActive = true;
     var overlay = document.getElementById('modal-overlay');
@@ -3237,6 +3505,8 @@ try {
 
   function closeModal() {
     _modalActive = false;
+    _modalFocusTarget = null;
+    clearModalFocusHighlight();
     var overlay = document.getElementById('modal-overlay');
     if (overlay) {
       overlay.classList.remove('active');
@@ -3269,6 +3539,7 @@ try {
     }
 
     renderModalPanel();
+    applyModalFocusTarget();
   }
 
   function initCharacterCanvas() {
@@ -3437,6 +3708,7 @@ try {
       updateCharacterEquipment();
       renderModalLeftSide();
       renderModalPanel();
+      applyModalFocusTarget();
     }
   }
 
@@ -3879,6 +4151,9 @@ try {
     var blockedCards = [];
     var lockedCards = [];
     var totalPlaced = 0;
+    var summaryReadyLabel = t('hud.modal.build.sections.readyCount', null, 'Ready to place');
+    var summaryBlockedLabel = t('hud.modal.build.sections.blockedCount', null, 'Need more stock');
+    var summaryPlacedLabel = t('hud.modal.build.sections.totalPlaced', null, 'Structures placed');
 
     buildings.forEach(function(building) {
       var balance = GameRegistry.getBalance(building.id) || {};
@@ -3889,29 +4164,29 @@ try {
       var consumptionInfo = buildResourcePills(balance.consumesPerSecond, 'neutral');
       var defenseRange = (balance.guardRadius && getLevelValue(balance.guardRadius, 1)) || (balance.towerDefense && balance.towerDefense.range ? (getLevelValue(balance.towerDefense.range, 1) || balance.towerDefense.range[1]) : null);
       var metrics = buildMetricGrid([
-        { label: 'Workers', value: getLevelValue(balance.workerCount, 1) || null },
-        { label: 'Range', value: getLevelValue(balance.searchRadius, 1) ? getLevelValue(balance.searchRadius, 1) + ' tiles' : null },
-        { label: 'Defense', value: defenseRange ? defenseRange + ' tiles' : null },
-        { label: 'Storage', value: getLevelValue(balance.storageCapacity, 1) || null },
-        { label: 'Transfer', value: balance.transferRange ? balance.transferRange + ' tiles' : null },
-        { label: 'Light', value: balance.lightRadius ? balance.lightRadius + ' tiles' : null },
-        { label: 'Guards', value: getLevelValue(balance.guardCount, 1) || null }
+        { label: t('hud.modal.build.metrics.workers', null, 'Workers'), value: getLevelValue(balance.workerCount, 1) || null },
+        { label: t('hud.modal.build.metrics.range', null, 'Range'), value: getLevelValue(balance.searchRadius, 1) ? t('hud.modal.build.metrics.tiles', { count: getLevelValue(balance.searchRadius, 1) }, '{count} tiles') : null },
+        { label: t('hud.modal.build.metrics.defense', null, 'Defense'), value: defenseRange ? t('hud.modal.build.metrics.tiles', { count: defenseRange }, '{count} tiles') : null },
+        { label: t('hud.modal.build.metrics.storage', null, 'Storage'), value: getLevelValue(balance.storageCapacity, 1) || null },
+        { label: t('hud.modal.build.metrics.transfer', null, 'Transfer'), value: balance.transferRange ? t('hud.modal.build.metrics.tiles', { count: balance.transferRange }, '{count} tiles') : null },
+        { label: t('hud.modal.build.metrics.light', null, 'Light'), value: balance.lightRadius ? t('hud.modal.build.metrics.tiles', { count: balance.lightRadius }, '{count} tiles') : null },
+        { label: t('hud.modal.build.metrics.guards', null, 'Guards'), value: getLevelValue(balance.guardCount, 1) || null }
       ]);
 
       totalPlaced += count;
       
       if (!isUnlocked) {
         lockedCards.push(
-          '<div class="management-card locked">' +
+          '<div class="management-card locked" data-modal-focus-id="' + building.id + '">' +
           '<div class="management-card-top">' +
           '<div class="management-card-identity">' +
           '<div class="management-icon build">' + getEntityIcon(building) + '</div>' +
           '<div><div class="management-card-name">' + escapeHtml(building.name) + '</div><div class="management-card-copy">' + escapeHtml(building.description || '') + '</div></div>' +
           '</div>' +
-          '<div class="management-badges"><span class="management-badge locked">Locked</span></div>' +
+          '<div class="management-badges"><span class="management-badge locked">' + escapeHtml(t('hud.modal.build.badges.locked', null, 'Locked')) + '</span></div>' +
           '</div>' +
           buildRequirementChecklist(building) +
-          '<div class="card-actions"><button class="btn btn-secondary" disabled>Locked</button></div>' +
+          '<div class="card-actions"><button class="btn btn-secondary" disabled>' + escapeHtml(t('hud.modal.build.action.locked', null, 'Locked')) + '</button></div>' +
           '</div>'
         );
         return;
@@ -3919,27 +4194,27 @@ try {
 
       var canBuy = costInfo.allAffordable;
       var cardHtml = '';
-      cardHtml += '<div class="management-card' + (canBuy ? ' ready' : '') + '">';
+      cardHtml += '<div class="management-card' + (canBuy ? ' ready' : '') + '" data-modal-focus-id="' + building.id + '">';
       cardHtml += '<div class="management-card-top">';
       cardHtml += '<div class="management-card-identity">';
       cardHtml += '<div class="management-icon build">' + getEntityIcon(building) + '</div>';
       cardHtml += '<div><div class="management-card-name">' + escapeHtml(building.name) + '</div><div class="management-card-copy">' + escapeHtml(building.description || '') + '</div></div>';
       cardHtml += '</div>';
       cardHtml += '<div class="management-badges">';
-      cardHtml += '<span class="management-badge neutral">Placed x' + count + '</span>';
-      cardHtml += '<span class="management-badge ' + (canBuy ? 'ready' : 'pending') + '">' + (canBuy ? 'Ready' : 'Need stock') + '</span>';
+      cardHtml += '<span class="management-badge neutral">' + escapeHtml(t('hud.modal.build.badges.placed', { count: count }, 'Placed x{count}')) + '</span>';
+      cardHtml += '<span class="management-badge ' + (canBuy ? 'ready' : 'pending') + '">' + escapeHtml(canBuy ? t('hud.modal.build.badges.ready', null, 'Ready') : t('hud.modal.build.badges.needStock', null, 'Need stock')) + '</span>';
       cardHtml += '</div></div>';
       cardHtml += metrics;
       if (costInfo.html) {
-        cardHtml += '<div class="management-block"><div class="management-block-label">Construction Cost</div><div class="resource-pill-row">' + costInfo.html + '</div></div>';
+        cardHtml += '<div class="management-block"><div class="management-block-label">' + escapeHtml(t('hud.modal.build.blocks.constructionCost', null, 'Construction Cost')) + '</div><div class="resource-pill-row">' + costInfo.html + '</div></div>';
       }
       if (productionInfo.html) {
-        cardHtml += '<div class="management-block"><div class="management-block-label">Produces</div><div class="resource-pill-row">' + productionInfo.html + '</div></div>';
+        cardHtml += '<div class="management-block"><div class="management-block-label">' + escapeHtml(t('hud.modal.build.blocks.produces', null, 'Produces')) + '</div><div class="resource-pill-row">' + productionInfo.html + '</div></div>';
       }
       if (consumptionInfo.html) {
-        cardHtml += '<div class="management-block"><div class="management-block-label">Consumes</div><div class="resource-pill-row">' + consumptionInfo.html + '</div></div>';
+        cardHtml += '<div class="management-block"><div class="management-block-label">' + escapeHtml(t('hud.modal.build.blocks.consumes', null, 'Consumes')) + '</div><div class="resource-pill-row">' + consumptionInfo.html + '</div></div>';
       }
-      cardHtml += '<div class="card-actions"><button class="btn btn-primary" onclick="BuildingSystem.enterBuildMode(\'' + building.id + '\'); GameHUD.closeModal();"' + (canBuy ? '' : ' disabled') + '>' + (count > 0 ? 'Place another' : 'Place structure') + '</button></div>';
+      cardHtml += '<div class="card-actions"><button class="btn btn-primary" onclick="BuildingSystem.enterBuildMode(\'' + building.id + '\'); GameHUD.closeModal();"' + (canBuy ? '' : ' disabled') + '>' + escapeHtml(count > 0 ? t('hud.modal.build.action.placeAnother', null, 'Place another') : t('hud.modal.build.action.placeStructure', null, 'Place structure')) + '</button></div>';
       cardHtml += '</div>';
 
       if (canBuy) {
@@ -3951,26 +4226,26 @@ try {
 
     var html = '';
     html += '<div class="panel-section">';
-    html += '<div class="section-header"><div><div class="section-kicker">Settlement Planning</div><div class="section-title">Construction Queue</div><div class="section-copy">See which structures you can place now, which ones still need resources, and which blueprints remain locked.</div></div></div>';
+    html += '<div class="section-header"><div><div class="section-kicker">' + escapeHtml(t('hud.modal.build.sections.planningKicker', null, 'Settlement Planning')) + '</div><div class="section-title">' + escapeHtml(t('hud.modal.build.sections.planningTitle', null, 'Construction Queue')) + '</div><div class="section-copy">' + escapeHtml(t('hud.modal.build.sections.planningCopy', null, 'See which structures you can place now, which ones still need resources, and which blueprints remain locked.')) + '</div></div></div>';
     html += '<div class="summary-list">';
-    html += '<div class="summary-row"><span>Ready to place</span><span class="summary-value">' + readyCards.length + '</span></div>';
-    html += '<div class="summary-row"><span>Need more stock</span><span class="summary-value">' + blockedCards.length + '</span></div>';
-    html += '<div class="summary-row total"><span>Structures placed</span><span class="summary-value">' + totalPlaced + '</span></div>';
+    html += '<div class="summary-row"><span>' + escapeHtml(summaryReadyLabel) + '</span><span class="summary-value">' + readyCards.length + '</span></div>';
+    html += '<div class="summary-row"><span>' + escapeHtml(summaryBlockedLabel) + '</span><span class="summary-value">' + blockedCards.length + '</span></div>';
+    html += '<div class="summary-row total"><span>' + escapeHtml(summaryPlacedLabel) + '</span><span class="summary-value">' + totalPlaced + '</span></div>';
     html += '</div></div>';
 
     if (readyCards.length) {
-      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Ready Now</div><div class="section-title">Immediate Builds</div><div class="section-copy">These structures are affordable with your current spendable stockpile.</div></div></div><div class="management-grid">' + readyCards.join('') + '</div></div>';
+      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">' + escapeHtml(t('hud.modal.build.sections.readyKicker', null, 'Ready Now')) + '</div><div class="section-title">' + escapeHtml(t('hud.modal.build.sections.readyTitle', null, 'Immediate Builds')) + '</div><div class="section-copy">' + escapeHtml(t('hud.modal.build.sections.readyCopy', null, 'These structures are affordable with your current spendable stockpile.')) + '</div></div></div><div class="management-grid">' + readyCards.join('') + '</div></div>';
     }
 
     if (blockedCards.length) {
-      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Blocked</div><div class="section-title">Need More Materials</div><div class="section-copy">These blueprints are unlocked, but your current stockpile is still short.</div></div></div><div class="management-grid">' + blockedCards.join('') + '</div></div>';
+      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">' + escapeHtml(t('hud.modal.build.sections.blockedKicker', null, 'Blocked')) + '</div><div class="section-title">' + escapeHtml(t('hud.modal.build.sections.blockedTitle', null, 'Need More Materials')) + '</div><div class="section-copy">' + escapeHtml(t('hud.modal.build.sections.blockedCopy', null, 'These blueprints are unlocked, but your current stockpile is still short.')) + '</div></div></div><div class="management-grid">' + blockedCards.join('') + '</div></div>';
     }
 
     if (lockedCards.length) {
-      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Future Blueprints</div><div class="section-title">Locked Structures</div><div class="section-copy">Track the requirements that unlock your next set of buildings.</div></div></div><div class="management-grid">' + lockedCards.join('') + '</div></div>';
+      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">' + escapeHtml(t('hud.modal.build.sections.lockedKicker', null, 'Future Blueprints')) + '</div><div class="section-title">' + escapeHtml(t('hud.modal.build.sections.lockedTitle', null, 'Locked Structures')) + '</div><div class="section-copy">' + escapeHtml(t('hud.modal.build.sections.lockedCopy', null, 'Track the requirements that unlock your next set of buildings.')) + '</div></div></div><div class="management-grid">' + lockedCards.join('') + '</div></div>';
     }
 
-    panel.innerHTML = html || '<div class="empty-state">No building blueprints are available yet.</div>';
+    panel.innerHTML = html || '<div class="empty-state">' + escapeHtml(t('hud.modal.build.sections.empty', null, 'No building blueprints are available yet.')) + '</div>';
   }
 
   function renderModalCraft() {
@@ -3982,6 +4257,9 @@ try {
     var waitingCards = [];
     var lockedCards = [];
     var equippedCards = [];
+    var summaryReadyLabel = t('hud.modal.craft.sections.readyCount', null, 'Ready now');
+    var summaryWaitingLabel = t('hud.modal.craft.sections.waitingCount', null, 'Need materials');
+    var summaryEquippedLabel = t('hud.modal.craft.sections.equippedCount', null, 'Already equipped');
 
     recipes.forEach(function(recipe) {
       var isUnlocked = GameState.isUnlocked(recipe.id);
@@ -3995,16 +4273,16 @@ try {
       
       if (!isUnlocked) {
         lockedCards.push(
-          '<div class="management-card locked">' +
+          '<div class="management-card locked" data-modal-focus-id="' + recipe.id + '">' +
           '<div class="management-card-top">' +
           '<div class="management-card-identity">' +
           '<div class="management-icon craft">' + getEntityIcon(primaryOutputEntity || recipe) + '</div>' +
           '<div><div class="management-card-name">' + escapeHtml(recipe.name) + '</div><div class="management-card-copy">' + escapeHtml(recipe.description || '') + '</div></div>' +
           '</div>' +
-          '<div class="management-badges"><span class="management-badge locked">Locked</span></div>' +
+          '<div class="management-badges"><span class="management-badge locked">' + escapeHtml(t('hud.modal.craft.badges.locked', null, 'Locked')) + '</span></div>' +
           '</div>' +
           buildRequirementChecklist(recipe) +
-          '<div class="card-actions"><button class="btn btn-secondary" disabled>Locked</button></div>' +
+          '<div class="card-actions"><button class="btn btn-secondary" disabled>' + escapeHtml(t('hud.modal.craft.action.locked', null, 'Locked')) + '</button></div>' +
           '</div>'
         );
         return;
@@ -4035,20 +4313,20 @@ try {
       var badges = '';
       var actionHtml = '';
       var statusClass = 'pending';
-      var statusText = 'Need materials';
+      var statusText = t('hud.modal.craft.badges.needMaterials', null, 'Need materials');
 
       if (isEquipped) {
         statusClass = 'done';
-        statusText = 'Equipped';
-        actionHtml = '<button class="btn btn-secondary" disabled>Equipped</button>';
+        statusText = t('hud.modal.craft.badges.equipped', null, 'Equipped');
+        actionHtml = '<button class="btn btn-secondary" disabled>' + escapeHtml(t('hud.modal.craft.action.equipped', null, 'Equipped')) + '</button>';
       } else if (hasInInventory && outputEquipmentId) {
         statusClass = 'ready';
-        statusText = 'Ready to use';
-        actionHtml = '<button class="btn btn-success" onclick="GameActions.equip(\'' + outputEquipmentId + '\'); GameHUD.updateModal();">Use item</button>';
+        statusText = t('hud.modal.craft.badges.readyToUse', null, 'Ready to use');
+        actionHtml = '<button class="btn btn-success" onclick="GameActions.equip(\'' + outputEquipmentId + '\'); GameHUD.updateModal();">' + escapeHtml(t('hud.modal.craft.action.useItem', null, 'Use item')) + '</button>';
       } else {
         statusClass = canCraft ? 'ready' : 'pending';
-        statusText = canCraft ? 'Ready to craft' : 'Need materials';
-        actionHtml = '<button class="btn btn-primary" onclick="GameActions.craft(\'' + recipe.id + '\')"' + (canCraft ? '' : ' disabled') + '>Craft</button>';
+        statusText = canCraft ? t('hud.modal.craft.badges.readyToCraft', null, 'Ready to craft') : t('hud.modal.craft.badges.needMaterials', null, 'Need materials');
+        actionHtml = '<button class="btn btn-primary" onclick="GameActions.craft(\'' + recipe.id + '\')"' + (canCraft ? '' : ' disabled') + '>' + escapeHtml(t('hud.modal.craft.action.craft', null, 'Craft')) + '</button>';
       }
 
       if (primaryOutputEntity && primaryOutputEntity.type === 'equipment') {
@@ -4057,7 +4335,7 @@ try {
       badges += '<span class="management-badge ' + statusClass + '">' + statusText + '</span>';
 
       var cardHtml = '';
-      cardHtml += '<div class="management-card' + (statusClass === 'done' ? ' complete' : (statusClass === 'ready' ? ' ready' : '')) + '">';
+      cardHtml += '<div class="management-card' + (statusClass === 'done' ? ' complete' : (statusClass === 'ready' ? ' ready' : '')) + '" data-modal-focus-id="' + recipe.id + '">';
       cardHtml += '<div class="management-card-top">';
       cardHtml += '<div class="management-card-identity">';
       cardHtml += '<div class="management-icon craft">' + getEntityIcon(primaryOutputEntity || recipe) + '</div>';
@@ -4066,14 +4344,14 @@ try {
       cardHtml += '<div class="management-badges">' + badges + '</div>';
       cardHtml += '</div>';
       cardHtml += buildMetricGrid([
-        { label: 'Result', value: primaryOutputEntity ? primaryOutputEntity.type : 'Recipe' },
-        { label: 'Yield', value: primaryOutputId ? ('x' + balance.output[primaryOutputId]) : null }
+        { label: t('hud.modal.craft.blocks.result', null, 'Result'), value: primaryOutputEntity ? primaryOutputEntity.type : t('hud.modal.craft.blocks.recipe', null, 'Recipe') },
+        { label: t('hud.modal.craft.blocks.yield', null, 'Yield'), value: primaryOutputId ? ('x' + balance.output[primaryOutputId]) : null }
       ]);
       if (outputInfo.html) {
-        cardHtml += '<div class="management-block"><div class="management-block-label">Output</div><div class="resource-pill-row">' + outputInfo.html + '</div></div>';
+        cardHtml += '<div class="management-block"><div class="management-block-label">' + escapeHtml(t('hud.modal.craft.blocks.output', null, 'Output')) + '</div><div class="resource-pill-row">' + outputInfo.html + '</div></div>';
       }
       if (inputInfo.html) {
-        cardHtml += '<div class="management-block"><div class="management-block-label">Required Materials</div><div class="resource-pill-row">' + inputInfo.html + '</div></div>';
+        cardHtml += '<div class="management-block"><div class="management-block-label">' + escapeHtml(t('hud.modal.craft.blocks.input', null, 'Required Materials')) + '</div><div class="resource-pill-row">' + inputInfo.html + '</div></div>';
       }
       cardHtml += '<div class="card-actions">' + actionHtml + '</div>';
       cardHtml += '</div>';
@@ -4089,30 +4367,30 @@ try {
 
     var html = '';
     html += '<div class="panel-section">';
-    html += '<div class="section-header"><div><div class="section-kicker">Workshop Queue</div><div class="section-title">Crafting Pipeline</div><div class="section-copy">Prioritize what can be crafted right now, what is already equipped, and what still needs more materials.</div></div></div>';
+    html += '<div class="section-header"><div><div class="section-kicker">' + escapeHtml(t('hud.modal.craft.sections.workshopKicker', null, 'Workshop Flow')) + '</div><div class="section-title">' + escapeHtml(t('hud.modal.craft.sections.workshopTitle', null, 'Crafting Queue')) + '</div><div class="section-copy">' + escapeHtml(t('hud.modal.craft.sections.workshopCopy', null, 'Review what can be crafted now, what is waiting on materials, and which upgrades are already equipped.')) + '</div></div></div>';
     html += '<div class="summary-list">';
-    html += '<div class="summary-row"><span>Ready now</span><span class="summary-value">' + readyCards.length + '</span></div>';
-    html += '<div class="summary-row"><span>Need materials</span><span class="summary-value">' + waitingCards.length + '</span></div>';
-    html += '<div class="summary-row total"><span>Already equipped</span><span class="summary-value">' + equippedCards.length + '</span></div>';
+    html += '<div class="summary-row"><span>' + escapeHtml(summaryReadyLabel) + '</span><span class="summary-value">' + readyCards.length + '</span></div>';
+    html += '<div class="summary-row"><span>' + escapeHtml(summaryWaitingLabel) + '</span><span class="summary-value">' + waitingCards.length + '</span></div>';
+    html += '<div class="summary-row total"><span>' + escapeHtml(summaryEquippedLabel) + '</span><span class="summary-value">' + equippedCards.length + '</span></div>';
     html += '</div></div>';
 
     if (readyCards.length) {
-      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Ready Now</div><div class="section-title">Immediate Crafts</div><div class="section-copy">These recipes can be crafted, or their result can be equipped from inventory immediately.</div></div></div><div class="management-grid">' + readyCards.join('') + '</div></div>';
+      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">' + escapeHtml(t('hud.modal.craft.sections.readyKicker', null, 'Ready Now')) + '</div><div class="section-title">' + escapeHtml(t('hud.modal.craft.sections.readyTitle', null, 'Craft Immediately')) + '</div><div class="section-copy">' + escapeHtml(t('hud.modal.craft.sections.readyCopy', null, 'These recipes can be completed with your current stockpile.')) + '</div></div></div><div class="management-grid">' + readyCards.join('') + '</div></div>';
     }
 
     if (waitingCards.length) {
-      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Queued</div><div class="section-title">Need More Materials</div><div class="section-copy">Known recipes that are still short on spendable resources.</div></div></div><div class="management-grid">' + waitingCards.join('') + '</div></div>';
+      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">' + escapeHtml(t('hud.modal.craft.sections.waitingKicker', null, 'Waiting')) + '</div><div class="section-title">' + escapeHtml(t('hud.modal.craft.sections.waitingTitle', null, 'Material Shortages')) + '</div><div class="section-copy">' + escapeHtml(t('hud.modal.craft.sections.waitingCopy', null, 'Gather or process more resources before these recipes can be completed.')) + '</div></div></div><div class="management-grid">' + waitingCards.join('') + '</div></div>';
     }
 
     if (equippedCards.length) {
-      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Loadout</div><div class="section-title">Already Equipped</div><div class="section-copy">These crafted upgrades are already active on your survivor.</div></div></div><div class="management-grid">' + equippedCards.join('') + '</div></div>';
+      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">' + escapeHtml(t('hud.modal.craft.sections.equippedKicker', null, 'Equipped')) + '</div><div class="section-title">' + escapeHtml(t('hud.modal.craft.sections.equippedTitle', null, 'Current Gear')) + '</div><div class="section-copy">' + escapeHtml(t('hud.modal.craft.sections.equippedCopy', null, 'These crafted equipment pieces are already active on your survivor.')) + '</div></div></div><div class="management-grid">' + equippedCards.join('') + '</div></div>';
     }
 
     if (lockedCards.length) {
-      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">Future Recipes</div><div class="section-title">Locked Crafts</div><div class="section-copy">Unlock these recipes through age progression, research, or settlement growth.</div></div></div><div class="management-grid">' + lockedCards.join('') + '</div></div>';
+      html += '<div class="panel-section"><div class="section-header"><div><div class="section-kicker">' + escapeHtml(t('hud.modal.craft.sections.lockedKicker', null, 'Future Recipes')) + '</div><div class="section-title">' + escapeHtml(t('hud.modal.craft.sections.lockedTitle', null, 'Locked Crafting')) + '</div><div class="section-copy">' + escapeHtml(t('hud.modal.craft.sections.lockedCopy', null, 'Unlock new recipes by reaching the next age and settlement milestones.')) + '</div></div></div><div class="management-grid">' + lockedCards.join('') + '</div></div>';
     }
 
-    panel.innerHTML = html || '<div class="empty-state">No recipes are available yet.</div>';
+    panel.innerHTML = html || '<div class="empty-state">' + escapeHtml(t('hud.modal.craft.sections.empty', null, 'No crafting recipes are available yet.')) + '</div>';
   }
 
   function renderModalStats() {
@@ -4452,6 +4730,7 @@ try {
     switchQualitySettingsTab: switchQualitySettingsTab,
     toggleQualitySettingsPanel: toggleQualitySettingsPanel,
     applyDebugSettingsState: applyDebugSettingsState,
+    setLanguage: setLanguage,
     isHudVisible: isHudVisible
   };
   })();
