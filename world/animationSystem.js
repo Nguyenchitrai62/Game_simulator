@@ -99,20 +99,7 @@ window.AnimationSystem = (function () {
   }
 
   function flashScreen(color, duration) {
-    if (window.GameDebugSettings && GameDebugSettings.isEnabled && !GameDebugSettings.isEnabled('screenFx')) {
-      return;
-    }
-
-    var overlay = document.getElementById('screen-flash');
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.id = 'screen-flash';
-      overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999;opacity:0;transition:opacity ' + (duration || 200) + 'ms;';
-      document.body.appendChild(overlay);
-    }
-    overlay.style.backgroundColor = color;
-    overlay.style.opacity = '0.25';
-    setTimeout(function () { overlay.style.opacity = '0'; }, 50);
+    return;
   }
 
   return {

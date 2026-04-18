@@ -7,7 +7,6 @@ window.GameDebugSettings = window.GameDebugSettings || (function () {
     minimap: true,
     worldLabels: true,
     notifications: true,
-    screenFx: true,
     particles: true,
     weather: true,
     atmosphere: true,
@@ -82,6 +81,22 @@ window.GameDebugSettings = window.GameDebugSettings || (function () {
     return setEnabled(key, !isEnabled(key), source || 'toggle');
   }
 
+  function applySnapshot(snapshot, source) {
+    var changed = false;
+    for (var key in _defaults) {
+      if (!snapshot || typeof snapshot[key] !== 'boolean') continue;
+      if (_state[key] === snapshot[key]) continue;
+      _state[key] = snapshot[key];
+      changed = true;
+    }
+
+    if (!changed) return getAll();
+
+    saveState();
+    emit({ type: 'batch', source: source || 'snapshot' });
+    return getAll();
+  }
+
   function getAll() {
     var snapshot = {};
     for (var key in _defaults) {
@@ -116,6 +131,7 @@ window.GameDebugSettings = window.GameDebugSettings || (function () {
     isEnabled: isEnabled,
     setEnabled: setEnabled,
     toggle: toggle,
+    applySnapshot: applySnapshot,
     getAll: getAll,
     reset: reset,
     subscribe: subscribe,
@@ -132,7 +148,6 @@ window.GameDebugSettings = window.GameDebugSettings || (function () {
     document.body.classList.toggle('debug-hud-hidden', !GameDebugSettings.isEnabled('hud'));
     document.body.classList.toggle('debug-minimap-hidden', !GameDebugSettings.isEnabled('minimap'));
     document.body.classList.toggle('debug-world-labels-hidden', !GameDebugSettings.isEnabled('worldLabels'));
-    document.body.classList.toggle('debug-screen-fx-hidden', !GameDebugSettings.isEnabled('screenFx'));
   }
 
   if (document.body) {
@@ -142,6 +157,10 @@ window.GameDebugSettings = window.GameDebugSettings || (function () {
 
   document.addEventListener('DOMContentLoaded', syncBodyClasses, { once: true });
 })();
+
+if (window.GameQualitySettings && GameQualitySettings.syncRuntime) {
+  GameQualitySettings.syncRuntime('hud-load');
+}
 
 try {
   window.GameHUD = (function () {
@@ -181,36 +200,85 @@ try {
     var OBJECT_HP_BAR_OFFSET_X = 52;
     var OBJECT_HP_BAR_OFFSET_Y = 4;
     var OVERLAY_POSITION_SMOOTHING = 22;
-    var _debugSettingsPanelOpen = false;
     var _debugSettingsUnsubscribe = null;
-    var DEBUG_SETTINGS_GROUPS = [
+    var _qualityPanelOpen = false;
+    var _qualitySettingsTab = 'graphics';
+    var _qualitySettingsUnsubscribe = null;
+    var _qualityPromptState = {
+      visible: false,
+      suggestedPreset: null,
+      suggestedLabel: '',
+      fps: 0,
+      frameMs: 0,
+      snoozeUntil: 0,
+      stableSeconds: 0,
+      lowFpsSeconds: 0
+    };
+    var _settlementHtmlCacheKey = '';
+    var _settlementHtmlCacheValue = '';
+    var _objectiveTrackerCacheKey = '';
+    var _objectiveTrackerCacheClassName = '';
+    var _objectiveTrackerCacheHtml = '';
+    var QUALITY_SETTINGS_TABS = [
       {
-        title: 'Overlay',
-        items: [
-          { key: 'hud', label: 'HUD Overlay', hint: 'Hide all overlay UI except FPS and this debug panel.' },
-          { key: 'minimap', label: 'Minimap', hint: 'Stop minimap updates and close the world map overlay.' },
-          { key: 'worldLabels', label: 'World Labels', hint: 'Disable node HP bars, world labels, and storage warning labels.' },
-          { key: 'notifications', label: 'Notifications', hint: 'Mute toast notifications while profiling other systems.' }
-        ]
+        id: 'graphics',
+        kicker: 'Render',
+        label: 'Graphics',
+        title: 'Graphics Presets',
+        description: 'Choose render quality here only. This tab should not directly manage the switches in the tabs below.'
       },
       {
+        id: 'overlay',
+        kicker: 'HUD',
+        label: 'Overlay',
+        title: 'Overlay Surfaces',
+        description: 'Control HUD readability layers, map visibility, and other player-facing interface surfaces.'
+      },
+      {
+        id: 'worldFx',
+        kicker: 'Visual',
+        label: 'World FX',
         title: 'World FX',
-        items: [
-          { key: 'screenFx', label: 'Screen Effects', hint: 'Hide vignette, color grading, flash overlay, and fire light mask.' },
-          { key: 'particles', label: 'Particles', hint: 'Stop particle emission and clear active particles.' },
-          { key: 'weather', label: 'Weather', hint: 'Pause rain simulation and hide rain lines.' },
-          { key: 'atmosphere', label: 'Atmosphere', hint: 'Pause atmosphere updates such as wind, stars, and clouds.' }
-        ]
+        description: 'Adjust optional ambience and effect systems without touching the core render preset.'
       },
       {
+        id: 'simulation',
+        kicker: 'CPU',
+        label: 'Simulation',
+        title: 'Simulation Systems',
+        description: 'Profile heavy runtime systems independently when you need to isolate CPU cost.'
+      }
+    ];
+    var DEBUG_SETTINGS_GROUPS = {
+      overlay: {
+        title: 'Overlay',
+        copy: 'HUD visibility and readability controls that affect what the player sees on screen.',
+        items: [
+          { key: 'hud', label: 'HUD Overlay', hint: 'Show or hide HUD surfaces while keeping the settings controls available.' },
+          { key: 'minimap', label: 'Minimap', hint: 'Show the minimap and allow opening the full world map.' },
+          { key: 'worldLabels', label: 'World Labels', hint: 'Show HP bars, world labels, and storage warning overlays.' },
+          { key: 'notifications', label: 'Notifications', hint: 'Enable toast notifications for combat, crafting, and settlement events.' }
+        ]
+      },
+      worldFx: {
+        title: 'World FX',
+        copy: 'Optional effect layers for ambience and impact feedback.',
+        items: [
+          { key: 'particles', label: 'Particles', hint: 'Enable impact sparks, embers, and other particle effects.' },
+          { key: 'weather', label: 'Weather', hint: 'Enable rain simulation and weather visuals.' },
+          { key: 'atmosphere', label: 'Atmosphere', hint: 'Enable ambience updates such as stars, clouds, and wind motion.' }
+        ]
+      },
+      simulation: {
         title: 'Simulation',
+        copy: 'Heavy update loops for entities and automation, useful when profiling CPU load.',
         items: [
           { key: 'animals', label: 'Animal Simulation', hint: 'Freeze animal AI and movement updates.' },
           { key: 'npcs', label: 'NPC Workers', hint: 'Pause worker updates to isolate settlement CPU load.' },
           { key: 'barracksTroops', label: 'Barracks Troops', hint: 'Pause deployed troop updates and targeting.' }
         ]
       }
-    ];
+    };
 
     function isDebugSettingEnabled(key) {
       return !window.GameDebugSettings || !GameDebugSettings.isEnabled || GameDebugSettings.isEnabled(key);
@@ -228,25 +296,244 @@ try {
       return isHudVisible() && isDebugSettingEnabled('notifications');
     }
 
+    function getQualityConfigValue(path, fallbackValue) {
+      return (window.GameQualitySettings && GameQualitySettings.getConfigValue) ? GameQualitySettings.getConfigValue(path, fallbackValue) : fallbackValue;
+    }
+
+    function getWorldLabelDistanceLimit() {
+      return getQualityConfigValue('scene.worldLabelDistance', 6.5);
+    }
+
+    function getNodeHpLabelDistanceLimit() {
+      return getQualityConfigValue('scene.nodeHpLabelDistance', 999);
+    }
+
+    function getBuildingLabelCullMultiplier() {
+      return getQualityConfigValue('scene.buildingLabelCullMultiplier', 1.2);
+    }
+
     function setBodyClass(name, enabled) {
       if (!document.body) return;
       if (enabled) document.body.classList.add(name);
       else document.body.classList.remove(name);
     }
 
-    function getDebugSettingsPanel() {
-      return document.getElementById('debug-settings-panel');
+    function getQualitySettingsPanel() {
+      return document.getElementById('quality-settings-panel');
     }
 
-    function getDebugSettingsToggleButton() {
-      return document.getElementById('debug-settings-toggle');
+    function getQualitySettingsToggleButton() {
+      return document.getElementById('quality-settings-toggle');
     }
 
-    function updateDebugSettingsToggleState() {
-      var button = getDebugSettingsToggleButton();
+    function getQualityPromptElement() {
+      return document.getElementById('quality-prompt');
+    }
+
+    function getQualitySnapshot() {
+      return (window.GameQualitySettings && GameQualitySettings.getSnapshot) ? GameQualitySettings.getSnapshot() : null;
+    }
+
+    function getCurrentQualityPreset() {
+      var snapshot = getQualitySnapshot();
+      return snapshot && snapshot.current ? snapshot.current : { id: 'high', label: 'High', description: '', summary: '' };
+    }
+
+    function getQualityRuntimeConfigForPreset(presetId) {
+      return (window.GameQualitySettings && GameQualitySettings.getRuntimeConfigForPreset) ? GameQualitySettings.getRuntimeConfigForPreset(presetId) : null;
+    }
+
+    function normalizeQualitySettingsTab(tabId) {
+      for (var i = 0; i < QUALITY_SETTINGS_TABS.length; i++) {
+        if (QUALITY_SETTINGS_TABS[i].id === tabId) return QUALITY_SETTINGS_TABS[i].id;
+      }
+      return 'graphics';
+    }
+
+    function getQualitySettingsTabMeta(tabId) {
+      var resolvedTabId = normalizeQualitySettingsTab(tabId);
+      for (var i = 0; i < QUALITY_SETTINGS_TABS.length; i++) {
+        if (QUALITY_SETTINGS_TABS[i].id === resolvedTabId) return QUALITY_SETTINGS_TABS[i];
+      }
+      return QUALITY_SETTINGS_TABS[0];
+    }
+
+    function getQualitySettingsGroup(tabId) {
+      return DEBUG_SETTINGS_GROUPS[normalizeQualitySettingsTab(tabId)] || null;
+    }
+
+    function getQualityPresetAudience(presetId) {
+      if (presetId === 'high') return 'Stronger desktops';
+      if (presetId === 'medium') return 'Balanced default';
+      if (presetId === 'low') return 'Older laptops';
+      return 'Adaptive profile';
+    }
+
+    function getQualityShadowLabel(config) {
+      if (!config || !config.scene || !config.scene.shadows) return 'Shadows Off';
+      if (config.scene.shadowMapSize >= 2048) return 'Shadows High';
+      if (config.scene.shadowMapSize >= 1024) return 'Shadows Medium';
+      return 'Shadows On';
+    }
+
+    function getQualityWeatherLabel(config) {
+      if (!config || !config.debug || !config.debug.weather || !config.weather || !config.weather.rainDropCount) return 'Weather Off';
+      if (config.weather.rainDropCount >= 600) return 'Weather Full';
+      if (config.weather.rainDropCount >= 300) return 'Weather Light';
+      return 'Weather Minimal';
+    }
+
+    function getQualityOverlayLabel(config) {
+      if (!config || !config.debug || !config.debug.worldLabels || !config.scene) return 'Overlays Minimal';
+      if (config.scene.nodeHpLabelDistance >= 999) return 'Overlays Full';
+      return 'Overlays Balanced';
+    }
+
+    function getQualityRefreshLabel(config) {
+      if (!config || !config.minimap) return 'Map Refresh Standard';
+      if (config.minimap.fullRefreshMs <= 150) return 'Map Refresh Fast';
+      if (config.minimap.fullRefreshMs <= 200) return 'Map Refresh Balanced';
+      return 'Map Refresh Eco';
+    }
+
+    function buildQualityPillListHtml(presetId) {
+      var config = getQualityRuntimeConfigForPreset(presetId);
+      if (!config) return '';
+
+      var sceneConfig = config.scene || {};
+      var debugConfig = config.debug || {};
+      var pills = [
+        getQualityShadowLabel(config),
+        getQualityWeatherLabel(config),
+        debugConfig.particles ? 'Particles On' : 'Particles Off',
+        getQualityOverlayLabel(config),
+        'Render Scale ' + Math.round((sceneConfig.maxPixelRatioCap || 1) * 100) + '%',
+        getQualityRefreshLabel(config)
+      ];
+
+      var html = '<div class="quality-settings-pill-list">';
+      for (var i = 0; i < pills.length; i++) {
+        html += '<span class="quality-settings-pill">' + escapeHtml(pills[i]) + '</span>';
+      }
+      html += '</div>';
+      return html;
+    }
+
+    function buildQualitySettingsSidebarHtml(activeTabId) {
+      var html = '<aside class="quality-settings-sidebar">';
+      html += '<div class="quality-settings-sidebar-label">Settings Sections</div>';
+      html += '<div class="quality-settings-tab-nav">';
+
+      for (var i = 0; i < QUALITY_SETTINGS_TABS.length; i++) {
+        var tab = QUALITY_SETTINGS_TABS[i];
+        var tabClass = 'quality-settings-tab-button';
+        if (tab.id === activeTabId) tabClass += ' active';
+        html += '<button class="' + tabClass + '" type="button" onclick="GameHUD.switchQualitySettingsTab(\'' + tab.id + '\')">' +
+          '<span class="quality-settings-tab-kicker">' + escapeHtml(tab.kicker) + '</span>' +
+          '<span class="quality-settings-tab-name">' + escapeHtml(tab.label) + '</span>' +
+        '</button>';
+      }
+
+      html += '</div>';
+      html += '<div class="quality-settings-sidebar-note">Use the sidebar to separate graphics presets from overlay, FX, and simulation switches.</div>';
+      html += '</aside>';
+      return html;
+    }
+
+    function buildQualityRuntimeSettingsTabHtml(tabId) {
+      var group = getQualitySettingsGroup(tabId);
+      if (!group) return '';
+
+      var html = '<div class="quality-settings-body quality-settings-body-runtime">';
+      html += '<section class="quality-settings-section">';
+      html += '<div class="quality-settings-section-head">' +
+        '<div>' +
+          '<div class="quality-settings-section-kicker">' + escapeHtml(group.title) + '</div>' +
+          '<div class="quality-settings-section-title">' + escapeHtml(group.title) + ' Controls</div>' +
+        '</div>' +
+      '</div>';
+      html += '<div class="quality-settings-copy">' + escapeHtml(group.copy || '') + '</div>';
+      html += '<div class="quality-settings-toggle-list">';
+
+      for (var itemIndex = 0; itemIndex < group.items.length; itemIndex++) {
+        var item = group.items[itemIndex];
+        html += '<label class="debug-setting-row">' +
+          '<span class="debug-setting-copy-block">' +
+            '<span class="debug-setting-name">' + escapeHtml(item.label) + '</span>' +
+            '<span class="debug-setting-hint">' + escapeHtml(item.hint) + '</span>' +
+          '</span>' +
+          '<input type="checkbox" data-settings-toggle="' + item.key + '"' + (isDebugSettingEnabled(item.key) ? ' checked' : '') + '>' +
+        '</label>';
+      }
+
+      html += '</div>';
+      html += '<div class="quality-settings-toolbar"><button class="debug-settings-reset" type="button" data-settings-reset="true">Reset Runtime Toggles</button></div>';
+      html += '<div class="quality-settings-compact-note">Changes here only affect this runtime category. Graphics presets stay isolated in the Graphics tab.</div>';
+      html += '</section>';
+      html += '</div>';
+      return html;
+    }
+
+    function buildQualityGraphicsTabHtml(snapshot, current) {
+      var currentCopy = current.summary || current.description || 'Choose how much visual detail and rendering cost the game should target.';
+      var html = '<div class="quality-settings-body quality-settings-body-graphics">';
+      html += '<section class="quality-settings-section quality-settings-section-current">';
+      html += '<div class="quality-settings-section-head">' +
+        '<div>' +
+          '<div class="quality-settings-section-kicker">Current Profile</div>' +
+          '<div class="quality-settings-section-title">' + escapeHtml((current.label || 'High') + ' preset active') + '</div>' +
+        '</div>' +
+        '<div class="quality-settings-status">Live</div>' +
+      '</div>';
+      html += '<div class="quality-settings-copy">' + escapeHtml(currentCopy) + '</div>';
+      html += buildQualityPillListHtml(current.id);
+      html += '<div class="quality-settings-note">Changing a preset here updates graphics quality only in this Settings flow. Overlay, World FX, and Simulation stay in their own tabs.</div>';
+      html += '<div class="quality-settings-inline-meta">' +
+        '<div class="quality-settings-inline-item"><span class="quality-settings-inline-label">Shortcut</span><strong>F9</strong></div>' +
+        '<div class="quality-settings-inline-item"><span class="quality-settings-inline-label">Assist</span><strong>Opt-in only</strong></div>' +
+      '</div>';
+      html += '</section>';
+
+      html += '<section class="quality-settings-section quality-settings-section-presets">';
+      html += '<div class="quality-settings-section-head">' +
+        '<div>' +
+          '<div class="quality-settings-section-kicker">Graphics Preset</div>' +
+          '<div class="quality-settings-section-title">Choose the look and performance target</div>' +
+        '</div>' +
+      '</div>';
+      html += '<div class="quality-settings-choice-list">';
+      for (var i = 0; i < snapshot.presets.length; i++) {
+        var preset = snapshot.presets[i];
+        var rowClass = 'quality-choice-row';
+        if (preset.id === snapshot.preset) rowClass += ' active';
+        html += '<button class="' + rowClass + '" type="button" onclick="GameHUD.applyQualityPreset(\'' + preset.id + '\')">' +
+          '<span class="quality-choice-copy">' +
+            '<span class="quality-choice-name-row">' +
+              '<span class="quality-choice-name">' + escapeHtml(preset.label) + '</span>' +
+              '<span class="quality-choice-badge">' + escapeHtml(getQualityPresetAudience(preset.id)) + '</span>' +
+            '</span>' +
+            '<span class="quality-choice-hint">' + escapeHtml(preset.summary || preset.description || '') + '</span>' +
+          '</span>' +
+          '<span class="quality-choice-state">' + (preset.id === snapshot.preset ? 'Active' : 'Apply') + '</span>' +
+        '</button>';
+      }
+      html += '</div>';
+      html += '</section>';
+      html += '</div>';
+      return html;
+    }
+
+    function updateQualitySettingsToggleState() {
+      var button = getQualitySettingsToggleButton();
       if (!button) return;
-      button.setAttribute('aria-expanded', _debugSettingsPanelOpen ? 'true' : 'false');
-      setNodeClassState(button, 'is-open', _debugSettingsPanelOpen);
+
+      button.setAttribute('aria-expanded', _qualityPanelOpen ? 'true' : 'false');
+      button.setAttribute('aria-label', 'Setting (F9)');
+      button.setAttribute('title', 'Setting (F9)');
+      setNodeClassState(button, 'is-open', _qualityPanelOpen);
+      setInnerHtmlIfChanged(button,
+        '<span class="quality-settings-toggle-text">Setting</span>'
+      );
     }
 
     function clearWorldOverlayElements() {
@@ -262,42 +549,131 @@ try {
       el.classList.remove('show', 'error', 'success', 'info', 'warning', 'default');
     }
 
-    function renderDebugSettingsPanel() {
-      var panel = getDebugSettingsPanel();
-      if (!panel) return;
+    function renderQualitySettingsPanel() {
+      var panel = getQualitySettingsPanel();
+      var snapshot = getQualitySnapshot();
+      if (!panel || !snapshot) return;
 
-      var html = '<div class="debug-settings-header">' +
+      var current = snapshot.current || { id: 'high', label: 'High', description: '', summary: '' };
+      var activeTab = getQualitySettingsTabMeta(_qualitySettingsTab);
+      _qualitySettingsTab = activeTab.id;
+      var html = '<div class="quality-popup-content" onclick="event.stopPropagation()">' +
+        '<div class="quality-settings-header">' +
         '<div>' +
-          '<div class="debug-settings-kicker">Runtime Profiling</div>' +
-          '<div class="debug-settings-title">Debug Settings</div>' +
-          '<div class="debug-settings-copy">Toggle systems on and off in real time to isolate which subsystem causes frame drops.</div>' +
+          '<div class="quality-settings-kicker">Settings</div>' +
+          '<div class="quality-settings-title">Sidebar Settings</div>' +
+          '<div class="quality-settings-copy">Adjust Graphics, Overlay, World FX, and Simulation in separate tabs so each category stays in its own lane.</div>' +
         '</div>' +
-        '<button class="debug-settings-reset" type="button" data-debug-reset="true">Reset</button>' +
+        '<button class="quality-settings-close" type="button" onclick="GameHUD.toggleQualitySettingsPanel(false)">Close</button>' +
       '</div>';
 
-      for (var groupIndex = 0; groupIndex < DEBUG_SETTINGS_GROUPS.length; groupIndex++) {
-        var group = DEBUG_SETTINGS_GROUPS[groupIndex];
-        html += '<div class="debug-settings-group">';
-        html += '<div class="debug-settings-group-title">' + group.title + '</div>';
-        for (var itemIndex = 0; itemIndex < group.items.length; itemIndex++) {
-          var item = group.items[itemIndex];
-          html += '<label class="debug-setting-row">' +
-            '<span class="debug-setting-copy-block">' +
-              '<span class="debug-setting-name">' + item.label + '</span>' +
-              '<span class="debug-setting-hint">' + item.hint + '</span>' +
-            '</span>' +
-            '<input type="checkbox" data-debug-setting="' + item.key + '"' + (isDebugSettingEnabled(item.key) ? ' checked' : '') + '>' +
-          '</label>';
-        }
-        html += '</div>';
-      }
-
-      html += '<div class="debug-settings-copy" style="margin-top:12px; border-top:1px solid rgba(255,255,255,0.06); padding-top:10px;">Shortcuts: <strong>F9</strong> opens this panel. FPS stays visible even when HUD is disabled.</div>';
+      html += '<div class="quality-settings-layout">';
+      html += buildQualitySettingsSidebarHtml(activeTab.id);
+      html += '<div class="quality-settings-stage">';
+      html += '<div class="quality-settings-stage-header">' +
+        '<div class="quality-settings-stage-kicker">' + escapeHtml(activeTab.kicker) + '</div>' +
+        '<div class="quality-settings-stage-title">' + escapeHtml(activeTab.title) + '</div>' +
+        '<div class="quality-settings-copy">' + escapeHtml(activeTab.description) + '</div>' +
+      '</div>';
+      html += activeTab.id === 'graphics'
+        ? buildQualityGraphicsTabHtml(snapshot, current)
+        : buildQualityRuntimeSettingsTabHtml(activeTab.id);
+      html += '</div>';
+      html += '</div>';
+      html += '</div>';
 
       setInnerHtmlIfChanged(panel, html);
-      setNodeClassState(panel, 'open', _debugSettingsPanelOpen);
-      panel.setAttribute('aria-hidden', _debugSettingsPanelOpen ? 'false' : 'true');
-      updateDebugSettingsToggleState();
+      setNodeClassState(panel, 'open', _qualityPanelOpen);
+      panel.setAttribute('aria-hidden', _qualityPanelOpen ? 'false' : 'true');
+      updateQualitySettingsToggleState();
+    }
+
+    function renderQualityPrompt() {
+      var prompt = getQualityPromptElement();
+      if (!prompt) return;
+
+      if (_qualityPanelOpen || !_qualityPromptState.visible || !_qualityPromptState.suggestedPreset) {
+        prompt.classList.remove('show');
+        prompt.setAttribute('aria-hidden', 'true');
+        prompt.innerHTML = '';
+        return;
+      }
+
+      var preset = window.GameQualitySettings && GameQualitySettings.getPresetDefinition ? GameQualitySettings.getPresetDefinition(_qualityPromptState.suggestedPreset) : null;
+      var label = preset && preset.label ? preset.label : _qualityPromptState.suggestedLabel || _qualityPromptState.suggestedPreset;
+      var html = '<div class="quality-prompt-card">' +
+        '<div class="quality-prompt-kicker">Performance Advisory</div>' +
+        '<div class="quality-prompt-title">FPS is staying low</div>' +
+        '<div class="quality-prompt-copy">Average is around ' + escapeHtml(String(_qualityPromptState.fps || 0)) + ' FPS (' + escapeHtml(String(_qualityPromptState.frameMs || 0)) + ' ms). Switch to <strong>' + escapeHtml(label) + '</strong> to reduce CPU and rendering load?</div>' +
+        '<div class="quality-prompt-actions">' +
+          '<button class="quality-prompt-btn accept" type="button" onclick="GameHUD.acceptQualitySuggestion()">Switch to ' + escapeHtml(label) + '</button>' +
+          '<button class="quality-prompt-btn" type="button" onclick="GameHUD.snoozeQualityPrompt()">Not now</button>' +
+          '<button class="quality-prompt-btn subtle" type="button" onclick="GameHUD.dismissQualityPrompt()">Keep current</button>' +
+        '</div>' +
+      '</div>';
+
+      setInnerHtmlIfChanged(prompt, html);
+      prompt.classList.add('show');
+      prompt.setAttribute('aria-hidden', 'false');
+    }
+
+    function applyQualitySettingsState() {
+      updateQualitySettingsToggleState();
+      renderQualitySettingsPanel();
+      renderQualityPrompt();
+    }
+
+    function toggleQualitySettingsPanel(forceOpen) {
+      _qualityPanelOpen = typeof forceOpen === 'boolean' ? forceOpen : !_qualityPanelOpen;
+      renderQualitySettingsPanel();
+      return _qualityPanelOpen;
+    }
+
+    function switchQualitySettingsTab(tabId) {
+      var nextTabId = normalizeQualitySettingsTab(tabId);
+      if (_qualitySettingsTab === nextTabId) return nextTabId;
+      _qualitySettingsTab = nextTabId;
+      renderQualitySettingsPanel();
+      return nextTabId;
+    }
+
+    function applyQualityPreset(presetId, source) {
+      if (!window.GameQualitySettings || !GameQualitySettings.applyPreset) return null;
+
+      var nextPreset = GameQualitySettings.applyPreset(presetId, source || 'panel', { syncDebug: false });
+      _qualityPromptState.visible = false;
+      _qualityPromptState.lowFpsSeconds = 0;
+      renderQualityPrompt();
+      applyQualitySettingsState();
+
+      if (nextPreset && nextPreset.label) {
+        showNotification('Graphics preset: ' + nextPreset.label, 'info');
+      }
+
+      return nextPreset;
+    }
+
+    function hideQualityPrompt(snoozeMs) {
+      _qualityPromptState.visible = false;
+      if (snoozeMs && snoozeMs > 0) {
+        _qualityPromptState.snoozeUntil = Date.now() + snoozeMs;
+      }
+      renderQualityPrompt();
+    }
+
+    function acceptQualitySuggestion() {
+      if (!_qualityPromptState.suggestedPreset) return null;
+      var accepted = applyQualityPreset(_qualityPromptState.suggestedPreset, 'advisor');
+      hideQualityPrompt(120000);
+      return accepted;
+    }
+
+    function snoozeQualityPrompt() {
+      hideQualityPrompt(90000);
+    }
+
+    function dismissQualityPrompt() {
+      hideQualityPrompt(300000);
     }
 
     function applyDebugSettingsState(reason) {
@@ -307,7 +683,6 @@ try {
       setBodyClass('debug-hud-hidden', !hudVisible);
       setBodyClass('debug-minimap-hidden', !isDebugSettingEnabled('minimap'));
       setBodyClass('debug-world-labels-hidden', !worldLabelsVisible);
-      setBodyClass('debug-screen-fx-hidden', !isDebugSettingEnabled('screenFx'));
 
       if (!hudVisible) {
         clearScheduledRender();
@@ -333,41 +708,46 @@ try {
         ParticleSystem.clearAll();
       }
 
-      renderDebugSettingsPanel();
+      renderQualitySettingsPanel();
       if (hudVisible) {
         renderAll(reason || 'debug-settings');
       }
     }
 
-    function toggleDebugSettingsPanel(forceOpen) {
-      _debugSettingsPanelOpen = typeof forceOpen === 'boolean' ? forceOpen : !_debugSettingsPanelOpen;
-      renderDebugSettingsPanel();
-      return _debugSettingsPanelOpen;
-    }
-
-    function bindDebugSettingsUi() {
-      var panel = getDebugSettingsPanel();
-      if (panel && !panel._debugSettingsBound) {
+    function bindQualitySettingsUi() {
+      var panel = getQualitySettingsPanel();
+      if (panel && !panel._qualitySettingsPanelBound) {
         panel.addEventListener('change', function (event) {
           var target = event.target;
-          var key = target && target.getAttribute ? target.getAttribute('data-debug-setting') : null;
+          var key = target && target.getAttribute ? target.getAttribute('data-settings-toggle') : null;
           if (!key || !window.GameDebugSettings) return;
-          GameDebugSettings.setEnabled(key, !!target.checked, 'panel');
+          GameDebugSettings.setEnabled(key, !!target.checked, 'settings-panel');
         });
         panel.addEventListener('click', function (event) {
+          if (event.target === panel) {
+            toggleQualitySettingsPanel(false);
+            return;
+          }
           var target = event.target;
-          if (!target || !target.getAttribute || target.getAttribute('data-debug-reset') !== 'true' || !window.GameDebugSettings) return;
-          GameDebugSettings.reset('panel');
+          if (!target || !target.getAttribute || target.getAttribute('data-settings-reset') !== 'true' || !window.GameDebugSettings) return;
+          GameDebugSettings.reset('settings-panel');
+          renderQualitySettingsPanel();
         });
-        panel._debugSettingsBound = true;
+        panel._qualitySettingsPanelBound = true;
       }
 
-      var button = getDebugSettingsToggleButton();
-      if (button && !button._debugSettingsBound) {
+      var button = getQualitySettingsToggleButton();
+      if (button && !button._qualitySettingsBound) {
         button.addEventListener('click', function () {
-          toggleDebugSettingsPanel();
+          toggleQualitySettingsPanel();
         });
-        button._debugSettingsBound = true;
+        button._qualitySettingsBound = true;
+      }
+
+      if (!_qualitySettingsUnsubscribe && window.GameQualitySettings && GameQualitySettings.subscribe) {
+        _qualitySettingsUnsubscribe = GameQualitySettings.subscribe(function () {
+          applyQualitySettingsState();
+        });
       }
 
       if (!_debugSettingsUnsubscribe && window.GameDebugSettings && GameDebugSettings.subscribe) {
@@ -386,9 +766,14 @@ try {
       _fpsPanel.textContent = 'FPS --';
       _fpsPanel.classList.remove('warn', 'low');
     }
-    bindDebugSettingsUi();
-    renderDebugSettingsPanel();
+    if (window.GameQualitySettings && GameQualitySettings.syncRuntime) {
+      GameQualitySettings.syncRuntime('hud-init');
+    }
+    bindQualitySettingsUi();
+    renderQualitySettingsPanel();
+    renderQualityPrompt();
     applyDebugSettingsState('init');
+    applyQualitySettingsState();
     renderQuickbar();
   }
 
@@ -1116,6 +1501,11 @@ try {
     var settlementStatus = GameActions.getSettlementStatus();
     if (!settlementStatus || !settlementStatus.alerts || !settlementStatus.alerts.length) return '';
 
+    var cacheKey = settlementStatus.cacheKey || JSON.stringify(settlementStatus.alerts);
+    if (_settlementHtmlCacheKey === cacheKey && _settlementHtmlCacheValue) {
+      return _settlementHtmlCacheValue;
+    }
+
     var html = '<div class="objective-hint">Priority status</div>';
     html += '<div class="objective-checklist">';
     settlementStatus.alerts.forEach(function(alert) {
@@ -1125,6 +1515,8 @@ try {
         '</div>';
     });
     html += '</div>';
+    _settlementHtmlCacheKey = cacheKey;
+    _settlementHtmlCacheValue = html;
     return html;
   }
 
@@ -1133,15 +1525,30 @@ try {
     if (!tracker) return;
     var currentAgeEntity = GameRegistry.getEntity(GameState.getAge());
     var currentAgeLabel = currentAgeEntity ? currentAgeEntity.name : GameState.getAge();
+    var coreVersion = (window.GameState && GameState.getCoreStateVersion) ? GameState.getCoreStateVersion() : 0;
+    var settlementStatus = (window.GameActions && GameActions.getSettlementStatus) ? GameActions.getSettlementStatus() : null;
+    var settlementCacheKey = settlementStatus && settlementStatus.cacheKey ? settlementStatus.cacheKey : 'settlement:none';
+    var trackerCachePrefix = GameState.getAge() + '|' + coreVersion + '|' + settlementCacheKey;
 
     var nextAge = getNextAgeObjective();
     if (!nextAge) {
+      var readyCacheKey = trackerCachePrefix + '|ready';
+      if (_objectiveTrackerCacheKey === readyCacheKey && _objectiveTrackerCacheHtml) {
+        tracker.className = _objectiveTrackerCacheClassName;
+        setInnerHtmlIfChanged(tracker, _objectiveTrackerCacheHtml);
+        return;
+      }
+
       var clearedSettlementHtml = buildSettlementStatusHtml();
-      tracker.className = 'objective-tracker ready';
-      tracker.innerHTML = '<div class="objective-meta"><span class="objective-label">Current Age</span><span class="objective-age">' + escapeHtml(currentAgeLabel) + '</span></div>' +
+      var readyHtml = '<div class="objective-meta"><span class="objective-label">Current Age</span><span class="objective-age">' + escapeHtml(currentAgeLabel) + '</span></div>' +
         '<div class="objective-title">All Ages Unlocked</div>' +
         '<div class="objective-detail">Current progression content is fully cleared.</div>' +
         clearedSettlementHtml;
+      tracker.className = 'objective-tracker ready';
+      setInnerHtmlIfChanged(tracker, readyHtml);
+      _objectiveTrackerCacheKey = readyCacheKey;
+      _objectiveTrackerCacheClassName = 'objective-tracker ready';
+      _objectiveTrackerCacheHtml = readyHtml;
       return;
     }
 
@@ -1188,13 +1595,26 @@ try {
     }
     checklistHtml += '</div>';
 
+    var trackerClassName = 'objective-tracker' + (canAdvance ? ' ready' : '');
     var settlementHtml = buildSettlementStatusHtml();
-    tracker.className = 'objective-tracker' + (canAdvance ? ' ready' : '');
-    tracker.innerHTML = '<div class="objective-meta"><span class="objective-label">Current Age</span><span class="objective-age">' + escapeHtml(currentAgeLabel) + '</span></div>' +
+    var trackerHtml = '<div class="objective-meta"><span class="objective-label">Current Age</span><span class="objective-age">' + escapeHtml(currentAgeLabel) + '</span></div>' +
       '<div class="objective-title">' + escapeHtml(nextAge.entity.name) + (canAdvance ? ' Ready!' : '') + '</div>' +
       checklistHtml +
       settlementHtml +
       '<div class="objective-actions"><button class="objective-advance-btn' + (canAdvance ? ' ready' : '') + '" onclick="GameActions.advanceAge(\'' + nextAge.entity.id + '\')"' + (canAdvance ? '' : ' disabled') + '>Advance Age</button></div>';
+
+    var trackerCacheKey = trackerCachePrefix + '|' + nextAge.entity.id + '|' + (canAdvance ? '1' : '0');
+    if (_objectiveTrackerCacheKey === trackerCacheKey && _objectiveTrackerCacheHtml === trackerHtml && _objectiveTrackerCacheClassName === trackerClassName) {
+      tracker.className = trackerClassName;
+      setInnerHtmlIfChanged(tracker, trackerHtml);
+      return;
+    }
+
+    tracker.className = trackerClassName;
+    setInnerHtmlIfChanged(tracker, trackerHtml);
+    _objectiveTrackerCacheKey = trackerCacheKey;
+    _objectiveTrackerCacheClassName = trackerClassName;
+    _objectiveTrackerCacheHtml = trackerHtml;
   }
 
   function getQuickbarBuildItems() {
@@ -1645,22 +2065,20 @@ try {
     var inventory = GameState.getInventory();
     var html = '<div class="card"><div class="card-name">Equipped</div>';
 
-    var slots = ["weapon", "offhand", "armor"];
+    var slots = ["weapon", "offhand", "armor", "boots"];
     slots.forEach(function (slot) {
       var equippedId = player.equipped[slot];
       if (equippedId) {
         var entity = GameRegistry.getEntity(equippedId);
-        var balance = GameRegistry.getBalance(equippedId);
-        var stats = balance ? balance.stats : {};
-        var statStr = Object.keys(stats).map(function (k) { return "+" + stats[k] + " " + k; }).join(", ");
+        var statStr = getEquipmentStatSummary(equippedId, { shortLabels: true });
         html += '<div class="inv-slot equipped" onclick="GameActions.unequip(\'' + slot + '\')">';
         html += '<div style="font-weight:bold">' + escapeHtml(entity ? entity.name : equippedId) + '</div>';
-        html += '<div style="font-size:10px;color:#4ecca3">' + statStr + '</div>';
+        if (statStr) html += '<div style="font-size:10px;color:#4ecca3">' + escapeHtml(statStr) + '</div>';
         html += '<div style="font-size:10px;color:#888">[' + slot + '] click to unequip</div>';
         html += '</div>';
       } else {
         html += '<div class="inv-slot" style="opacity:0.5">';
-        html += '<div>Empty ' + slot + '</div></div>';
+        html += '<div>Empty ' + escapeHtml(getEquipmentSlotLabel(slot)) + '</div></div>';
       }
     });
 
@@ -1678,6 +2096,8 @@ try {
         html += '<div class="inv-slot" onclick="GameActions.equip(\'' + id + '\')">';
         html += '<div style="font-weight:bold">' + escapeHtml(entity.name) + '</div>';
         html += '<div style="font-size:10px">x' + inventory[id] + '</div>';
+        var inventoryStatStr = getEquipmentStatSummary(id, { shortLabels: true });
+        if (inventoryStatStr) html += '<div style="font-size:10px;color:#4ecca3">' + escapeHtml(inventoryStatStr) + '</div>';
         html += '</div>';
       }
     }
@@ -1699,6 +2119,7 @@ try {
     html += '<div class="card-info">HP: ' + Math.floor(player.hp) + '/' + GameState.getPlayerMaxHp() + '</div>';
     html += '<div class="card-info">Attack: ' + GameState.getPlayerAttack() + ' (base: ' + player.attack + ')</div>';
     html += '<div class="card-info">Defense: ' + GameState.getPlayerDefense() + ' (base: ' + player.defense + ')</div>';
+    html += '<div class="card-info">Speed: ' + formatBalanceDisplayNumber(GameState.getPlayerSpeed ? GameState.getPlayerSpeed() : player.speed) + ' (base: ' + formatBalanceDisplayNumber(player.speed) + ')</div>';
     html += '<div class="card-info">Position: ' + Math.floor(player.x) + ', ' + Math.floor(player.z) + '</div>';
     html += '</div>';
 
@@ -2291,14 +2712,16 @@ try {
   document.addEventListener('keydown', function(e) {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
 
-    if (e.key === 'F9') {
+    if (e.key === 'F8' || e.key === 'F9') {
       e.preventDefault();
-      toggleDebugSettingsPanel();
+      toggleQualitySettingsPanel();
       return;
     }
 
-    if (e.key === 'Escape' && _debugSettingsPanelOpen) {
-      toggleDebugSettingsPanel(false);
+    if (e.key === 'Escape') {
+      if (_qualityPanelOpen) {
+        toggleQualitySettingsPanel(false);
+      }
     }
   });
 
@@ -2418,6 +2841,12 @@ try {
       return;
     }
 
+    var labelDistanceLimit = getNodeHpLabelDistanceLimit();
+    if (!(labelDistanceLimit > 0)) {
+      hideUnusedNodeHpBars(0);
+      return;
+    }
+
     if (!window.NPCSystem || !NPCSystem.getActiveHarvestNodes) return;
 
     var container = getNodeHpBarContainer();
@@ -2432,8 +2861,16 @@ try {
 
     var screenWidth = window.innerWidth;
     var screenHeight = window.innerHeight;
+    var playerPos = (window.GamePlayer && GamePlayer.getPosition) ? GamePlayer.getPosition() : null;
+    var labelDistanceLimitSq = labelDistanceLimit >= 999 ? Infinity : (labelDistanceLimit * labelDistanceLimit);
     var visibleCount = 0;
     activeNodes.forEach(function(nodeData) {
+      if (playerPos && labelDistanceLimitSq !== Infinity) {
+        var playerDx = nodeData.worldX - playerPos.x;
+        var playerDz = nodeData.worldZ - playerPos.z;
+        if ((playerDx * playerDx + playerDz * playerDz) > labelDistanceLimitSq) return;
+      }
+
       var pos = projectHudWorldPoint(nodeData.worldX, 1.2, nodeData.worldZ);
       if (!pos || pos.z > 1 || pos.z < -1) return;
 
@@ -2488,7 +2925,13 @@ try {
       return;
     }
 
-    var nearby = GameTerrain.getNearbyObjects(playerPos.x, playerPos.z, 6.5, 6);
+    var searchRadius = getWorldLabelDistanceLimit();
+    if (!(searchRadius > 0)) {
+      hideUnusedNodeWorldLabels(0);
+      return;
+    }
+
+    var nearby = GameTerrain.getNearbyObjects(playerPos.x, playerPos.z, searchRadius, 6);
     if (!nearby.length) {
       hideUnusedNodeWorldLabels(0);
       return;
@@ -2559,7 +3002,12 @@ try {
 
     var visibleMap = {};
     var playerPos = (window.GamePlayer && GamePlayer.getPosition) ? GamePlayer.getPosition() : null;
-    var worldCullRadius = camera ? ((Math.abs(camera.right) + Math.abs(camera.top)) * 1.2 + 6) : 42;
+    var worldCullRadiusMultiplier = getBuildingLabelCullMultiplier();
+    if (!(worldCullRadiusMultiplier > 0)) {
+      hideUnusedBuildingLabels({}, instances);
+      return;
+    }
+    var worldCullRadius = camera ? ((Math.abs(camera.right) + Math.abs(camera.top)) * worldCullRadiusMultiplier + 6) : 42;
 
     for (var uid in instances) {
       var inst = instances[uid];
@@ -2626,6 +3074,48 @@ try {
     hideUnusedBuildingLabels(visibleMap, instances);
   }
 
+  function getSuggestedLowerPresetId() {
+    if (!window.GameQualitySettings || !GameQualitySettings.getPresetId) return null;
+
+    var currentPresetId = GameQualitySettings.getPresetId();
+    if (currentPresetId === 'high') return 'medium';
+    if (currentPresetId === 'medium') return 'low';
+    return null;
+  }
+
+  function updateQualityPerformanceAdvisor(dt) {
+    if (!dt || !window.GameQualitySettings || !GameQualitySettings.getConfigValue) return;
+
+    var suggestedPresetId = getSuggestedLowerPresetId();
+    if (!suggestedPresetId) {
+      _qualityPromptState.lowFpsSeconds = 0;
+      return;
+    }
+
+    if (Date.now() < _qualityPromptState.snoozeUntil) return;
+
+    var lowFpsThreshold = GameQualitySettings.getConfigValue('advisor.suggestDownFps', 0);
+    var lowFpsSeconds = GameQualitySettings.getConfigValue('advisor.suggestAfterSeconds', 0);
+    if (!(lowFpsThreshold > 0) || !(lowFpsSeconds > 0)) return;
+
+    if (_fpsSmoothed <= lowFpsThreshold) {
+      _qualityPromptState.lowFpsSeconds += dt;
+    } else {
+      _qualityPromptState.lowFpsSeconds = Math.max(0, _qualityPromptState.lowFpsSeconds - (dt * 1.5));
+    }
+
+    if (_qualityPromptState.visible || _qualityPromptState.lowFpsSeconds < lowFpsSeconds) return;
+
+    var suggestedPreset = window.GameQualitySettings.getPresetDefinition ? GameQualitySettings.getPresetDefinition(suggestedPresetId) : null;
+    _qualityPromptState.visible = true;
+    _qualityPromptState.suggestedPreset = suggestedPresetId;
+    _qualityPromptState.suggestedLabel = suggestedPreset && suggestedPreset.label ? suggestedPreset.label : suggestedPresetId;
+    _qualityPromptState.fps = Math.max(1, Math.round(_fpsSmoothed));
+    _qualityPromptState.frameMs = _fpsSmoothedMs.toFixed(1);
+    _qualityPromptState.lowFpsSeconds = 0;
+    renderQualityPrompt();
+  }
+
   function updatePerformanceStats(dt) {
     var panel = getFpsPanel();
     if (!panel || !dt) return;
@@ -2641,11 +3131,12 @@ try {
 
     _fpsUpdateAccumulator += dt;
     if (_fpsUpdateAccumulator < 0.12) return;
+    var advisorDelta = _fpsUpdateAccumulator;
     _fpsUpdateAccumulator = 0;
 
-    var label = Math.round(_fpsSmoothed) + ' FPS | ' + _fpsSmoothedMs.toFixed(1) + ' ms';
+    var label = Math.round(_fpsSmoothed) + ' FPS';
     var drawCalls = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('draw.calls') : null;
-    if (typeof drawCalls === 'number' && drawCalls > 0) {
+    if (false && typeof drawCalls === 'number' && drawCalls > 0) {
       label += ' | DC ' + Math.round(drawCalls);
     }
 
@@ -2660,6 +3151,7 @@ try {
     var loadedChunks = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('terrain.loadedChunks') : null;
     var visibleChunks = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('terrain.visibleChunks') : null;
     var renderPixelRatio = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('render.pixelRatio') : null;
+    var currentQualityPreset = getCurrentQualityPreset();
 
     if (frameMetric && frameMetric.avgMs > 0) tooltipParts.push('Frame ' + frameMetric.avgMs.toFixed(1) + ' ms');
     if (hudMetric && hudMetric.avgMs > 0) tooltipParts.push('HUD ' + hudMetric.avgMs.toFixed(1) + ' ms');
@@ -2670,6 +3162,7 @@ try {
     if (typeof geometries === 'number') tooltipParts.push('Geometries ' + Math.round(geometries));
     if (typeof loadedChunks === 'number' && typeof visibleChunks === 'number') tooltipParts.push('Chunks ' + Math.round(visibleChunks) + '/' + Math.round(loadedChunks));
     if (typeof renderPixelRatio === 'number') tooltipParts.push('PixelRatio ' + renderPixelRatio.toFixed(2));
+    if (currentQualityPreset && currentQualityPreset.label) tooltipParts.push('Quality ' + currentQualityPreset.label);
 
     setNodeText(panel, label);
     setNodeTitle(panel, tooltipParts.join(' | '));
@@ -2679,6 +3172,8 @@ try {
     } else if (_fpsSmoothed < 45) {
       panel.classList.add('warn');
     }
+
+    updateQualityPerformanceAdvisor(advisorDelta);
   }
 
   // === MODAL SYSTEM ===
@@ -3006,6 +3501,59 @@ try {
     return '✨';
   }
 
+  function formatBalanceDisplayNumber(value) {
+    if (window.GameRegistry && GameRegistry.formatBalanceNumber) {
+      return GameRegistry.formatBalanceNumber(value);
+    }
+
+    var numericValue = Number(value);
+    if (!isFinite(numericValue)) return String(value);
+    if (Math.abs(numericValue - Math.round(numericValue)) < 0.0001) {
+      return String(Math.round(numericValue));
+    }
+    return numericValue.toFixed(2).replace(/\.?0+$/, '');
+  }
+
+  function getEquipmentStats(equipmentId) {
+    if (!equipmentId) return null;
+    if (window.GameState && GameState.getEquipmentStats) {
+      return GameState.getEquipmentStats(equipmentId);
+    }
+
+    var balance = GameRegistry.getBalance(equipmentId) || {};
+    var entity = GameRegistry.getEntity(equipmentId) || {};
+    return balance.stats || entity.stats || null;
+  }
+
+  function getEquipmentStatSummary(equipmentId, options) {
+    var stats = getEquipmentStats(equipmentId);
+    if (!stats) return '';
+    if (window.GameRegistry && GameRegistry.getStatSummary) {
+      return GameRegistry.getStatSummary(stats, options);
+    }
+    return '';
+  }
+
+  function getEquipmentSlotLabel(slot) {
+    if (slot === 'weapon') return 'Weapon';
+    if (slot === 'offhand') return 'Shield';
+    if (slot === 'armor') return 'Armor';
+    if (slot === 'boots') return 'Boots';
+    return slot || 'Item';
+  }
+
+  function buildEquippedStatBreakdownText(baseValue, statKey) {
+    var text = 'Base: ' + formatBalanceDisplayNumber(baseValue);
+    var breakdown = (window.GameState && GameState.getEquippedStatBreakdown) ? GameState.getEquippedStatBreakdown(statKey) : [];
+
+    breakdown.forEach(function(entry) {
+      var sign = entry.value > 0 ? '+' : '-';
+      text += '<br>' + escapeHtml(getEquipmentSlotLabel(entry.slot)) + ': ' + sign + formatBalanceDisplayNumber(Math.abs(entry.value));
+    });
+
+    return text;
+  }
+
   function getLevelValue(levelMap, preferredLevel) {
     if (levelMap === undefined || levelMap === null) return 0;
     if (typeof levelMap === 'number') return levelMap;
@@ -3156,11 +3704,9 @@ try {
       html += '<div class="equipment-slot-label">⚔️ Weapon</div>';
       if (weaponId) {
         var weaponEntity = GameRegistry.getEntity(weaponId);
-        var weaponBalance = GameRegistry.getBalance(weaponId);
         html += '<div class="equipment-slot-item">' + (weaponEntity ? weaponEntity.name : weaponId) + '</div>';
-        if (weaponBalance && weaponBalance.stats && weaponBalance.stats.attack) {
-          html += '<div class="equipment-slot-stats">+' + weaponBalance.stats.attack + ' ATK</div>';
-        }
+        var weaponStats = getEquipmentStatSummary(weaponId, { shortLabels: true });
+        if (weaponStats) html += '<div class="equipment-slot-stats">' + escapeHtml(weaponStats) + '</div>';
       } else {
         html += '<div class="equipment-slot-empty">Empty</div>';
       }
@@ -3172,11 +3718,9 @@ try {
       html += '<div class="equipment-slot-label">🛡️ Shield</div>';
       if (offhandId) {
         var offhandEntity = GameRegistry.getEntity(offhandId);
-        var offhandBalance = GameRegistry.getBalance(offhandId);
         html += '<div class="equipment-slot-item">' + (offhandEntity ? offhandEntity.name : offhandId) + '</div>';
-        if (offhandBalance && offhandBalance.stats && offhandBalance.stats.defense) {
-          html += '<div class="equipment-slot-stats">+' + offhandBalance.stats.defense + ' DEF</div>';
-        }
+        var offhandStats = getEquipmentStatSummary(offhandId, { shortLabels: true });
+        if (offhandStats) html += '<div class="equipment-slot-stats">' + escapeHtml(offhandStats) + '</div>';
       } else {
         html += '<div class="equipment-slot-empty">Empty</div>';
       }
@@ -3188,14 +3732,9 @@ try {
       html += '<div class="equipment-slot-label">🦺 Armor</div>';
       if (armorId) {
         var armorEntity = GameRegistry.getEntity(armorId);
-        var armorBalance = GameRegistry.getBalance(armorId);
         html += '<div class="equipment-slot-item">' + (armorEntity ? armorEntity.name : armorId) + '</div>';
-        var stats = [];
-        if (armorBalance && armorBalance.stats) {
-          if (armorBalance.stats.defense) stats.push('+' + armorBalance.stats.defense + ' DEF');
-          if (armorBalance.stats.maxHp) stats.push('+' + armorBalance.stats.maxHp + ' HP');
-        }
-        if (stats.length) html += '<div class="equipment-slot-stats">' + stats.join(', ') + '</div>';
+        var armorStats = getEquipmentStatSummary(armorId, { shortLabels: true });
+        if (armorStats) html += '<div class="equipment-slot-stats">' + escapeHtml(armorStats) + '</div>';
       } else {
         html += '<div class="equipment-slot-empty">Empty</div>';
       }
@@ -3207,11 +3746,9 @@ try {
       html += '<div class="equipment-slot-label">👟 Boots</div>';
       if (bootsId) {
         var bootsEntity = GameRegistry.getEntity(bootsId);
-        var bootsBalance = GameRegistry.getBalance(bootsId);
         html += '<div class="equipment-slot-item">' + (bootsEntity ? bootsEntity.name : bootsId) + '</div>';
-        if (bootsBalance && bootsBalance.stats && bootsBalance.stats.speed) {
-          html += '<div class="equipment-slot-stats">+' + bootsBalance.stats.speed + ' SPD</div>';
-        }
+        var bootsStats = getEquipmentStatSummary(bootsId, { shortLabels: true });
+        if (bootsStats) html += '<div class="equipment-slot-stats">' + escapeHtml(bootsStats) + '</div>';
       } else {
         html += '<div class="equipment-slot-empty">Empty</div>';
       }
@@ -3238,8 +3775,11 @@ try {
         html += '<div class="' + cssClass + '" ' + onClick + '>';
         html += '<div>' + (entity ? entity.name : itemId) + '</div>';
         html += '<div>x' + inventory[itemId] + '</div>';
-        if (entity.type === 'consumable' && entity.description) {
-          html += '<div style="font-size:9px;color:#888;">' + entity.description + '</div>';
+        var itemSummary = entity.type === 'equipment'
+          ? getEquipmentStatSummary(itemId, { shortLabels: true })
+          : entity.description;
+        if (itemSummary) {
+          html += '<div style="font-size:9px;color:#888;">' + escapeHtml(itemSummary) + '</div>';
         }
         html += '</div>';
       }
@@ -3581,60 +4121,22 @@ try {
     html += '<div class="stat-card hp">';
     html += '<div class="stat-label">❤️ Health</div>';
     html += '<div class="stat-value">' + Math.floor(player.hp) + ' / ' + maxHp + '</div>';
-    html += '<div class="stat-breakdown">Base: 100';
-    var armorId = player.equipped.armor;
-    if (armorId) {
-      var armorBalance = GameRegistry.getBalance(armorId);
-      if (armorBalance && armorBalance.stats && armorBalance.stats.maxHp) {
-        html += '<br>Armor: +' + armorBalance.stats.maxHp;
-      }
-    }
-    html += '</div></div>';
+    html += '<div class="stat-breakdown">' + buildEquippedStatBreakdownText(100, 'maxHp') + '</div></div>';
 
     html += '<div class="stat-card attack">';
     html += '<div class="stat-label">⚔️ Attack</div>';
     html += '<div class="stat-value">' + attack + '</div>';
-    html += '<div class="stat-breakdown">Base: ' + player.attack;
-    var weaponId = player.equipped.weapon;
-    if (weaponId) {
-      var weaponBalance = GameRegistry.getBalance(weaponId);
-      if (weaponBalance && weaponBalance.stats && weaponBalance.stats.attack) {
-        html += '<br>Weapon: +' + weaponBalance.stats.attack;
-      }
-    }
-    html += '</div></div>';
+    html += '<div class="stat-breakdown">' + buildEquippedStatBreakdownText(player.attack, 'attack') + '</div></div>';
 
     html += '<div class="stat-card defense">';
     html += '<div class="stat-label">🛡️ Defense</div>';
     html += '<div class="stat-value">' + defense + '</div>';
-    html += '<div class="stat-breakdown">Base: ' + player.defense;
-    var offhandId = player.equipped.offhand;
-    if (offhandId) {
-      var offhandBalance = GameRegistry.getBalance(offhandId);
-      if (offhandBalance && offhandBalance.stats && offhandBalance.stats.defense) {
-        html += '<br>Shield: +' + offhandBalance.stats.defense;
-      }
-    }
-    if (armorId) {
-      var armorDefBalance = GameRegistry.getBalance(armorId);
-      if (armorDefBalance && armorDefBalance.stats && armorDefBalance.stats.defense) {
-        html += '<br>Armor: +' + armorDefBalance.stats.defense;
-      }
-    }
-    html += '</div></div>';
+    html += '<div class="stat-breakdown">' + buildEquippedStatBreakdownText(player.defense, 'defense') + '</div></div>';
 
     html += '<div class="stat-card speed">';
     html += '<div class="stat-label">⚡ Speed</div>';
     html += '<div class="stat-value">' + speed.toFixed(1) + '</div>';
-    html += '<div class="stat-breakdown">Base: ' + player.speed;
-    var bootsId = player.equipped.boots;
-    if (bootsId) {
-      var bootsBalance = GameRegistry.getBalance(bootsId);
-      if (bootsBalance && bootsBalance.stats && bootsBalance.stats.speed) {
-        html += '<br>Boots: +' + bootsBalance.stats.speed;
-      }
-    }
-    html += '</div></div>';
+    html += '<div class="stat-breakdown">' + buildEquippedStatBreakdownText(player.speed, 'speed') + '</div></div>';
 
     html += '</div>';
     html += '<div class="summary-list compact">';
@@ -3911,7 +4413,12 @@ try {
     renderQuickbar: renderQuickbar,
     toggleQuickbarMode: toggleQuickbarMode,
     activateQuickbarSlot: activateQuickbarSlot,
-    toggleDebugSettingsPanel: toggleDebugSettingsPanel,
+    applyQualityPreset: applyQualityPreset,
+    acceptQualitySuggestion: acceptQualitySuggestion,
+    snoozeQualityPrompt: snoozeQualityPrompt,
+    dismissQualityPrompt: dismissQualityPrompt,
+    switchQualitySettingsTab: switchQualitySettingsTab,
+    toggleQualitySettingsPanel: toggleQualitySettingsPanel,
     applyDebugSettingsState: applyDebugSettingsState,
     isHudVisible: isHudVisible
   };

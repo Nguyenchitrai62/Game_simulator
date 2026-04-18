@@ -1,4 +1,25 @@
 window.SynergySystem = (function () {
+  var _synergyCacheTick = -1;
+  var _synergyCache = Object.create(null);
+
+  function getCurrentTickCount() {
+    return (window.TickSystem && TickSystem.getTickCount) ? TickSystem.getTickCount() : 0;
+  }
+
+  function getCachedSynergy(instanceUid) {
+    var tickCount = getCurrentTickCount();
+    if (_synergyCacheTick !== tickCount) {
+      _synergyCacheTick = tickCount;
+      _synergyCache = Object.create(null);
+    }
+    return _synergyCache[instanceUid] || null;
+  }
+
+  function setCachedSynergy(instanceUid, value) {
+    getCachedSynergy(instanceUid);
+    _synergyCache[instanceUid] = value;
+    return value;
+  }
 
   /**
    * Get synergy bonus for a building based on nearby buildings
@@ -6,20 +27,23 @@ window.SynergySystem = (function () {
    * @returns {Object} - { productionBonus: 0.15, speedBonus: 0.05 }
    */
   function getSynergyBonus(instanceUid) {
+    var cached = getCachedSynergy(instanceUid);
+    if (cached) return cached;
+
     var instance = GameState.getInstance(instanceUid);
-    if (!instance) return { productionBonus: 0, speedBonus: 0 };
+    if (!instance) return setCachedSynergy(instanceUid, { productionBonus: 0, speedBonus: 0, nearbyCount: 0 });
 
     var entity = GameRegistry.getEntity(instance.entityId);
-    if (!entity) return { productionBonus: 0, speedBonus: 0 };
+    if (!entity) return setCachedSynergy(instanceUid, { productionBonus: 0, speedBonus: 0, nearbyCount: 0 });
 
     var balance = GameRegistry.getBalance(instance.entityId);
-    if (!balance || !balance.synergyFrom) return { productionBonus: 0, speedBonus: 0 };
+    if (!balance || !balance.synergyFrom) return setCachedSynergy(instanceUid, { productionBonus: 0, speedBonus: 0, nearbyCount: 0 });
 
     var totalProductionBonus = 0;
     var totalSpeedBonus = 0;
 
     // Check 3x3 grid around building
-    var nearbyBuildings = findNearbyBuildings(instance.x, instance.z, 1.5); // 1.5 tile radius (~3x3)
+    var nearbyBuildings = findNearbyBuildings(instance.x, instance.z, 1.5, { excludeUid: instanceUid }); // 1.5 tile radius (~3x3)
 
     for (var i = 0; i < nearbyBuildings.length; i++) {
       var nearbyInstance = nearbyBuildings[i];
@@ -47,27 +71,39 @@ window.SynergySystem = (function () {
     totalProductionBonus = Math.min(0.5, totalProductionBonus);
     totalSpeedBonus = Math.min(0.5, totalSpeedBonus);
 
-    return {
+    return setCachedSynergy(instanceUid, {
       productionBonus: totalProductionBonus,
       speedBonus: totalSpeedBonus,
       nearbyCount: nearbyBuildings.length
-    };
+    });
   }
 
   /**
    * Find all buildings within radius of a position
    */
-  function findNearbyBuildings(x, z, radius) {
+  function findNearbyBuildings(x, z, radius, options) {
+    options = options || {};
     var nearby = [];
+    if (window.GameSpatialIndex && GameSpatialIndex.getNearbyInstances) {
+      return GameSpatialIndex.getNearbyInstances(x, z, radius, {
+        excludeUid: options.excludeUid || null,
+        filter: function(inst) {
+          return !!(inst && inst.entityId);
+        }
+      });
+    }
+
+    var radiusSq = radius * radius;
     var instances = GameState.getAllInstances();
 
     for (var uid in instances) {
       var inst = instances[uid];
+      if (options.excludeUid && (inst.uid === options.excludeUid || uid === options.excludeUid)) continue;
       var dx = inst.x - x;
       var dz = inst.z - z;
-      var distance = Math.sqrt(dx * dx + dz * dz);
+      var distanceSq = dx * dx + dz * dz;
 
-      if (distance > 0 && distance <= radius) { // Exclude self (distance > 0)
+      if (distanceSq > 0 && distanceSq <= radiusSq) { // Exclude self (distance > 0)
         nearby.push(inst);
       }
     }

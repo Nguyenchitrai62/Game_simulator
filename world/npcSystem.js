@@ -24,10 +24,66 @@ window.NPCSystem = (function() {
   let npcs = [];
   let nextNPCId = 1;
   let _visualTime = 0;
+  let _pathCache = Object.create(null);
+  let _pathCacheOrder = [];
 
   function getLiveInstances() {
     if (GameState.getAllInstancesLive) return GameState.getAllInstancesLive();
     return GameState.getAllInstances();
+  }
+
+  function getPathCacheLimit() {
+    return (window.GameQualitySettings && GameQualitySettings.getConfigValue) ? GameQualitySettings.getConfigValue('simulation.pathCacheSize', 180) : 180;
+  }
+
+  function clearPathCache() {
+    _pathCache = Object.create(null);
+    _pathCacheOrder = [];
+  }
+
+  function getPathCacheKey(startNode, goalNode) {
+    return startNode.x + ',' + startNode.z + '>' + goalNode.x + ',' + goalNode.z;
+  }
+
+  function cloneCachedPath(path, goal) {
+    var clone = [];
+    for (var i = 0; i < path.length; i++) {
+      clone.push({ x: path[i].x, z: path[i].z });
+    }
+
+    if (path.isPartial) {
+      clone.isPartial = true;
+    } else if (goal && clone.length) {
+      clone[clone.length - 1] = { x: goal.x, z: goal.z };
+    }
+
+    return clone;
+  }
+
+  function getCachedPath(cacheKey, goal) {
+    var cachedEntry = _pathCache[cacheKey];
+    if (!cachedEntry) return null;
+    return cloneCachedPath(cachedEntry.path, goal);
+  }
+
+  function storeCachedPath(cacheKey, path) {
+    var limit = Math.max(0, getPathCacheLimit() || 0);
+    if (limit <= 0) return path;
+
+    if (!_pathCache[cacheKey]) {
+      _pathCacheOrder.push(cacheKey);
+    }
+
+    _pathCache[cacheKey] = {
+      path: cloneCachedPath(path)
+    };
+
+    while (_pathCacheOrder.length > limit) {
+      var oldestKey = _pathCacheOrder.shift();
+      delete _pathCache[oldestKey];
+    }
+
+    return path;
   }
 
   /**
@@ -47,6 +103,7 @@ window.NPCSystem = (function() {
     npcs = [];
     nextNPCId = 1;
     _visualTime = 0;
+    clearPathCache();
     
     console.log('[NPCSystem] Initialized');
   }
@@ -1994,6 +2051,7 @@ window.NPCSystem = (function() {
   function findPath(start, goal) {
     const startNode = { x: Math.round(start.x), z: Math.round(start.z) };
     const goalNode = { x: Math.round(goal.x), z: Math.round(goal.z) };
+    const cacheKey = getPathCacheKey(startNode, goalNode);
     const startKey = startNode.x + ',' + startNode.z;
     const goalKey = goalNode.x + ',' + goalNode.z;
     const searchMargin = Math.max(10, Math.ceil(heuristic(startNode, goalNode)) + 6);
@@ -2004,6 +2062,11 @@ window.NPCSystem = (function() {
 
     if (startKey === goalKey) {
       return [{ x: goal.x, z: goal.z }];
+    }
+
+    const cachedPath = getCachedPath(cacheKey, goal);
+    if (cachedPath) {
+      return cachedPath;
     }
 
     const directions = [
@@ -2060,7 +2123,7 @@ window.NPCSystem = (function() {
         if (!lastStep || lastStep.x !== goalNode.x || lastStep.z !== goalNode.z) {
           fullPath.push({ x: goal.x, z: goal.z });
         }
-        return fullPath;
+        return storeCachedPath(cacheKey, fullPath);
       }
 
       for (let i = 0; i < directions.length; i++) {
@@ -2105,10 +2168,10 @@ window.NPCSystem = (function() {
     if (bestNode && (bestNode.x !== startNode.x || bestNode.z !== startNode.z)) {
       const partialPath = reconstructPath(cameFrom, bestNode, startKey);
       partialPath.isPartial = true;
-      return partialPath;
+      return storeCachedPath(cacheKey, partialPath);
     }
 
-    return [];
+    return storeCachedPath(cacheKey, []);
   }
 
   function heuristic(a, b) {
@@ -2270,6 +2333,7 @@ window.NPCSystem = (function() {
     getThreatenedWorkersSummary,
     getNPCsForBuilding,
     getActiveHarvestNodes,
+    clearPathCache,
     getFarmWorkerStatus,
     getNPCByUid,
     getSpecializationBonus

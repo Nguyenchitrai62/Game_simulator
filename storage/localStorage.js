@@ -66,7 +66,7 @@ window.GameStorage = (function () {
       _lastWriteAt = Date.now();
 
       var shouldWriteWorld = false;
-      if (_worldDirty) {
+      if (_worldDirty || options.forceWorld) {
         if (options.forceWorld) {
           shouldWriteWorld = true;
         } else if (_lastWorldWriteAt <= 0 || (_lastWriteAt - _lastWorldWriteAt) >= WORLD_WRITE_INTERVAL_MS) {
@@ -84,6 +84,9 @@ window.GameStorage = (function () {
         endPerfMark(worldWriteMark);
         _lastWorldWriteAt = _lastWriteAt;
         _worldDirty = false;
+        if (window.GameState && GameState.clearWorldStateDirty) {
+          GameState.clearWorldStateDirty();
+        }
       }
 
       _coreDirty = false;
@@ -120,7 +123,11 @@ window.GameStorage = (function () {
   function scheduleSave(delayMs, options) {
     options = options || {};
     _coreDirty = true;
-    if (options.includeWorld !== false) {
+    var includeWorld = options.forceWorld === true;
+    if (!includeWorld && options.includeWorld !== false) {
+      includeWorld = !window.GameState || !GameState.hasWorldStateDirty || GameState.hasWorldStateDirty();
+    }
+    if (includeWorld) {
       _worldDirty = true;
     }
     clearPendingSave();

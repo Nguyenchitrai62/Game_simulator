@@ -1,6 +1,99 @@
 window.GameRegistry = (function () {
   var _entities = {};
   var _balance = {};
+  var STAT_METADATA = {
+    attack: { order: 1, label: 'Attack', shortLabel: 'ATK' },
+    defense: { order: 2, label: 'Defense', shortLabel: 'DEF' },
+    maxHp: { order: 3, label: 'Max HP', shortLabel: 'HP' },
+    speed: { order: 4, label: 'Speed', shortLabel: 'SPD' }
+  };
+
+  function formatBalanceNumber(value) {
+    var numericValue = Number(value);
+    if (!isFinite(numericValue)) return String(value);
+    if (Math.abs(numericValue - Math.round(numericValue)) < 0.0001) {
+      return String(Math.round(numericValue));
+    }
+    return numericValue.toFixed(2).replace(/\.?0+$/, '');
+  }
+
+  function getStatOrder(statKey) {
+    return STAT_METADATA[statKey] ? STAT_METADATA[statKey].order : 99;
+  }
+
+  function getStatSummary(stats, options) {
+    options = options || {};
+    if (!stats) return '';
+
+    var keys = Object.keys(stats).filter(function (statKey) {
+      var numericValue = Number(stats[statKey]);
+      return isFinite(numericValue) && numericValue !== 0;
+    });
+
+    if (!keys.length) return '';
+
+    keys.sort(function (leftKey, rightKey) {
+      return getStatOrder(leftKey) - getStatOrder(rightKey);
+    });
+
+    var shortLabels = !!options.shortLabels;
+    var joiner = options.joiner !== undefined ? options.joiner : ', ';
+    var parts = [];
+
+    keys.forEach(function (statKey) {
+      var numericValue = Number(stats[statKey]);
+      var valueText = (numericValue > 0 ? '+' : '-') + formatBalanceNumber(Math.abs(numericValue));
+      var meta = STAT_METADATA[statKey] || null;
+      var label = meta ? (shortLabels ? meta.shortLabel : meta.label) : statKey;
+      parts.push(valueText + ' ' + label);
+    });
+
+    return parts.join(joiner);
+  }
+
+  function buildEquipmentDescription(balanceData) {
+    if (!balanceData) return null;
+
+    var statSummary = getStatSummary(balanceData.stats, { shortLabels: false });
+    var flavorText = balanceData.flavorText ? String(balanceData.flavorText).trim() : '';
+    if (!statSummary && !flavorText) return null;
+
+    var parts = [];
+    if (statSummary) parts.push(statSummary + '.');
+    if (flavorText) parts.push(flavorText);
+    return parts.join(' ');
+  }
+
+  function buildRecipeDescription(contentEntity, balanceData) {
+    if (!balanceData || !balanceData.output) return null;
+
+    var outputIds = Object.keys(balanceData.output);
+    if (outputIds.length !== 1) return null;
+
+    var outputId = outputIds[0];
+    var outputEntity = _entities[outputId] || null;
+    if (!outputEntity || outputEntity.type !== 'equipment') return null;
+
+    var outputBalance = getBalance(outputId) || {};
+    var statSummary = getStatSummary(outputBalance.stats, { shortLabels: false });
+    var flavorText = balanceData.flavorText ? String(balanceData.flavorText).trim() : '';
+    if (!statSummary && !flavorText) return null;
+
+    var recipeName = contentEntity && contentEntity.name ? contentEntity.name : outputEntity.name;
+    var parts = ['Craft ' + recipeName + '.'];
+    if (statSummary) parts.push(statSummary + '.');
+    if (flavorText) parts.push(flavorText);
+    return parts.join(' ');
+  }
+
+  function getDerivedDescription(contentEntity, balanceData) {
+    if (!balanceData) return null;
+    if (balanceData.description !== undefined) return balanceData.description;
+    if (!contentEntity) return null;
+    if (contentEntity.type === 'equipment') return buildEquipmentDescription(balanceData);
+    if (contentEntity.type === 'recipe') return buildRecipeDescription(contentEntity, balanceData);
+    return null;
+  }
 
   function init() {
     _balance = window.GAME_BALANCE || {};
@@ -34,6 +127,10 @@ window.GameRegistry = (function () {
         if (merged[key] === undefined) {
           merged[key] = balanceData[key];
         }
+      }
+      var derivedDescription = getDerivedDescription(contentEntity, balanceData);
+      if (derivedDescription !== undefined && derivedDescription !== null) {
+        merged.description = derivedDescription;
       }
       merged._balance = balanceData;
     }
@@ -109,6 +206,8 @@ window.GameRegistry = (function () {
     getEntity: getEntity,
     getEntitiesByType: getEntitiesByType,
     getBalance: getBalance,
+    getStatSummary: getStatSummary,
+    formatBalanceNumber: formatBalanceNumber,
     getAnimalDisposition: getAnimalDisposition,
     isAnimalThreat: isAnimalThreat,
     isAnimalPrey: isAnimalPrey,

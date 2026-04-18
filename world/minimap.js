@@ -24,8 +24,15 @@ window.MiniMap = (function () {
   var _hoverInfo = '';
   var _hoverX = 0, _hoverY = 0;
   var _dangerMap = {};
+  var _lastHoverUpdateAt = 0;
 
   var CHUNK = 16;
+
+  function getMapSettings() {
+    var balance = window.GAME_BALANCE || {};
+    var settings = balance.settings || {};
+    return settings.fullMap || {};
+  }
 
   // Camera at (20,20,20) looking at origin = 45deg isometric.
   // Screen right = world (+1, -1). Screen up = world (-1, -1).
@@ -133,13 +140,28 @@ window.MiniMap = (function () {
     };
   }
 
-  function buildDangerMap(chunks) {
+  function buildDangerMap(chunks, bounds) {
     var dangerMap = {};
     var activeSources = getActiveThreatSources();
 
-    for (var key in chunks) {
+    if (!chunks) return dangerMap;
+
+    var keys = [];
+    if (bounds) {
+      for (var cx = bounds.minCX; cx <= bounds.maxCX; cx++) {
+        for (var cz = bounds.minCZ; cz <= bounds.maxCZ; cz++) {
+          keys.push(cx + ',' + cz);
+        }
+      }
+    } else {
+      keys = Object.keys(chunks);
+    }
+
+    for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+      var key = keys[keyIndex];
       var chunk = chunks[key];
-      if (!chunk || !chunk.objects || !chunk.objects.length) continue;
+      if (!chunk) continue;
+      if (!isChunkWithinBounds(chunk.cx, chunk.cz, bounds)) continue;
 
       var entry = chunk.predatorZone ? {
         score: Number(chunk.predatorZone.dangerBonus) || 0,
@@ -151,8 +173,10 @@ window.MiniMap = (function () {
         level: chunk.predatorZone.level || null
       } : null;
 
-      for (var i = 0; i < chunk.objects.length; i++) {
-        var obj = chunk.objects[i];
+      var threatObjects = (window.GameSpatialIndex && GameSpatialIndex.getThreatAnimalsForChunk) ? GameSpatialIndex.getThreatAnimalsForChunk(chunk.cx, chunk.cz, CHUNK) : null;
+      var sourceObjects = threatObjects || chunk.objects || [];
+      for (var i = 0; i < sourceObjects.length; i++) {
+        var obj = sourceObjects[i];
         if (!obj || obj._destroyed || obj.hp <= 0 || !obj.type || obj.type.indexOf('animal.') !== 0) continue;
         if (!window.GameRegistry || !GameRegistry.isAnimalThreat || !GameRegistry.isAnimalThreat(obj.type)) continue;
 
@@ -230,6 +254,45 @@ window.MiniMap = (function () {
     return !window.GameDebugSettings || !GameDebugSettings.isEnabled || GameDebugSettings.isEnabled('minimap');
   }
 
+  function getMinimapQualityValue(key, fallbackValue) {
+    return (window.GameQualitySettings && GameQualitySettings.getConfigValue) ? GameQualitySettings.getConfigValue('minimap.' + key, fallbackValue) : fallbackValue;
+  }
+
+  function getDangerRefreshBounds() {
+    if (_mapOpen && _mapCanvas) {
+      var rawScale = Math.max(0.001, 3 * _zoom * SQRT2_2);
+      var viewRadius = Math.max(_mapCanvas.width, _mapCanvas.height) / rawScale / 2 + CHUNK;
+      var paddingChunks = getMinimapQualityValue('openDangerPaddingChunks', 2);
+      var radiusChunks = Math.ceil(viewRadius / CHUNK) + paddingChunks;
+      return {
+        minCX: Math.floor(_camX / CHUNK) - radiusChunks,
+        maxCX: Math.floor(_camX / CHUNK) + radiusChunks,
+        minCZ: Math.floor(_camZ / CHUNK) - radiusChunks,
+        maxCZ: Math.floor(_camZ / CHUNK) + radiusChunks
+      };
+    }
+
+    if (window.GamePlayer && GamePlayer.getPosition) {
+      var playerPos = GamePlayer.getPosition();
+      var closedRadius = getMinimapQualityValue('closedDangerChunkRadius', 4);
+      var playerChunkX = Math.floor(playerPos.x / CHUNK);
+      var playerChunkZ = Math.floor(playerPos.z / CHUNK);
+      return {
+        minCX: playerChunkX - closedRadius,
+        maxCX: playerChunkX + closedRadius,
+        minCZ: playerChunkZ - closedRadius,
+        maxCZ: playerChunkZ + closedRadius
+      };
+    }
+
+    return null;
+  }
+
+  function isChunkWithinBounds(cx, cz, bounds) {
+    if (!bounds) return true;
+    return cx >= bounds.minCX && cx <= bounds.maxCX && cz >= bounds.minCZ && cz <= bounds.maxCZ;
+  }
+
   function refreshVisibility() {
     var minimapEl = document.getElementById('minimap');
     var popup = document.getElementById('map-popup');
@@ -254,6 +317,9 @@ window.MiniMap = (function () {
       _mapCtx = _mapCanvas.getContext('2d');
       setupMapInput();
     }
+    window.addEventListener('resize', function() {
+      if (_mapOpen) resizeMapCanvas();
+    });
     refreshVisibility();
     console.log('[MiniMap] Initialized');
   }
@@ -270,7 +336,6 @@ window.MiniMap = (function () {
       if (!_dragging) {
         if (_mapOpen && _mapCanvas) {
           updateHover(e);
-          _fullMapDirty = true;
         }
         return;
       }
@@ -289,12 +354,32 @@ window.MiniMap = (function () {
     });
     _mapCanvas.addEventListener('wheel', function(e) {
       e.preventDefault();
-      _zoom = Math.max(0.3, Math.min(4.0, _zoom * (e.deltaY < 0 ? 1.2 : 0.83)));
+      var mapSettings = getMapSettings();
+      var minZoom = Number(mapSettings.minZoom);
+      var maxZoom = Number(mapSettings.maxZoom);
+      var zoomInFactor = Number(mapSettings.zoomInFactor);
+      var zoomOutFactor = Number(mapSettings.zoomOutFactor);
+
+      if (!(minZoom > 0)) minZoom = 0.3;
+      if (!(maxZoom > 0)) maxZoom = 4.0;
+      if (!(zoomInFactor > 0)) zoomInFactor = 1.2;
+      if (!(zoomOutFactor > 0)) zoomOutFactor = 0.83;
+
+      _zoom = Math.max(minZoom, Math.min(maxZoom, _zoom * (e.deltaY < 0 ? zoomInFactor : zoomOutFactor)));
       _fullMapDirty = true;
     });
   }
 
   function updateHover(e) {
+    if (!_mapCanvas) return;
+
+    var now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    var hoverDebounceMs = getMinimapQualityValue('hoverDebounceMs', 0);
+    if (hoverDebounceMs > 0 && (now - _lastHoverUpdateAt) < hoverDebounceMs) {
+      return;
+    }
+    _lastHoverUpdateAt = now;
+
     var rect = _mapCanvas.getBoundingClientRect();
     var mx = e.clientX - rect.left;
     var my = e.clientY - rect.top;
@@ -306,8 +391,10 @@ window.MiniMap = (function () {
     var worldMZ = _camZ + (sdy - sdx) / (2 * rawScale);
 
     _hoverInfo = '';
-    var best = 3 * _zoom * 15;
-    var instances = getMapInstances();
+    var best = Math.max(6, 16 / Math.max(0.35, _zoom));
+    var instances = (window.GameSpatialIndex && GameSpatialIndex.getNearbyInstances)
+      ? GameSpatialIndex.getNearbyInstances(worldMX, worldMZ, best, { limit: 24 })
+      : getMapInstances();
     for (var uid in instances) {
       var inst = instances[uid];
       var d = Math.sqrt(Math.pow(inst.x - worldMX, 2) + Math.pow(inst.z - worldMZ, 2));
@@ -324,6 +411,7 @@ window.MiniMap = (function () {
     }
 
     _hoverX = mx; _hoverY = my;
+    _fullMapDirty = true;
   }
 
   function refreshDangerMap(force) {
@@ -331,8 +419,8 @@ window.MiniMap = (function () {
     if (!force && now < _dangerMapNextRefreshAt) return;
 
     var chunks = GameTerrain.getAllChunks ? GameTerrain.getAllChunks() : {};
-    _dangerMap = buildDangerMap(chunks);
-    _dangerMapNextRefreshAt = now + (_mapOpen ? DANGER_MAP_OPEN_REFRESH_MS : DANGER_MAP_REFRESH_MS);
+    _dangerMap = buildDangerMap(chunks, getDangerRefreshBounds());
+    _dangerMapNextRefreshAt = now + (_mapOpen ? getMinimapQualityValue('dangerOpenRefreshMs', DANGER_MAP_OPEN_REFRESH_MS) : getMinimapQualityValue('dangerRefreshMs', DANGER_MAP_REFRESH_MS));
     if (_mapOpen) _fullMapDirty = true;
   }
 
@@ -344,13 +432,13 @@ window.MiniMap = (function () {
 
     refreshDangerMap(false);
 
-    if (_miniCtx && (now - _lastMiniDrawAt >= MINIMAP_REFRESH_MS)) {
+    if (_miniCtx && (now - _lastMiniDrawAt >= getMinimapQualityValue('miniRefreshMs', MINIMAP_REFRESH_MS))) {
       drawMinimap();
       _lastMiniDrawAt = now;
     }
 
     if (_mapOpen) {
-      var fullMapInterval = _dragging ? FULL_MAP_INTERACT_REFRESH_MS : FULL_MAP_REFRESH_MS;
+      var fullMapInterval = _dragging ? getMinimapQualityValue('fullInteractRefreshMs', FULL_MAP_INTERACT_REFRESH_MS) : getMinimapQualityValue('fullRefreshMs', FULL_MAP_REFRESH_MS);
       if (_fullMapDirty || (now - _lastFullMapDrawAt >= fullMapInterval)) {
         drawFullMap();
         _lastFullMapDrawAt = now;
@@ -486,7 +574,7 @@ window.MiniMap = (function () {
     _miniCtx.arc(cx, cy, radius, 0, Math.PI * 2);
     _miniCtx.stroke();
 
-    // Vignette
+    // Mini-map edge fade
     var vig = _miniCtx.createRadialGradient(cx, cy, radius * 0.7, cx, cy, radius);
     vig.addColorStop(0, 'rgba(0,0,0,0)');
     vig.addColorStop(1, 'rgba(0,0,0,0.5)');
@@ -937,9 +1025,12 @@ window.MiniMap = (function () {
     if (popup) popup.style.display = _mapOpen ? 'flex' : 'none';
     if (_mapOpen && _mapCanvas) {
       var pos = GamePlayer.getPosition();
+      var mapSettings = getMapSettings();
+      var defaultZoom = Number(mapSettings.defaultZoom);
+      if (!(defaultZoom > 0)) defaultZoom = 1.0;
       _camX = pos.x;
       _camZ = pos.z;
-      _zoom = 1.0;
+      _zoom = defaultZoom;
       resizeMapCanvas();
       refreshDangerMap(true);
       _lastFullMapDrawAt = 0;

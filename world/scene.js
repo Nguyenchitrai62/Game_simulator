@@ -4,15 +4,11 @@ window.GameScene = (function () {
   var _lastTime = 0;
   var _tickAccumulator = 0;
   var TICK_INTERVAL = 1000;
-  var _zoom = 10;
-  var MIN_ZOOM = 6;
-  var MAX_ZOOM = 10;
+  var _zoom = 8;
+  var MIN_ZOOM = 4;
+  var MAX_ZOOM = 8;
   var _sunLight = null;
   var _lastShadowCenter = { x: Infinity, z: Infinity };
-  var _fireMaskCtx = null;
-  var _fireMaskUpdateAccumulator = 0;
-  var _fireMaskWorldPos = null;
-  var _fireMaskStampCache = {};
   var _overlayIdleAccumulator = 0;
   var _cameraFrustum = null;
   var _projectionScreenMatrix = null;
@@ -25,6 +21,7 @@ window.GameScene = (function () {
   var gameSpeed = 1.0;
   var isPaused = false;
   var speedSteps = [0.25, 0.5, 1, 2, 5];
+  var _qualitySettingsUnsubscribe = null;
 
   function beginPerfMark(name) {
     return (typeof GamePerf !== 'undefined' && GamePerf.begin) ? GamePerf.begin(name) : null;
@@ -40,6 +37,121 @@ window.GameScene = (function () {
     return !window.GameDebugSettings || !GameDebugSettings.isEnabled || GameDebugSettings.isEnabled(key);
   }
 
+  function getSceneQualityConfig() {
+    var runtimeConfig = (window.GameQualitySettings && GameQualitySettings.getRuntimeConfig) ? GameQualitySettings.getRuntimeConfig() : null;
+    return runtimeConfig && runtimeConfig.scene ? runtimeConfig.scene : null;
+  }
+
+  function getSceneQualityValue(key, fallbackValue) {
+    var config = getSceneQualityConfig();
+    if (!config || config[key] === undefined) return fallbackValue;
+    return config[key];
+  }
+
+  function getSceneRuntimeSettings() {
+    var balance = window.GAME_BALANCE || {};
+    return balance.settings || {};
+  }
+
+  function getSceneCameraSettings() {
+    return getSceneRuntimeSettings().sceneCamera || {};
+  }
+
+  function syncSceneCameraConfig(resetZoom) {
+    var config = getSceneCameraSettings();
+    var minZoom = Number(config.minZoom);
+    var maxZoom = Number(config.maxZoom);
+    var defaultZoom = Number(config.defaultZoom);
+
+    MIN_ZOOM = minZoom > 0 ? minZoom : 4;
+    MAX_ZOOM = maxZoom > 0 ? Math.max(MIN_ZOOM, maxZoom) : 8;
+
+    if (!(defaultZoom > 0)) defaultZoom = MAX_ZOOM;
+    if (resetZoom === false) {
+      _zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, _zoom));
+      return;
+    }
+
+    _zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, defaultZoom));
+  }
+
+  function bindQualitySettings() {
+    if (_qualitySettingsUnsubscribe || !window.GameQualitySettings || !GameQualitySettings.subscribe) return;
+    _qualitySettingsUnsubscribe = GameQualitySettings.subscribe(function () {
+      applyQualitySettings();
+    });
+  }
+
+  function applyShadowQuality(config) {
+    if (!renderer || !_sunLight) return;
+
+    var shadowsEnabled = !config || config.shadows !== false;
+    renderer.shadowMap.enabled = shadowsEnabled;
+    _sunLight.castShadow = shadowsEnabled;
+
+    if (!shadowsEnabled) {
+      if (_sunLight.shadow && _sunLight.shadow.map && _sunLight.shadow.map.dispose) {
+        _sunLight.shadow.map.dispose();
+        _sunLight.shadow.map = null;
+      }
+      if (typeof GamePerf !== 'undefined' && GamePerf.setValue) {
+        GamePerf.setValue('render.shadows', 0);
+      }
+      return;
+    }
+
+    var desiredShadowSize = Math.max(256, Number(config && config.shadowMapSize) || 2048);
+    if (_sunLight.shadow.mapSize.width !== desiredShadowSize || _sunLight.shadow.mapSize.height !== desiredShadowSize) {
+      _sunLight.shadow.mapSize.width = desiredShadowSize;
+      _sunLight.shadow.mapSize.height = desiredShadowSize;
+      if (_sunLight.shadow.map && _sunLight.shadow.map.dispose) {
+        _sunLight.shadow.map.dispose();
+        _sunLight.shadow.map = null;
+      }
+    }
+
+    _sunLight.shadow.camera.updateProjectionMatrix();
+    _sunLight.shadow.needsUpdate = true;
+    if (renderer.shadowMap) {
+      renderer.shadowMap.needsUpdate = true;
+    }
+    if (typeof GamePerf !== 'undefined' && GamePerf.setValue) {
+      GamePerf.setValue('render.shadows', desiredShadowSize);
+    }
+  }
+
+  function applyQualitySettings() {
+    var config = getSceneQualityConfig();
+    var nextBasePixelRatio = Math.min(window.devicePixelRatio || 1, getSceneQualityValue('maxPixelRatioCap', 1.5));
+    if (!(nextBasePixelRatio > 0)) nextBasePixelRatio = 1;
+
+    _basePixelRatio = nextBasePixelRatio;
+    var minPixelRatio = Math.min(_basePixelRatio, getSceneQualityValue('minPixelRatio', 0.75));
+    if (!(_currentPixelRatio > 0)) {
+      _currentPixelRatio = _basePixelRatio;
+    }
+    _currentPixelRatio = Math.max(minPixelRatio, Math.min(_basePixelRatio, _currentPixelRatio));
+
+    if (renderer) {
+      renderer.setPixelRatio(_currentPixelRatio);
+    }
+
+    applyShadowQuality(config);
+
+    if (typeof AtmosphereSystem !== 'undefined' && AtmosphereSystem.setEnabled) {
+      AtmosphereSystem.setEnabled(isRuntimeSettingEnabled('atmosphere'));
+    }
+
+    if (typeof GamePerf !== 'undefined' && GamePerf.setValue) {
+      GamePerf.setValue('render.pixelRatio', _currentPixelRatio);
+      GamePerf.setValue('quality.preset', window.GameQualitySettings && GameQualitySettings.getPresetId ? GameQualitySettings.getPresetId() : 'low');
+    }
+
+    if (camera && renderer) {
+      onResize();
+    }
+  }
+
   function init() {
     console.log('[GameScene] Initializing 3D scene...');
     
@@ -49,6 +161,8 @@ window.GameScene = (function () {
       return;
     }
     
+    syncSceneCameraConfig(true);
+
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87CEEB);
     scene.fog = new THREE.Fog(0x87CEEB, 40, 80);
@@ -99,15 +213,11 @@ window.GameScene = (function () {
     var hemiLight = new THREE.HemisphereLight(0x87CEEB, 0x7ec850, 0.4);
     scene.add(hemiLight);
 
+    bindQualitySettings();
+    applyQualitySettings();
+
     window.addEventListener('resize', onResize);
     onResize();
-
-    var flmCanvas = document.getElementById('fire-light-mask');
-    if (flmCanvas) {
-      flmCanvas.width = window.innerWidth;
-      flmCanvas.height = window.innerHeight;
-      _fireMaskCtx = flmCanvas.getContext('2d');
-    }
 
     startLoop();
   }
@@ -124,27 +234,21 @@ window.GameScene = (function () {
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
     renderer.setPixelRatio(_currentPixelRatio);
-
-    var flmCanvas = document.getElementById('fire-light-mask');
-    if (flmCanvas) {
-      flmCanvas.width = w;
-      flmCanvas.height = h;
-      if (!_fireMaskCtx) {
-        _fireMaskCtx = flmCanvas.getContext('2d');
-      }
-    }
   }
 
   function setZoom(delta) {
-    // Keep zoom-out slightly tighter to reduce render load and preserve readability.
-    _zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, _zoom + delta));
+    var cameraSettings = getSceneCameraSettings();
+    var wheelStep = Number(cameraSettings.wheelStep);
+    if (!(wheelStep > 0)) wheelStep = 1;
+
+    _zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, _zoom + (delta * wheelStep)));
     onResize();
   }
 
   function setRendererPixelRatio(nextRatio) {
     if (!renderer) return _currentPixelRatio;
 
-    var minPixelRatio = Math.min(_basePixelRatio, 0.75);
+    var minPixelRatio = Math.min(_basePixelRatio, getSceneQualityValue('minPixelRatio', 0.75));
     var clamped = Math.max(minPixelRatio, Math.min(_basePixelRatio, nextRatio));
     if (Math.abs(clamped - _currentPixelRatio) < 0.01) return _currentPixelRatio;
 
@@ -166,11 +270,14 @@ window.GameScene = (function () {
     var frameMs = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? (GamePerf.getValue('frame.ms') || 0) : 0;
     if (!(frameMs > 0)) return;
 
-    var minPixelRatio = Math.min(_basePixelRatio, 0.75);
-    if (frameMs > 26.5 && _currentPixelRatio > minPixelRatio + 0.01) {
-      setRendererPixelRatio(_currentPixelRatio - 0.125);
-    } else if (frameMs < 17.5 && _currentPixelRatio < _basePixelRatio - 0.01) {
-      setRendererPixelRatio(_currentPixelRatio + 0.125);
+    var minPixelRatio = Math.min(_basePixelRatio, getSceneQualityValue('minPixelRatio', 0.75));
+    var adaptiveStep = getSceneQualityValue('adaptiveStep', 0.125);
+    var downscaleFrameMs = getSceneQualityValue('downscaleFrameMs', 26.5);
+    var upscaleFrameMs = getSceneQualityValue('upscaleFrameMs', 17.5);
+    if (frameMs > downscaleFrameMs && _currentPixelRatio > minPixelRatio + 0.01) {
+      setRendererPixelRatio(_currentPixelRatio - adaptiveStep);
+    } else if (frameMs < upscaleFrameMs && _currentPixelRatio < _basePixelRatio - 0.01) {
+      setRendererPixelRatio(_currentPixelRatio + adaptiveStep);
     }
   }
 
@@ -277,7 +384,11 @@ window.GameScene = (function () {
       if (typeof FireSystem !== 'undefined') FireSystem.update(dt);
 
       // Update atmosphere system (wind, stars, moon, clouds)
-      if (typeof AtmosphereSystem !== 'undefined' && isRuntimeSettingEnabled('atmosphere')) AtmosphereSystem.update(dt);
+      var atmosphereEnabled = isRuntimeSettingEnabled('atmosphere');
+      if (typeof AtmosphereSystem !== 'undefined' && AtmosphereSystem.setEnabled) {
+        AtmosphereSystem.setEnabled(atmosphereEnabled);
+      }
+      if (typeof AtmosphereSystem !== 'undefined' && atmosphereEnabled) AtmosphereSystem.update(dt);
 
       // Update particle system
       if (typeof ParticleSystem !== 'undefined' && isRuntimeSettingEnabled('particles')) ParticleSystem.update(dt);
@@ -287,13 +398,6 @@ window.GameScene = (function () {
 
       // Update water animation
       if (typeof WaterSystem !== 'undefined' && WaterSystem.updateWaterAnimation) WaterSystem.updateWaterAnimation(dt);
-
-      // Update fire light mask (reduce darkness near fires)
-      _fireMaskUpdateAccumulator += dt;
-      if (isRuntimeSettingEnabled('screenFx') && _fireMaskUpdateAccumulator >= (1 / 30)) {
-        _fireMaskUpdateAccumulator = 0;
-        updateFireLightMask();
-      }
 
       endPerfMark(worldFxMark);
 
@@ -412,14 +516,17 @@ window.GameScene = (function () {
     var frameMs = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? (GamePerf.getValue('frame.ms') || 0) : 0;
     var movementScale = zoomedOutRatio >= 0.75 ? 1.8 : (zoomedOutRatio >= 0.35 ? 1.35 : 1.0);
     var idleInterval = zoomedOutRatio >= 0.75 ? (1 / 8) : (1 / 12);
+    movementScale *= getSceneQualityValue('overlayPlayerThresholdScale', 1);
+    var cameraMovementScale = getSceneQualityValue('overlayCameraThresholdScale', 1);
+    var idleScale = getSceneQualityValue('overlayIdleScale', 1);
 
     if (frameMs > 28) idleInterval = Math.max(idleInterval, 1 / 6);
     else if (frameMs > 22) idleInterval = Math.max(idleInterval, 1 / 7);
 
     return {
       playerThreshold: 0.02 * movementScale,
-      cameraThreshold: 0.04 * movementScale,
-      idleInterval: idleInterval
+      cameraThreshold: 0.04 * movementScale * cameraMovementScale,
+      idleInterval: idleInterval * idleScale
     };
   }
 
@@ -484,84 +591,6 @@ window.GameScene = (function () {
     return writeScreenPoint(vec, out);
   }
 
-  function getFireMaskStamp(pixelRadius, centerAlpha, isCampfire) {
-    var bucketRadius = Math.max(40, Math.round(pixelRadius / 8) * 8);
-    var bucketAlpha = Math.max(0.05, Math.min(0.5, Math.round(centerAlpha * 20) / 20));
-    var key = (isCampfire ? 'camp' : 'light') + '|' + bucketRadius + '|' + bucketAlpha.toFixed(2);
-    var cached = _fireMaskStampCache[key];
-    if (cached) return cached;
-
-    var size = bucketRadius * 2;
-    var stampCanvas = document.createElement('canvas');
-    stampCanvas.width = size;
-    stampCanvas.height = size;
-    var stampCtx = stampCanvas.getContext('2d');
-    var grad = stampCtx.createRadialGradient(bucketRadius, bucketRadius, 0, bucketRadius, bucketRadius, bucketRadius);
-    grad.addColorStop(0, 'rgba(255,220,140,' + bucketAlpha.toFixed(3) + ')');
-    grad.addColorStop(0.3, 'rgba(255,180,80,' + (bucketAlpha * 0.6).toFixed(3) + ')');
-    grad.addColorStop(0.6, 'rgba(255,140,50,' + (bucketAlpha * 0.25).toFixed(3) + ')');
-    grad.addColorStop(1, 'rgba(255,100,30,0)');
-    stampCtx.fillStyle = grad;
-    stampCtx.fillRect(0, 0, size, size);
-
-    cached = {
-      canvas: stampCanvas,
-      radius: bucketRadius
-    };
-    _fireMaskStampCache[key] = cached;
-    return cached;
-  }
-
-  function updateFireLightMask() {
-    var flmCanvas = document.getElementById('fire-light-mask');
-    if (!flmCanvas) return;
-    var ctx = _fireMaskCtx || flmCanvas.getContext('2d');
-    if (!ctx) return;
-    _fireMaskCtx = ctx;
-
-    ctx.clearRect(0, 0, flmCanvas.width, flmCanvas.height);
-
-    if (typeof GameHUD !== 'undefined' && GameHUD.isModalActive && GameHUD.isModalActive()) {
-      return;
-    }
-
-    var darkness = (typeof DayNightSystem !== 'undefined') ? DayNightSystem.getDarkness() : 0;
-    if (darkness < 0.1) return;
-
-    var fires = (typeof FireSystem !== 'undefined' && FireSystem.getActiveFires) ? FireSystem.getActiveFires() : null;
-
-    if (!fires || fires.length === 0) return;
-    if (!_fireMaskWorldPos && typeof THREE !== 'undefined') {
-      _fireMaskWorldPos = new THREE.Vector3();
-    }
-
-    for (var i = 0; i < fires.length; i++) {
-      var fire = fires[i];
-      if (fire.intensity <= 0) continue;
-
-      _fireMaskWorldPos.set(fire.x, 1.0, fire.z);
-      _fireMaskWorldPos.project(camera);
-
-      var screenPos = {
-        x: (_fireMaskWorldPos.x * 0.5 + 0.5) * flmCanvas.width,
-        y: (-_fireMaskWorldPos.y * 0.5 + 0.5) * flmCanvas.height
-      };
-
-      if (screenPos.x < -200 || screenPos.x > flmCanvas.width + 200 ||
-          screenPos.y < -200 || screenPos.y > flmCanvas.height + 200) continue;
-
-      var pixelRadius = fire.radius * (flmCanvas.width / 24) * fire.intensity;
-      pixelRadius = Math.max(40, Math.min(pixelRadius, 350));
-
-      var isCampfire = fire.isCampfire;
-      var centerAlpha = isCampfire ? 0.35 * fire.intensity : 0.25 * fire.intensity;
-      centerAlpha = Math.min(centerAlpha, 0.5);
-
-      var stamp = getFireMaskStamp(pixelRadius, centerAlpha, isCampfire);
-      ctx.drawImage(stamp.canvas, Math.round(screenPos.x - stamp.radius), Math.round(screenPos.y - stamp.radius));
-    }
-  }
-
   return {
     init: init,
     getScene: getScene,
@@ -574,6 +603,7 @@ window.GameScene = (function () {
     getCameraFrustum: getCameraFrustum,
     worldToScreen: worldToScreen,
     projectWorldToScreen: projectWorldToScreen,
+    applyQualitySettings: applyQualitySettings,
     togglePause: togglePause,
     setGameSpeed: setGameSpeed,
     increaseSpeed: increaseSpeed,

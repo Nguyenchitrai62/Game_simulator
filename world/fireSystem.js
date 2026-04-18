@@ -13,6 +13,7 @@ window.FireSystem = (function () {
   var _activeLightSources = [];
   var _activeLightSourceCount = 0;
   var _lightCoverageCache = Object.create(null);
+  var _lightCoverageSignature = '';
   var _playerTorchLightInfo = null;
 
   function hashUid(uid) {
@@ -33,6 +34,7 @@ window.FireSystem = (function () {
         createFireLight(uid, inst);
       }
     }
+    resetLightCoverageCache();
   }
 
   function createFireLight(uid, instance) {
@@ -80,6 +82,31 @@ window.FireSystem = (function () {
 
   function resetLightCoverageCache() {
     _lightCoverageCache = Object.create(null);
+  }
+
+  function updateLightCoverageSignature(signature) {
+    if (_lightCoverageSignature === signature) return;
+    _lightCoverageSignature = signature;
+    resetLightCoverageCache();
+  }
+
+  function buildLightCoverageSignature(nightActive) {
+    var playerTorchSignature = '0';
+    if (_playerTorchLightInfo) {
+      playerTorchSignature = [
+        '1',
+        Math.round(_playerTorchLightInfo.x * 2),
+        Math.round(_playerTorchLightInfo.z * 2),
+        Math.round((_playerTorchLightInfo.radius || 0) * 2)
+      ].join('|');
+    }
+
+    return [
+      nightActive ? 1 : 0,
+      _lightSourceCount,
+      _activeLightSourceCount,
+      playerTorchSignature
+    ].join('|');
   }
 
   function pushLightSource(target, index, x, z, radius, sourceUid, sourceType, entityId, isCampfire, intensity, label) {
@@ -143,7 +170,6 @@ window.FireSystem = (function () {
     _lightSourceCount = 0;
     _activeLightSourceCount = 0;
     _playerTorchLightInfo = null;
-    resetLightCoverageCache();
 
     for (var uid in _lights) {
       var fire = _lights[uid];
@@ -276,6 +302,7 @@ window.FireSystem = (function () {
     _activeLightSources.length = _activeLightSourceCount;
 
     updatePlayerTorch(dt, darkness, t);
+    updateLightCoverageSignature(buildLightCoverageSignature(darkness > 0.05));
   }
 
   function animateFlameMesh(mesh, t, seed, flicker, fuelRatio, darkness) {
@@ -415,10 +442,12 @@ window.FireSystem = (function () {
 
   function addFire(uid, instance) {
     createFireLight(uid, instance);
+    resetLightCoverageCache();
   }
 
   function removeFire(uid) {
     removeFireLight(uid);
+    resetLightCoverageCache();
   }
 
   function getFireLights() {

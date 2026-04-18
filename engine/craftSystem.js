@@ -6,7 +6,7 @@ window.CraftSystem = (function () {
     return {
       id: equipmentId,
       slot: entity.slot || balance.slot || null,
-      stats: entity.stats || balance.stats || {}
+      stats: balance.stats || entity.stats || {}
     };
   }
 

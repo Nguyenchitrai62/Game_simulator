@@ -37,6 +37,30 @@ window.GameState = (function () {
     fireFuel: {},
     exploredChunks: {}
   };
+  var _coreStateVersion = 0;
+  var _worldStateDirty = true;
+
+  function markCoreStateChanged() {
+    _coreStateVersion++;
+  }
+
+  function markWorldStateDirty() {
+    _worldStateDirty = true;
+  }
+
+  function clearWorldStateDirty() {
+    _worldStateDirty = false;
+  }
+
+  function hasWorldStateDirty() {
+    return _worldStateDirty;
+  }
+
+  function markInstancesDirty() {
+    if (window.GameSpatialIndex && GameSpatialIndex.markInstancesDirty) {
+      GameSpatialIndex.markInstancesDirty();
+    }
+  }
 
   function init() {
     var startBalance = GameRegistry.getBalance("age.stone");
@@ -66,10 +90,16 @@ window.GameState = (function () {
     _state.timeOfDay = 6;
     _state.fireFuel = {};
     _state.exploredChunks = {};
+    _coreStateVersion = 1;
+    _worldStateDirty = true;
+    if (window.GameSpatialIndex && GameSpatialIndex.markAllDirty) {
+      GameSpatialIndex.markAllDirty();
+    }
   }
 
   // === Resources ===
   function addResource(id, amount) {
+    if (!amount) return;
     if (_state.resources[id] === undefined) _state.resources[id] = 0;
     _state.resources[id] += amount;
     if (_state.resources[id] < 0) _state.resources[id] = 0;
@@ -81,6 +111,8 @@ window.GameState = (function () {
         _state.unlocked.push(id);
       }
     }
+
+    markCoreStateChanged();
   }
 
   function addFractionalResource(id, amount) {
@@ -97,6 +129,7 @@ window.GameState = (function () {
   function removeResource(id, amount) {
     if (_state.resources[id] === undefined || _state.resources[id] < amount) return false;
     _state.resources[id] -= amount;
+    markCoreStateChanged();
     return true;
   }
 
@@ -165,6 +198,7 @@ window.GameState = (function () {
   function addBuilding(id) {
     if (_state.buildings[id] === undefined) _state.buildings[id] = 0;
     _state.buildings[id]++;
+    markCoreStateChanged();
   }
 
   function getBuildingCount(id) {
@@ -182,6 +216,7 @@ window.GameState = (function () {
   function unlock(id) {
     if (_state.unlocked.indexOf(id) === -1) {
       _state.unlocked.push(id);
+      markCoreStateChanged();
       return true;
     }
     return false;
@@ -191,83 +226,102 @@ window.GameState = (function () {
   function getUnlocked() { return _state.unlocked.slice(); }
 
   // === Age ===
-  function setAge(ageId) { _state.age = ageId; unlock(ageId); }
+  function setAge(ageId) {
+    if (_state.age !== ageId) {
+      _state.age = ageId;
+      markCoreStateChanged();
+    }
+    unlock(ageId);
+  }
   function getAge() { return _state.age; }
 
   // === Version ===
   function getVersion() { return _state.version; }
-  function setVersion(v) { _state.version = v; }
+  function setVersion(v) {
+    if (_state.version === v) return;
+    _state.version = v;
+    markCoreStateChanged();
+  }
 
   // === Player ===
   function getPlayer() { return _state.player; }
 
   function setPlayerHP(hp) {
-    _state.player.hp = Math.max(0, Math.min(hp, getPlayerMaxHp()));
+    var nextHp = Math.max(0, Math.min(hp, getPlayerMaxHp()));
+    if (_state.player.hp === nextHp) return;
+    _state.player.hp = nextHp;
+    markCoreStateChanged();
+  }
+
+  function getEquipmentStats(equipmentId) {
+    if (!equipmentId) return null;
+
+    var balance = GameRegistry.getBalance(equipmentId) || {};
+    var entity = GameRegistry.getEntity(equipmentId);
+    return balance.stats || (entity && entity.stats) || null;
+  }
+
+  function getEquippedStatTotal(statKey) {
+    var total = 0;
+    var equipped = (_state.player && _state.player.equipped) || {};
+
+    for (var slot in equipped) {
+      var equipmentId = equipped[slot];
+      if (!equipmentId) continue;
+
+      var stats = getEquipmentStats(equipmentId);
+      var value = Number(stats && stats[statKey]);
+      if (isFinite(value)) {
+        total += value;
+      }
+    }
+
+    return total;
+  }
+
+  function getEquippedStatBreakdown(statKey) {
+    var breakdown = [];
+    var equipped = (_state.player && _state.player.equipped) || {};
+
+    for (var slot in equipped) {
+      var equipmentId = equipped[slot];
+      if (!equipmentId) continue;
+
+      var stats = getEquipmentStats(equipmentId);
+      var value = Number(stats && stats[statKey]);
+      if (!isFinite(value) || value === 0) continue;
+
+      breakdown.push({
+        slot: slot,
+        equipmentId: equipmentId,
+        value: value
+      });
+    }
+
+    return breakdown;
   }
 
   function getPlayerMaxHp() {
-    var maxHp = 100;
-    var armorId = _state.player.equipped.armor;
-    if (armorId) {
-      var entity = GameRegistry.getEntity(armorId);
-      var stats = (entity && entity.stats) || (GameRegistry.getBalance(armorId) || {}).stats;
-      if (stats && stats.maxHp) {
-        maxHp += stats.maxHp;
-      }
-    }
-    return maxHp;
+    return 100 + getEquippedStatTotal('maxHp');
   }
 
   function getPlayerAttack() {
-    var atk = _state.player.attack;
-    var weaponId = _state.player.equipped.weapon;
-    if (weaponId) {
-      var entity = GameRegistry.getEntity(weaponId);
-      var stats = (entity && entity.stats) || (GameRegistry.getBalance(weaponId) || {}).stats;
-      if (stats && stats.attack) {
-        atk += stats.attack;
-      }
-    }
-    return atk;
+    return _state.player.attack + getEquippedStatTotal('attack');
   }
 
   function getPlayerDefense() {
-    var def = _state.player.defense;
-    var offhandId = _state.player.equipped.offhand;
-    if (offhandId) {
-      var entity = GameRegistry.getEntity(offhandId);
-      var stats = (entity && entity.stats) || (GameRegistry.getBalance(offhandId) || {}).stats;
-      if (stats && stats.defense) {
-        def += stats.defense;
-      }
-    }
-    var armorId = _state.player.equipped.armor;
-    if (armorId) {
-      var entity = GameRegistry.getEntity(armorId);
-      var stats = (entity && entity.stats) || (GameRegistry.getBalance(armorId) || {}).stats;
-      if (stats && stats.defense) {
-        def += stats.defense;
-      }
-    }
-    return def;
+    return _state.player.defense + getEquippedStatTotal('defense');
   }
 
   function getPlayerSpeed() {
-    var speed = _state.player.speed;
-    var bootsId = _state.player.equipped.boots;
-    if (bootsId) {
-      var entity = GameRegistry.getEntity(bootsId);
-      var stats = (entity && entity.stats) || (GameRegistry.getBalance(bootsId) || {}).stats;
-      if (stats && stats.speed) {
-        speed += stats.speed;
-      }
-    }
-    return speed;
+    return _state.player.speed + getEquippedStatTotal('speed');
   }
 
   function setPlayerPosition(x, z) {
+    if (_state.player.x === x && _state.player.z === z) return;
     _state.player.x = x;
     _state.player.z = z;
+    markCoreStateChanged();
   }
 
   function equipItem(equipmentId) {
@@ -306,6 +360,8 @@ window.GameState = (function () {
     // Fire UI update event
     if (window.GameHUD) GameHUD.showNotification(`Equipped ${entity.name}`, "success");
 
+    markCoreStateChanged();
+
     return true;
   }
 
@@ -317,6 +373,7 @@ window.GameState = (function () {
     _state.player.maxHp = getPlayerMaxHp();
     _state.player.hp = Math.min(_state.player.hp, _state.player.maxHp);
     if (window.GameHUD) GameHUD.showNotification(`Unequipped ${entity.name}`, "info");
+    markCoreStateChanged();
     return true;
   }
 
@@ -324,12 +381,14 @@ window.GameState = (function () {
   function addToInventory(id, count) {
     if (_state.inventory[id] === undefined) _state.inventory[id] = 0;
     _state.inventory[id] += count;
+    markCoreStateChanged();
   }
 
   function removeFromInventory(id, count) {
     if (!_state.inventory[id] || _state.inventory[id] < count) return false;
     _state.inventory[id] -= count;
     if (_state.inventory[id] <= 0) delete _state.inventory[id];
+    markCoreStateChanged();
     return true;
   }
 
@@ -337,11 +396,20 @@ window.GameState = (function () {
   function getInventoryCount(id) { return _state.inventory[id] || 0; }
 
   // === Building Instances ===
-  function addInstance(uid, data) { _state.instances[uid] = data; }
+  function addInstance(uid, data) {
+    _state.instances[uid] = data;
+    markCoreStateChanged();
+    markInstancesDirty();
+  }
   function getInstance(uid) { return _state.instances[uid] || null; }
   function getAllInstances() { return JSON.parse(JSON.stringify(_state.instances)); }
   function getAllInstancesLive() { return _state.instances; }
-  function removeInstance(uid) { delete _state.instances[uid]; }
+  function removeInstance(uid) {
+    if (!_state.instances[uid]) return;
+    delete _state.instances[uid];
+    markCoreStateChanged();
+    markInstancesDirty();
+  }
 
   function ensureFarmState(uid) {
     var instance = getInstance(uid);
@@ -398,6 +466,7 @@ window.GameState = (function () {
       state.progress = 1;
     }
 
+    markCoreStateChanged();
     return JSON.parse(JSON.stringify(state));
   }
 
@@ -415,6 +484,7 @@ window.GameState = (function () {
       riverBoosted: false
     };
 
+    markCoreStateChanged();
     return JSON.parse(JSON.stringify(instance.farmState));
   }
 
@@ -465,6 +535,7 @@ window.GameState = (function () {
     }
 
     ensureBarracksState(uid);
+    markCoreStateChanged();
     return JSON.parse(JSON.stringify(state));
   }
 
@@ -480,6 +551,7 @@ window.GameState = (function () {
 
     if (!state.reserves[unitType]) state.reserves[unitType] = 0;
     state.reserves[unitType] = Math.max(0, state.reserves[unitType] + amount);
+    markCoreStateChanged();
     return state.reserves[unitType];
   }
   
@@ -543,6 +615,7 @@ window.GameState = (function () {
 
   // === Building Storage ===
   function addBuildingStorage(instanceUid, resourceId, amount) {
+    if (!amount) return;
     if (!_state.buildingStorage[instanceUid]) {
       _state.buildingStorage[instanceUid] = {};
     }
@@ -559,6 +632,8 @@ window.GameState = (function () {
         _state.unlocked.push(resourceId);
       }
     }
+
+    markCoreStateChanged();
   }
 
   function getBuildingStorage(instanceUid) {
@@ -579,12 +654,16 @@ window.GameState = (function () {
     
     // Clear building storage
     _state.buildingStorage[instanceUid] = {};
+
+    markCoreStateChanged();
     
     return collected;
   }
 
   function clearBuildingStorage(instanceUid) {
+    if (!_state.buildingStorage[instanceUid]) return;
     delete _state.buildingStorage[instanceUid];
+    markCoreStateChanged();
   }
 
   function getStorageUsed(instanceUid) {
@@ -663,9 +742,11 @@ window.GameState = (function () {
   function saveChunkData(key, data) {
     if (!data || !data.objects || !data.objects.length) {
       delete _state.chunks[key];
+      markWorldStateDirty();
       return;
     }
     _state.chunks[key] = data;
+    markWorldStateDirty();
   }
   function getChunkData(key) { return _state.chunks[key] || null; }
   function getAllChunkData() { return _state.chunks; }
@@ -678,6 +759,7 @@ window.GameState = (function () {
 
   function setTechState(state) {
     _state.techState = JSON.parse(JSON.stringify(state));
+    markCoreStateChanged();
   }
 
   // === Serialization ===
@@ -753,6 +835,11 @@ window.GameState = (function () {
     _state.fireFuel = data.fireFuel || {};
     _state.exploredChunks = data.exploredChunks || {};
     normalizeZeroCapacityBuildingStorage();
+    _coreStateVersion++;
+    _worldStateDirty = false;
+    if (window.GameSpatialIndex && GameSpatialIndex.markAllDirty) {
+      GameSpatialIndex.markAllDirty();
+    }
     return true;
   }
 
@@ -760,27 +847,54 @@ window.GameState = (function () {
     if (!data) return false;
     _state.chunks = data.chunks || {};
     _state.exploredChunks = data.exploredChunks || {};
+    _worldStateDirty = false;
+    if (window.GameSpatialIndex && GameSpatialIndex.markThreatAnimalsDirty) {
+      GameSpatialIndex.markThreatAnimalsDirty();
+    }
     return true;
   }
 
-  function setGameSpeed(value) { _state.gameSpeed = value; }
+  function setGameSpeed(value) {
+    if (_state.gameSpeed === value) return;
+    _state.gameSpeed = value;
+    markCoreStateChanged();
+  }
   function getGameSpeed() { return _state.gameSpeed; }
-  function setGamePaused(value) { _state.isPaused = value; }
+  function setGamePaused(value) {
+    if (_state.isPaused === value) return;
+    _state.isPaused = value;
+    markCoreStateChanged();
+  }
   function getGamePaused() { return _state.isPaused; }
 
   function getShowLockedItems() { return _state.showLockedItems; }
-  function setShowLockedItems(value) { _state.showLockedItems = !!value; }
+  function setShowLockedItems(value) {
+    var nextValue = !!value;
+    if (_state.showLockedItems === nextValue) return;
+    _state.showLockedItems = nextValue;
+    markCoreStateChanged();
+  }
 
   // === Hunger ===
   function getHunger() { return _state.hunger; }
-  function setHunger(val) { _state.hunger = Math.max(0, Math.min(val, _state.maxHunger)); }
+  function setHunger(val) {
+    var nextHunger = Math.max(0, Math.min(val, _state.maxHunger));
+    if (_state.hunger === nextHunger) return;
+    _state.hunger = nextHunger;
+    markCoreStateChanged();
+  }
   function getMaxHunger() { return _state.maxHunger; }
   function isHungry() { return _state.hunger < 20; }
   function isStarving() { return _state.hunger <= 0; }
 
   // === Time of Day ===
   function getTimeOfDay() { return _state.timeOfDay; }
-  function setTimeOfDay(val) { _state.timeOfDay = val % 24; }
+  function setTimeOfDay(val) {
+    var nextValue = val % 24;
+    if (_state.timeOfDay === nextValue) return;
+    _state.timeOfDay = nextValue;
+    markCoreStateChanged();
+  }
 
   // === Fire Fuel ===
   function getFireFuel(uid) {
@@ -794,7 +908,10 @@ window.GameState = (function () {
       var maxFuel = (balance && balance.fuelCapacity) ? balance.fuelCapacity : 999;
       _state.fireFuel[uid] = { current: current, max: maxFuel };
     }
-    _state.fireFuel[uid].current = Math.max(0, Math.min(current, _state.fireFuel[uid].max));
+    var nextCurrent = Math.max(0, Math.min(current, _state.fireFuel[uid].max));
+    if (_state.fireFuel[uid].current === nextCurrent) return;
+    _state.fireFuel[uid].current = nextCurrent;
+    markCoreStateChanged();
   }
   function addFireFuel(uid, amount) {
     if (!_state.fireFuel[uid]) {
@@ -803,7 +920,10 @@ window.GameState = (function () {
       var maxFuel = (balance && balance.fuelCapacity) ? balance.fuelCapacity : 999;
       _state.fireFuel[uid] = { current: 0, max: maxFuel };
     }
-    _state.fireFuel[uid].current = Math.min(_state.fireFuel[uid].max, _state.fireFuel[uid].current + amount);
+    var nextCurrent = Math.min(_state.fireFuel[uid].max, _state.fireFuel[uid].current + amount);
+    if (_state.fireFuel[uid].current === nextCurrent) return;
+    _state.fireFuel[uid].current = nextCurrent;
+    markCoreStateChanged();
   }
   function getFireFuelMax(uid) {
     if (!_state.fireFuel[uid]) return 0;
@@ -815,7 +935,10 @@ window.GameState = (function () {
 
   // === Explored Chunks ===
   function markChunkExplored(cx, cz) {
-    _state.exploredChunks[cx + "," + cz] = true;
+    var key = cx + "," + cz;
+    if (_state.exploredChunks[key]) return;
+    _state.exploredChunks[key] = true;
+    markWorldStateDirty();
   }
   function isChunkExplored(cx, cz) {
     return !!(_state.exploredChunks[cx + "," + cz]);
@@ -826,6 +949,7 @@ window.GameState = (function () {
   function markResearched(techId) {
     if (_state.researched.indexOf(techId) === -1) {
       _state.researched.push(techId);
+      markCoreStateChanged();
     }
   }
 
@@ -849,7 +973,7 @@ window.GameState = (function () {
     getVersion: getVersion, setVersion: setVersion,
     getPlayer: getPlayer, setPlayerHP: setPlayerHP, setPlayerPosition: setPlayerPosition,
     getPlayerMaxHp: getPlayerMaxHp, getPlayerAttack: getPlayerAttack, getPlayerDefense: getPlayerDefense,
-    getPlayerSpeed: getPlayerSpeed,
+    getPlayerSpeed: getPlayerSpeed, getEquipmentStats: getEquipmentStats, getEquippedStatBreakdown: getEquippedStatBreakdown,
     equipItem: equipItem, unequipSlot: unequipSlot,
     addToInventory: addToInventory, removeFromInventory: removeFromInventory,
     getInventory: getInventory, getInventoryCount: getInventoryCount,
@@ -868,6 +992,10 @@ window.GameState = (function () {
     getTechState: getTechState, setTechState: setTechState,
     exportCoreState: exportCoreState, exportWorldState: exportWorldState,
     exportState: exportState, importState: importState, importWorldState: importWorldState,
+    getCoreStateVersion: function () { return _coreStateVersion; },
+    hasWorldStateDirty: hasWorldStateDirty,
+    clearWorldStateDirty: clearWorldStateDirty,
+    markWorldStateDirty: markWorldStateDirty,
     setGameSpeed: setGameSpeed, getGameSpeed: getGameSpeed,
     setGamePaused: setGamePaused, getGamePaused: getGamePaused,
     getShowLockedItems: getShowLockedItems,

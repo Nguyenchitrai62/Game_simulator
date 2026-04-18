@@ -26,9 +26,6 @@ window.DayNightSystem = (function () {
   var _dirLightRef = null;
   var _ambLightRef = null;
   var _hemiLightRef = null;
-  var _lastVignetteOpacity = '';
-  var _lastColorGradeOpacity = '';
-  var _lastColorGradeBackground = '';
 
   // Fog stays CONSTANT - darkness controlled ONLY by light intensity
   // This lets PointLights (torches, campfires) illuminate properly at night
@@ -172,36 +169,6 @@ window.DayNightSystem = (function () {
       _hemiLightRef.intensity = vals.hemiInt;
     }
 
-    // Update vignette based on darkness
-    var vignetteEl = document.getElementById('vignette');
-    if (vignetteEl) {
-      var vignetteOpacity = vals.darkness > 0.7 ? String((vals.darkness - 0.7) * 1.5) : '0';
-      if (_lastVignetteOpacity !== vignetteOpacity) {
-        vignetteEl.style.opacity = vignetteOpacity;
-        _lastVignetteOpacity = vignetteOpacity;
-      }
-    }
-
-    // Update color grade based on time of day
-    var cgEl = document.getElementById('color-grade');
-    if (cgEl) {
-      if (vals.darkness > 0.5) {
-        var backgroundValue = 'rgba(20,20,60,' + ((vals.darkness - 0.5) * 0.15).toFixed(3) + ')';
-        if (_lastColorGradeBackground !== backgroundValue) {
-          cgEl.style.background = backgroundValue;
-          _lastColorGradeBackground = backgroundValue;
-        }
-        if (_lastColorGradeOpacity !== '1') {
-          cgEl.style.opacity = '1';
-          _lastColorGradeOpacity = '1';
-        }
-      } else {
-        if (_lastColorGradeOpacity !== '0') {
-          cgEl.style.opacity = '0';
-          _lastColorGradeOpacity = '0';
-        }
-      }
-    }
   }
 
   function getTimeOfDay() { return _timeOfDay; }

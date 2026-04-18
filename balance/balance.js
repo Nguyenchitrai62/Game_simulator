@@ -325,6 +325,7 @@ window.GAME_BALANCE = {
   },
 
   // === CÔNG THỨC CHẾ TẠO (thời Đá) ===
+  // Chỉ số trang bị và mô tả craft/equipment sẽ tự lấy từ equipment.* tương ứng ở bên dưới.
   "recipe.stone_tool": {
     // Công cụ đá - 3 đá lửa + 2 gỗ → 1 công cụ
     input: { "resource.flint": 3, "resource.wood": 2 },
@@ -357,6 +358,7 @@ window.GAME_BALANCE = {
   },
 
   // === TRANG BỊ (thời Đá) ===
+  // Đây là nguồn stat gameplay chính cho trang bị. Chỉ cần sửa các số ở đây, UI sẽ tự cập nhật.
   "equipment.wooden_sword": {
     stats: { attack: 3 },   // +3 tấn công
     slot: "weapon"
@@ -374,7 +376,7 @@ window.GAME_BALANCE = {
     slot: "armor"
   },
   "equipment.leather_boots": {
-    stats: { speed: 2 },    // +2 tốc độ di chuyển
+    stats: { speed: 0.5 },    // +0.5 tốc độ di chuyển
     slot: "boots"
   },
 
@@ -474,6 +476,7 @@ window.GAME_BALANCE = {
   },
 
   // === CÔNG THỨC THỜI ĐỒNG ===
+  // Recipe chỉ giữ cost + output. Bonus thật của trang bị nằm ở equipment.* bên dưới.
   "recipe.bronze_sword": {
     // Kiếm đồng điếu - +10 ATK
     input: { "resource.bronze": 5, "resource.wood": 3 },
@@ -491,6 +494,7 @@ window.GAME_BALANCE = {
   },
 
   // === TRANG BỊ THỜI ĐỒNG ===
+  // Các stat ở đây là nguồn cân bằng chính cho combat và UI mô tả.
   "equipment.bronze_sword": {
     stats: { attack: 10 },  // +10 tấn công
     slot: "weapon"
@@ -626,6 +630,7 @@ window.GAME_BALANCE = {
   },
 
   // === CÔNG THỨC THỜI ĐẠI SẮT ===
+  // Recipe hiển thị bonus dựa trên equipment.* tương ứng để tránh lệch số khi cân bằng lại.
   "recipe.iron_sword": {
     // Kiếm sắt - +15 ATK
     input: { "resource.iron": 8, "resource.wood": 5, "resource.coal": 3 },
@@ -648,6 +653,7 @@ window.GAME_BALANCE = {
   },
 
   // === TRANG BỊ THỜI ĐẠI SẮT ===
+  // Chỉnh stat trong các entry này để đổi hiệu lực thực tế của trang bị.
   "equipment.iron_sword": {
     stats: { attack: 15 },  // +15 tấn công
     slot: "weapon"
@@ -661,7 +667,7 @@ window.GAME_BALANCE = {
     slot: "armor"
   },
   "equipment.iron_boots": {
-    stats: { speed: 3, defense: 3 }, // +3 tốc độ, +3 phòng thủ
+    stats: { speed: 1, defense: 3 }, // +1 tốc độ, +3 phòng thủ
     slot: "boots"
   },
 
@@ -702,6 +708,23 @@ window.GAME_BALANCE = {
   // === CHU KỲ NGÀY ĐÊM ===
   dayNight: {
     hoursPerSecond: 0.0667    // 0.0667 giờ/giây → 1 ngày = 360 giây = 6 phút
+  },
+
+  // === THIẾT LẬP CAMERA / MAP ===
+  settings: {
+    sceneCamera: {
+      defaultZoom: 8,
+      minZoom: 4,
+      maxZoom: 8,
+      wheelStep: 1
+    },
+    fullMap: {
+      defaultZoom: 1.0,
+      minZoom: 0.3,
+      maxZoom: 4.0,
+      zoomInFactor: 1.2,
+      zoomOutFactor: 0.83
+    }
   },
 
   // === CÔNG TRÌNH NƯỚC ===

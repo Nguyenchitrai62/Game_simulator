@@ -12,9 +12,15 @@ window.AtmosphereSystem = (function () {
   var _clouds = [];
   var _cloudGroup = null;
   var CLOUD_COUNT = 8;
+  var DAYTIME_CLOUD_OPACITY = 0.3;
+  var CLOUD_FADE_OUT_START_HOUR = 18;
+  var CLOUD_HIDDEN_HOUR = 20;
+  var CLOUD_RETURN_HOUR = 6;
+  var CLOUD_FULLY_VISIBLE_HOUR = 8;
 
   var _windTargets = [];
   var _initialized = false;
+  var _enabled = true;
 
   var _ambientTimer = 0;
 
@@ -25,8 +31,13 @@ window.AtmosphereSystem = (function () {
     createStarField();
     createMoon();
     createClouds();
+    setEnabled(isAtmosphereEnabled());
 
     console.log('[Atmosphere] Initialized - wind, stars, moon, clouds');
+  }
+
+  function isAtmosphereEnabled() {
+    return !window.GameDebugSettings || !GameDebugSettings.isEnabled || GameDebugSettings.isEnabled('atmosphere');
   }
 
   function createStarField() {
@@ -114,6 +125,7 @@ window.AtmosphereSystem = (function () {
       transparent: true,
       opacity: 0.35
     });
+    group.userData.material = mat;
 
     for (var i = 0; i < sphereCount; i++) {
       var radius = 1.0 + Math.random() * 1.5;
@@ -133,7 +145,7 @@ window.AtmosphereSystem = (function () {
   }
 
   function update(dt) {
-    if (!_initialized) return;
+    if (!_initialized || !_enabled) return;
 
     _windTime += dt;
     _windAngle += 0.01 * dt;
@@ -142,11 +154,12 @@ window.AtmosphereSystem = (function () {
     _windDirection.z = Math.sin(_windAngle);
     var playerPos = (typeof GamePlayer !== 'undefined' && GamePlayer.getPosition) ? GamePlayer.getPosition() : { x: 0, z: 0 };
     var currentDarkness = (typeof DayNightSystem !== 'undefined') ? DayNightSystem.getDarkness() : 0;
+    var timeOfDay = (typeof DayNightSystem !== 'undefined' && DayNightSystem.getTimeOfDay) ? DayNightSystem.getTimeOfDay() : 12;
 
     updateWindTargets(dt);
     updateStars(dt, playerPos, currentDarkness);
     updateMoon(dt, playerPos, currentDarkness);
-    updateClouds(dt, playerPos, currentDarkness);
+    updateClouds(dt, playerPos, currentDarkness, timeOfDay);
 
     // Ambient particles: falling leaves & fireflies
     _ambientTimer += dt;
@@ -281,9 +294,32 @@ window.AtmosphereSystem = (function () {
     }
   }
 
-  function updateClouds(dt, playerPos, darkness) {
+  function getCloudVisibilityByTime(timeOfDay) {
+    var hour = typeof timeOfDay === 'number' ? (timeOfDay % 24) : 12;
+    if (hour < 0) hour += 24;
+
+    if (hour >= CLOUD_FADE_OUT_START_HOUR && hour < CLOUD_HIDDEN_HOUR) {
+      return 1 - ((hour - CLOUD_FADE_OUT_START_HOUR) / (CLOUD_HIDDEN_HOUR - CLOUD_FADE_OUT_START_HOUR));
+    }
+
+    if (hour >= CLOUD_HIDDEN_HOUR || hour < CLOUD_RETURN_HOUR) {
+      return 0;
+    }
+
+    if (hour >= CLOUD_RETURN_HOUR && hour < CLOUD_FULLY_VISIBLE_HOUR) {
+      return (hour - CLOUD_RETURN_HOUR) / (CLOUD_FULLY_VISIBLE_HOUR - CLOUD_RETURN_HOUR);
+    }
+
+    return 1;
+  }
+
+  function updateClouds(dt, playerPos, darkness, timeOfDay) {
     if (!_cloudGroup) return;
-    var cloudOpacity = 0.3 * (1 - darkness * 0.6);
+    var cloudVisibility = getCloudVisibilityByTime(timeOfDay);
+    var cloudOpacity = DAYTIME_CLOUD_OPACITY * cloudVisibility * (1 - darkness * 0.2);
+
+    _cloudGroup.visible = _enabled && cloudVisibility > 0.001;
+    if (!_cloudGroup.visible) return;
 
     for (var i = 0; i < _clouds.length; i++) {
       var cloud = _clouds[i];
@@ -298,12 +334,41 @@ window.AtmosphereSystem = (function () {
       if (cloud.position.z > playerPos.z + 70) cloud.position.z = playerPos.z - 70;
       if (cloud.position.z < playerPos.z - 70) cloud.position.z = playerPos.z + 70;
 
-      cloud.traverse(function (child) {
-        if (child.isMesh && child.material) {
-          child.material.opacity = cloudOpacity;
-        }
-      });
+      if (cloud.userData.material) {
+        cloud.userData.material.opacity = cloudOpacity;
+      }
     }
+  }
+
+  function setEnabled(enabled) {
+    _enabled = enabled !== false;
+    if (!_enabled) {
+      if (_starField) {
+        _starField.visible = false;
+        if (_starField.material) _starField.material.opacity = 0;
+      }
+      if (_moonMesh) {
+        _moonMesh.visible = false;
+        if (_moonMesh.material) _moonMesh.material.opacity = 0;
+      }
+      if (_moonLight) {
+        _moonLight.visible = false;
+        _moonLight.intensity = 0;
+      }
+      if (_cloudGroup) {
+        _cloudGroup.visible = false;
+      }
+      return;
+    }
+
+    if (!_initialized) return;
+
+    var playerPos = (typeof GamePlayer !== 'undefined' && GamePlayer.getPosition) ? GamePlayer.getPosition() : { x: 0, z: 0 };
+    var currentDarkness = (typeof DayNightSystem !== 'undefined') ? DayNightSystem.getDarkness() : 0;
+    var timeOfDay = (typeof DayNightSystem !== 'undefined' && DayNightSystem.getTimeOfDay) ? DayNightSystem.getTimeOfDay() : 12;
+    updateStars(0, playerPos, currentDarkness);
+    updateMoon(0, playerPos, currentDarkness);
+    updateClouds(0, playerPos, currentDarkness, timeOfDay);
   }
 
   function registerWindTarget(mesh, type) {
@@ -331,6 +396,7 @@ window.AtmosphereSystem = (function () {
   return {
     init: init,
     update: update,
+    setEnabled: setEnabled,
     registerWindTarget: registerWindTarget,
     unregisterWindTarget: unregisterWindTarget,
     getWind: getWind

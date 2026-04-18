@@ -276,6 +276,9 @@ window.BuildingSystem = (function () {
     if (window.NPCSystem && NPCSystem.spawnWorkersForBuilding) {
       NPCSystem.spawnWorkersForBuilding(uid);
     }
+    if (window.NPCSystem && NPCSystem.clearPathCache) {
+      NPCSystem.clearPathCache();
+    }
 
     // Register fire light if building has lightRadius
     if (window.FireSystem && balance && balance.lightRadius) {
@@ -1377,6 +1380,9 @@ window.BuildingSystem = (function () {
     if (window.NPCSystem && NPCSystem.spawnWorkersForBuilding) {
       NPCSystem.spawnWorkersForBuilding(uid);
     }
+    if (window.NPCSystem && NPCSystem.clearPathCache) {
+      NPCSystem.clearPathCache();
+    }
 
     // Register fire light if building has lightRadius
     if (window.FireSystem && balance && balance.lightRadius) {
@@ -1402,6 +1408,9 @@ window.BuildingSystem = (function () {
     // Despawn NPCs for this building
     if (window.NPCSystem && NPCSystem.despawnWorkersForBuilding) {
       NPCSystem.despawnWorkersForBuilding(uid);
+    }
+    if (window.NPCSystem && NPCSystem.clearPathCache) {
+      NPCSystem.clearPathCache();
     }
 
     // Remove mesh from scene

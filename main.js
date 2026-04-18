@@ -485,9 +485,37 @@ window.GameActions = (function () {
     return animals;
   }
 
+  var _settlementStatusCache = {
+    key: '',
+    value: null
+  };
+
+  function getSettlementThreatSignature(threatSummary) {
+    if (!threatSummary) return '0|0|0';
+    var topThreat = threatSummary.topThreat || {};
+    return [
+      threatSummary.count || 0,
+      threatSummary.attackingCount || 0,
+      threatSummary.nearbyCount || 0,
+      topThreat.threatSourceId || '',
+      topThreat.threatName || '',
+      topThreat.buildingName || ''
+    ].join('|');
+  }
+
   function getSettlementStatus() {
+    var isNight = typeof DayNightSystem !== 'undefined' && DayNightSystem.isNight();
+    var tickCount = (window.TickSystem && TickSystem.getTickCount) ? TickSystem.getTickCount() : 0;
+    var coreVersion = (window.GameState && GameState.getCoreStateVersion) ? GameState.getCoreStateVersion() : 0;
+    var threatSummary = (window.NPCSystem && NPCSystem.getThreatenedWorkersSummary) ? NPCSystem.getThreatenedWorkersSummary() : null;
+    var threatSignature = getSettlementThreatSignature(threatSummary);
+    var cacheKey = [tickCount, coreVersion, isNight ? 1 : 0, threatSignature].join('|');
+    if (_settlementStatusCache.key === cacheKey && _settlementStatusCache.value) {
+      return _settlementStatusCache.value;
+    }
+
     var status = {
-      isNight: typeof DayNightSystem !== 'undefined' && DayNightSystem.isNight(),
+      isNight: isNight,
       alerts: [],
       unlitPlots: 0,
       threatenedWorkers: 0,
@@ -495,7 +523,8 @@ window.GameActions = (function () {
       supportedTowerCount: 0,
       barracksCount: 0,
       reserveCount: 0,
-      trainingCount: 0
+      trainingCount: 0,
+      cacheKey: cacheKey
     };
     var toneOrder = { critical: 0, warning: 1, info: 2 };
 
@@ -571,7 +600,6 @@ window.GameActions = (function () {
       });
     }
 
-    var threatSummary = (window.NPCSystem && NPCSystem.getThreatenedWorkersSummary) ? NPCSystem.getThreatenedWorkersSummary() : null;
     status.threatenedWorkers = threatSummary ? threatSummary.count : 0;
     if (status.threatenedWorkers > 0) {
       var topThreat = threatSummary ? threatSummary.topThreat : null;
@@ -615,6 +643,8 @@ window.GameActions = (function () {
       return (toneOrder[a.tone] || 99) - (toneOrder[b.tone] || 99);
     });
     status.alerts = status.alerts.slice(0, 4);
+    _settlementStatusCache.key = cacheKey;
+    _settlementStatusCache.value = status;
     return status;
   }
 

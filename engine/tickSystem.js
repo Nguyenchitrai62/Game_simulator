@@ -550,7 +550,12 @@ for (var resId in building.balance.consumesPerSecond) {
     return threatMap;
   }
 
-  function scoreThreatForTower(target, tower, workers, protectRadius, priorityBonus, activeWorkerThreats) {
+  function scoreThreatForTower(target, tower, workers, protectRadius, priorityBonus, activeWorkerThreats, scoreCache) {
+    var cacheKey = target && target.id ? target.id : null;
+    if (cacheKey && scoreCache && scoreCache[cacheKey] !== undefined) {
+      return scoreCache[cacheKey];
+    }
+
     var dx = target.worldX - tower.x;
     var dz = target.worldZ - tower.z;
     var towerDistance = Math.sqrt(dx * dx + dz * dz);
@@ -583,6 +588,10 @@ for (var resId in building.balance.consumesPerSecond) {
       score -= 0.9;
     } else if (target.type === 'animal.lion' || target.type === 'animal.bear') {
       score -= 0.45;
+    }
+
+    if (cacheKey && scoreCache) {
+      scoreCache[cacheKey] = score;
     }
 
     return score;
@@ -640,7 +649,6 @@ for (var resId in building.balance.consumesPerSecond) {
 
   function applyWatchtowerDefense(instances) {
     instances = instances || getLiveInstances();
-    var animalTargets = getLoadedAnimalTargets();
     var supportPools = getBarracksSupportPools(instances);
 
     var workers = (window.NPCSystem && NPCSystem.getAllNPCs) ? NPCSystem.getAllNPCs() : [];
@@ -674,10 +682,18 @@ for (var resId in building.balance.consumesPerSecond) {
 
       state.cooldownRemaining = Math.max(0, (Number(state.cooldownRemaining) || 0) - 1);
 
+      var towerWorkers = (window.GameSpatialIndex && GameSpatialIndex.getNearbyWorkers)
+        ? GameSpatialIndex.getNearbyWorkers(instance.x, instance.z, Math.max(range, protectRadius) + 2, { limit: 48 })
+        : workers;
+      var towerTargets = (window.GameSpatialIndex && GameSpatialIndex.getThreatAnimalsInRadius)
+        ? GameSpatialIndex.getThreatAnimalsInRadius(instance.x, instance.z, range, { limit: 64 })
+        : getLoadedAnimalTargets();
+      var scoreCache = Object.create(null);
+
       var bestTarget = null;
       var bestScore = Infinity;
-      for (var i = 0; i < animalTargets.length; i++) {
-        var target = animalTargets[i];
+      for (var i = 0; i < towerTargets.length; i++) {
+        var target = towerTargets[i];
         if (!target || target.hp <= 0 || target._destroyed) continue;
         if (activeCombatTarget && activeCombatTarget.id === target.id) continue;
 
@@ -686,7 +702,7 @@ for (var resId in building.balance.consumesPerSecond) {
         var distance = Math.sqrt(dx * dx + dz * dz);
         if (distance > range) continue;
 
-        var score = scoreThreatForTower(target, instance, workers, protectRadius, priorityBonus, activeWorkerThreats);
+        var score = scoreThreatForTower(target, instance, towerWorkers, protectRadius, priorityBonus, activeWorkerThreats, scoreCache);
         if (score < bestScore) {
           bestScore = score;
           bestTarget = target;

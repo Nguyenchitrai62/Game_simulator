@@ -13,6 +13,29 @@ window.WeatherSystem = (function () {
   var _initialized = false;
   var _enabled = true;
 
+  function getConfiguredRainDropCount() {
+    return (window.GameQualitySettings && GameQualitySettings.getConfigValue) ? GameQualitySettings.getConfigValue('weather.rainDropCount', RAIN_DROP_COUNT) : RAIN_DROP_COUNT;
+  }
+
+  function ensureRainGeometry(dropCount) {
+    if (!_rainParticles) return;
+
+    var currentCount = _rainParticles.geometry && _rainParticles.geometry.attributes && _rainParticles.geometry.attributes.position
+      ? (_rainParticles.geometry.attributes.position.array.length / 6)
+      : 0;
+
+    if (currentCount === dropCount) return;
+
+    if (_rainParticles.geometry) {
+      _rainParticles.geometry.dispose();
+    }
+
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(dropCount * 6), 3));
+    _rainParticles.geometry = geo;
+    _rainDropState.length = Math.min(_rainDropState.length, dropCount);
+  }
+
   function init() {
     _weatherTimer = 180 + Math.random() * 120;
     _initialized = true;
@@ -45,14 +68,21 @@ window.WeatherSystem = (function () {
 
   function startRain() {
     _isRaining = true;
+    var dropCount = getConfiguredRainDropCount();
     if (!_rainParticles) {
       var geo = new THREE.BufferGeometry();
-      var positions = new Float32Array(RAIN_DROP_COUNT * 6);
+      var positions = new Float32Array(Math.max(0, dropCount) * 6);
       geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
       var mat = new THREE.LineBasicMaterial({ color: 0x9ca9d6, transparent: true, opacity: 0.32 });
       _rainParticles = new THREE.LineSegments(geo, mat);
       _rainParticles.frustumCulled = false;
       GameScene.getScene().add(_rainParticles);
+    }
+    ensureRainGeometry(Math.max(0, dropCount));
+    if (dropCount <= 0) {
+      _rainDropState = [];
+      _rainParticles.visible = false;
+      return;
     }
     ensureRainDropState(true);
     _rainParticles.visible = true;
@@ -89,27 +119,46 @@ window.WeatherSystem = (function () {
   }
 
   function ensureRainDropState(forceReset) {
+    var dropCount = getConfiguredRainDropCount();
     var bounds = getRainBounds();
 
     if (forceReset) {
       _rainDropState = [];
     }
 
-    while (_rainDropState.length < RAIN_DROP_COUNT) {
+    if (dropCount <= 0) {
+      _rainDropState = [];
+      return;
+    }
+
+    while (_rainDropState.length < dropCount) {
       var drop = {};
       resetRainDrop(drop, bounds, true);
       _rainDropState.push(drop);
+    }
+
+    if (_rainDropState.length > dropCount) {
+      _rainDropState.length = dropCount;
     }
   }
 
   function updateRain(dt) {
     if (!_rainParticles) return;
+    var dropCount = getConfiguredRainDropCount();
+    ensureRainGeometry(Math.max(0, dropCount));
     ensureRainDropState(false);
+
+    if (dropCount <= 0) {
+      _rainParticles.visible = false;
+      return;
+    }
+
+    _rainParticles.visible = true;
 
     var pos = _rainParticles.geometry.attributes.position;
     var bounds = getRainBounds();
 
-    for (var i = 0; i < RAIN_DROP_COUNT; i++) {
+    for (var i = 0; i < dropCount; i++) {
       var drop = _rainDropState[i];
       var idx = i * 6;
 

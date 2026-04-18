@@ -73,6 +73,9 @@ window.UpgradeSystem = (function () {
           NPCSystem.despawnWorkersForBuilding(instanceUid);
           NPCSystem.spawnWorkersForBuilding(instanceUid);
         }
+        if (window.NPCSystem && NPCSystem.clearPathCache) {
+          NPCSystem.clearPathCache();
+        }
       }
     }
 
