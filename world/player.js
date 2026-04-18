@@ -16,10 +16,33 @@ window.GamePlayer = (function () {
   var _torchActive = false;
   var _torchFuel = 0;
   var _torchMesh = null; // 3D torch visible on hand
+  var _torchWorldPos = null;
 
   // Equipment 3D visuals
   var _weaponMesh = null;
   var _shieldMesh = null;
+  var _rightArmObject = null;
+  var _contextRefreshAccumulator = 0;
+  var _lastContextQueryPos = { x: Infinity, z: Infinity };
+  var _clickMouseNdc = null;
+  var _clickRaycaster = null;
+
+  function updateClickRaycaster(clientX, clientY) {
+    if (!_clickMouseNdc && typeof THREE !== 'undefined') {
+      _clickMouseNdc = new THREE.Vector2();
+    }
+    if (!_clickRaycaster && typeof THREE !== 'undefined') {
+      _clickRaycaster = new THREE.Raycaster();
+    }
+    if (!_clickMouseNdc || !_clickRaycaster) return null;
+
+    _clickMouseNdc.set(
+      (clientX / window.innerWidth) * 2 - 1,
+      -(clientY / window.innerHeight) * 2 + 1
+    );
+    _clickRaycaster.setFromCamera(_clickMouseNdc, GameScene.getCamera());
+    return _clickRaycaster;
+  }
 
   function init(startX, startZ) {
     _x = startX || 8;
@@ -66,6 +89,7 @@ window.GamePlayer = (function () {
     rightArm.castShadow = true;
     rightArm.name = "rightArm";
     group.add(rightArm);
+    _rightArmObject = rightArm;
 
     // Left leg
     var legGeo = new THREE.BoxGeometry(0.14, 0.35, 0.14);
@@ -138,14 +162,11 @@ window.GamePlayer = (function () {
 
     if (window.BuildingSystem && BuildingSystem.isBuildMode()) return;
 
-    var mouse = new THREE.Vector2(
-      (event.clientX / window.innerWidth) * 2 - 1,
-      -(event.clientY / window.innerHeight) * 2 + 1
-    );
-    var raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouse, GameScene.getCamera());
+    var raycaster = updateClickRaycaster(event.clientX, event.clientY);
+    if (!raycaster) return;
 
     var objectMeshes = GameEntities.getAllMeshes();
+    if (!objectMeshes.length) return;
     var intersects = raycaster.intersectObjects(objectMeshes, true);
     if (intersects.length > 0) {
       var objData = GameEntities.getDataFromMesh(intersects[0].object);
@@ -156,6 +177,7 @@ window.GamePlayer = (function () {
           var balance = GameRegistry.getBalance(objData.type);
           var info = name + ' | HP: ' + objData.hp + '/' + objData.maxHp;
           if (balance) info += ' | ATK: ' + (balance.attack || 0) + ' DEF: ' + (balance.defense || 0);
+          info += ' | ' + ((GameRegistry.isAnimalThreat && GameRegistry.isAnimalThreat(objData.type)) ? 'Threat' : 'Prey');
           GameHUD.showNotification(info);
         } else if (objData.type.startsWith('node.')) {
           GameHUD.showNotification(name + ' | HP: ' + objData.hp + '/' + objData.maxHp);
@@ -306,20 +328,34 @@ window.GamePlayer = (function () {
       }
 
       // Update torch 3D mesh position (attached to right arm)
-      if (_torchMesh) {
-        var rightArmObj = null;
-        for (var i = 0; i < mesh.children.length; i++) {
-          if (mesh.children[i].name === "rightArm") { rightArmObj = mesh.children[i]; break; }
+      if (_torchMesh && _rightArmObject) {
+        if (!_torchWorldPos && typeof THREE !== 'undefined') {
+          _torchWorldPos = new THREE.Vector3();
         }
-        if (rightArmObj) {
-          var armWorldPos = new THREE.Vector3();
-          rightArmObj.getWorldPosition(armWorldPos);
-          _torchMesh.position.set(armWorldPos.x, armWorldPos.y + 0.3, armWorldPos.z);
+        if (_torchWorldPos) {
+          _rightArmObject.getWorldPosition(_torchWorldPos);
+          _torchMesh.position.set(_torchWorldPos.x, _torchWorldPos.y + 0.3, _torchWorldPos.z);
         }
       }
     }
 
     GameTerrain.update(_x, _z);
+    refreshContextAction(dt, moved);
+  }
+
+  function refreshContextAction(dt, moved) {
+    _contextRefreshAccumulator += dt;
+
+    var movedSinceLastQuery = Math.abs(_x - _lastContextQueryPos.x) > 0.18 || Math.abs(_z - _lastContextQueryPos.z) > 0.18;
+    var refreshInterval = moved ? (1 / 12) : 0.22;
+
+    if (!movedSinceLastQuery && _contextRefreshAccumulator < refreshInterval) {
+      return;
+    }
+
+    _contextRefreshAccumulator = 0;
+    _lastContextQueryPos.x = _x;
+    _lastContextQueryPos.z = _z;
     updateContextAction();
   }
 
@@ -536,7 +572,7 @@ window.GamePlayer = (function () {
       var entity = GameRegistry.getEntity(nearObj.type);
       var nodeInfo = (nearObj.type.indexOf("node.") === 0 && typeof GameTerrain !== 'undefined' && GameTerrain.getNodeInfo) ? GameTerrain.getNodeInfo(nearObj) : null;
       var name = getNodePromptName(nearObj, nodeInfo, entity);
-      var action = nearObj.type.startsWith("animal.") ? "Fight" : nearObj.type === "node.berry_bush" ? "Gather" : nearObj.type.startsWith("node.") ? "Harvest" : "Interact";
+      var action = nearObj.type.startsWith("animal.") ? ((GameRegistry.isAnimalThreat && GameRegistry.isAnimalThreat(nearObj.type)) ? "Fight" : "Hunt") : nearObj.type === "node.berry_bush" ? "Gather" : nearObj.type.startsWith("node.") ? "Harvest" : "Interact";
       var detail = getNodePromptDetail(nearObj, nodeInfo);
       var showHpInPrompt = !!(nearObj.type && nearObj.type.indexOf('animal.') === 0);
       textEl.textContent = action + " " + name + (detail ? " [" + detail + "]" : "") + (showHpInPrompt ? (" (" + nearObj.hp + "/" + nearObj.maxHp + ")") : "");
@@ -593,18 +629,21 @@ window.GamePlayer = (function () {
   }
 
   function findNearestBuilding(px, pz, radius) {
-    var instances = GameState.getAllInstances();
+    var instances = GameState.getAllInstancesLive ? GameState.getAllInstancesLive() : GameState.getAllInstances();
+    var searchRadius = radius || 2.5;
     var nearest = null;
-    var nearestDist = radius;
+    var nearestDistSq = searchRadius * searchRadius;
 
     for (var uid in instances) {
       var inst = instances[uid];
       var dx = inst.x - px;
+      if (Math.abs(dx) > searchRadius) continue;
       var dz = inst.z - pz;
-      var dist = Math.sqrt(dx * dx + dz * dz);
+      if (Math.abs(dz) > searchRadius) continue;
+      var distSq = dx * dx + dz * dz;
 
-      if (dist < nearestDist) {
-        nearestDist = dist;
+      if (distSq < nearestDistSq) {
+        nearestDistSq = distSq;
         nearest = inst;
       }
     }
@@ -803,6 +842,9 @@ window.GamePlayer = (function () {
   function setPosition(x, z) {
     _x = x;
     _z = z;
+    _contextRefreshAccumulator = 999;
+    _lastContextQueryPos.x = Infinity;
+    _lastContextQueryPos.z = Infinity;
     if (mesh) {
       mesh.position.set(x, 0, z);
     }

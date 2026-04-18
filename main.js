@@ -40,17 +40,15 @@ window.GameActions = (function () {
   }
 
   function saveGame() {
-    GameStorage.save();
+    if (GameStorage.saveNow) GameStorage.saveNow();
+    else GameStorage.save();
     GameHUD.showNotification("Saved now. Autosave remains active.");
   }
 
   function resetGame() {
     if (!confirm("Reset all progress?")) return;
     GameStorage.clearSave();
-    GameState.init();
-    GameStorage.save();
-    GameHUD.showNotification("Game reset!");
-    GameHUD.renderAll();
+    window.location.reload();
   }
 
   function upgrade(buildingId, instanceUid) {
@@ -146,6 +144,478 @@ window.GameActions = (function () {
     GameHUD.showSuccess("Refueled successfully.");
     GameHUD.renderAll();
     GameHUD.selectInstance(instanceUid);
+  }
+
+  function getLevelConfigValue(config, level, fallbackValue) {
+    if (!config) return fallbackValue;
+    if (typeof config === 'number') return config;
+    if (config[level] !== undefined) return config[level];
+    if (config[1] !== undefined) return config[1];
+    return fallbackValue;
+  }
+
+  function canAffordCostMap(costMap) {
+    if (!costMap) return true;
+    for (var resId in costMap) {
+      if (!GameState.hasSpendableResource(resId, costMap[resId])) return false;
+    }
+    return true;
+  }
+
+  function getBarracksUnitConfig(instanceUid, unitType) {
+    var instance = GameState.getInstance(instanceUid);
+    if (!instance || instance.entityId !== 'building.barracks') return null;
+
+    var balance = GameRegistry.getBalance(instance.entityId) || {};
+    var military = balance.military || {};
+    var unitConfig = military.units ? military.units[unitType] : null;
+    if (!unitConfig) return null;
+
+    return {
+      instance: instance,
+      balance: balance,
+      military: military,
+      level: instance.level || 1,
+      unitType: unitType,
+      unitConfig: unitConfig
+    };
+  }
+
+  function getBarracksStatus(instanceUid) {
+    var instance = GameState.getInstance(instanceUid);
+    if (!instance || instance.entityId !== 'building.barracks') return null;
+
+    var balance = GameRegistry.getBalance(instance.entityId) || {};
+    var military = balance.military || {};
+    var level = instance.level || 1;
+    var state = GameState.getBarracksState ? GameState.getBarracksState(instanceUid) : null;
+    var queue = state && Array.isArray(state.queue) ? state.queue : [];
+    var reserves = state && state.reserves ? state.reserves : {};
+    var queueCapacity = getLevelConfigValue(military.queueSize, level, 1) || 1;
+    var trainingSpeed = getLevelConfigValue(military.trainingSpeed, level, 1) || 1;
+    var reserveCapacity = getLevelConfigValue(balance.guardCount, level, Infinity);
+    var supportRange = getLevelConfigValue(balance.guardRadius, level, 0) || 0;
+    var commandMode = state && state.commandMode === 'follow' ? 'follow' : 'guard';
+    var troopSummary = (window.BarracksTroopSystem && BarracksTroopSystem.getBarracksTroopSummary)
+      ? BarracksTroopSystem.getBarracksTroopSummary(instanceUid)
+      : null;
+    var reserveCount = 0;
+    var reserveEntries = [];
+    var availableUnits = [];
+    var nextUnlock = null;
+    var unitDefs = military.units || {};
+
+    for (var reserveType in reserves) {
+      var reserveAmount = reserves[reserveType] || 0;
+      if (reserveAmount <= 0) continue;
+      reserveCount += reserveAmount;
+      var reserveEntity = unitDefs[reserveType] || {};
+      reserveEntries.push({
+        unitType: reserveType,
+        label: reserveEntity.label || reserveType,
+        amount: reserveAmount
+      });
+    }
+
+    for (var unitType in unitDefs) {
+      var unitConfig = unitDefs[unitType] || {};
+      var unlockLevel = unitConfig.unlockLevel || 1;
+      var unlocked = unlockLevel <= level;
+      if (!unlocked) {
+        if (!nextUnlock || unlockLevel < nextUnlock.level) {
+          nextUnlock = {
+            level: unlockLevel,
+            unitType: unitType,
+            label: unitConfig.label || unitType
+          };
+        }
+      }
+      availableUnits.push({
+        unitType: unitType,
+        label: unitConfig.label || unitType,
+        role: unitConfig.role || '',
+        towerSupportLabel: unitConfig.towerSupport ? (unitConfig.towerSupport.label || '') : '',
+        unlockLevel: unlockLevel,
+        unlocked: unlocked,
+        cost: unitConfig.cost || {},
+        costText: formatYieldMap(unitConfig.cost || {}),
+        trainingSeconds: Math.max(1, unitConfig.trainingSeconds || 1),
+        canAfford: unlocked && canAffordCostMap(unitConfig.cost || {})
+      });
+    }
+
+    var queueEntries = queue.map(function(entry) {
+      var unitConfig = unitDefs[entry.unitType] || {};
+      var totalSeconds = Math.max(1, Number(entry.totalSeconds) || 1);
+      var remainingSeconds = Math.max(0, Number(entry.remainingSeconds) || 0);
+      return {
+        unitType: entry.unitType,
+        label: unitConfig.label || entry.unitType,
+        remainingSeconds: Math.ceil(remainingSeconds),
+        totalSeconds: totalSeconds,
+        progressPercent: Math.max(0, Math.min(100, Math.round((1 - (remainingSeconds / totalSeconds)) * 100)))
+      };
+    });
+
+    return {
+      instanceUid: instanceUid,
+      level: level,
+      commandMode: commandMode,
+      commandModeLabel: troopSummary ? troopSummary.modeLabel : (commandMode === 'follow' ? 'Follow Player' : 'Guard Nearby'),
+      queue: queueEntries,
+      queueUsed: queueEntries.length,
+      queueCapacity: queueCapacity,
+      trainingSpeed: trainingSpeed,
+      reserveCount: reserveCount,
+      reserveCapacity: reserveCapacity,
+      reserves: reserveEntries,
+      deployedCount: troopSummary ? troopSummary.troopCount : reserveCount,
+      engagedCount: troopSummary ? troopSummary.engagedCount : 0,
+      troopSummaryText: troopSummary ? troopSummary.unitSummaryText : (reserveEntries.length ? reserveEntries.map(function(entry) {
+        return entry.label + ': ' + entry.amount;
+      }).join(' | ') : 'No deployed troops'),
+      troopStatusText: troopSummary ? troopSummary.statusText : 'Train units to deploy them around this barracks.',
+      supportRange: supportRange,
+      availableUnits: availableUnits,
+      nextUnlock: nextUnlock,
+      canQueueMore: queueEntries.length < queueCapacity && (reserveCount + queueEntries.length) < reserveCapacity
+    };
+  }
+
+  function setBarracksCommandMode(instanceUid, mode) {
+    var instance = GameState.getInstance(instanceUid);
+    if (!instance || instance.entityId !== 'building.barracks') {
+      GameHUD.showError('Barracks not found.');
+      return false;
+    }
+
+    var nextMode = mode === 'follow' ? 'follow' : 'guard';
+    var state = GameState.getBarracksStateLive ? GameState.getBarracksStateLive(instanceUid) : GameState.getBarracksState(instanceUid);
+    if (!state) {
+      GameHUD.showError('Barracks save state unavailable.');
+      return false;
+    }
+
+    if (state.commandMode === nextMode) {
+      GameHUD.selectInstance(instanceUid);
+      return true;
+    }
+
+    if (window.BarracksTroopSystem && BarracksTroopSystem.setBarracksCommandMode) {
+      BarracksTroopSystem.setBarracksCommandMode(instanceUid, nextMode);
+    } else {
+      state.commandMode = nextMode;
+      GameState.setBarracksState(instanceUid, state);
+    }
+
+    GameStorage.save();
+    GameHUD.showSuccess(nextMode === 'follow'
+      ? 'Barracks troops are now following the player.'
+      : 'Barracks troops are guarding nearby animals.');
+    GameHUD.renderAll();
+    GameHUD.selectInstance(instanceUid);
+    GameHUD.updateModal();
+    return true;
+  }
+
+  function queueBarracksTraining(instanceUid, unitType) {
+    var unitData = getBarracksUnitConfig(instanceUid, unitType);
+    if (!unitData) {
+      GameHUD.showError('Barracks not found.');
+      return false;
+    }
+
+    var status = getBarracksStatus(instanceUid);
+    if (!status) {
+      GameHUD.showError('Barracks data unavailable.');
+      return false;
+    }
+
+    var unitConfig = unitData.unitConfig;
+    var unlockLevel = unitConfig.unlockLevel || 1;
+    if (status.level < unlockLevel) {
+      GameHUD.showError((unitConfig.label || unitType) + ' unlocks at Barracks level ' + unlockLevel + '.');
+      return false;
+    }
+    if (status.queueUsed >= status.queueCapacity) {
+      GameHUD.showError('Training queue is full.');
+      return false;
+    }
+    if ((status.reserveCount + status.queueUsed) >= status.reserveCapacity) {
+      GameHUD.showError('Barracks reserve is full. Upgrade to support more units.');
+      return false;
+    }
+    if (!canAffordCostMap(unitConfig.cost || {})) {
+      GameHUD.showError('Not enough resources to train ' + (unitConfig.label || unitType) + '.');
+      return false;
+    }
+
+    var state = GameState.getBarracksState ? GameState.getBarracksState(instanceUid) : null;
+    if (!state) {
+      GameHUD.showError('Barracks save state unavailable.');
+      return false;
+    }
+
+    for (var resId in unitConfig.cost) {
+      GameState.consumeSpendableResource(resId, unitConfig.cost[resId]);
+    }
+
+    var trainingSeconds = Math.max(1, unitConfig.trainingSeconds || 1);
+    state.queue.push({
+      unitType: unitType,
+      remainingSeconds: trainingSeconds,
+      totalSeconds: trainingSeconds,
+      queuedAt: TickSystem.getTickCount ? TickSystem.getTickCount() : 0
+    });
+    GameState.setBarracksState(instanceUid, state);
+
+    GameStorage.save();
+    GameHUD.showSuccess('Queued ' + (unitConfig.label || unitType) + ' training.');
+    GameHUD.renderAll();
+    GameHUD.selectInstance(instanceUid);
+    GameHUD.updateModal();
+    return true;
+  }
+
+  function ensureWatchtowerState(instanceUid) {
+    var instance = GameState.getInstance(instanceUid);
+    if (!instance) return null;
+
+    if (!instance.watchtowerState) {
+      instance.watchtowerState = {};
+    }
+    if (instance.watchtowerState.cooldownRemaining === undefined) instance.watchtowerState.cooldownRemaining = 0;
+    if (instance.watchtowerState.statusLabel === undefined) instance.watchtowerState.statusLabel = 'Scanning for threats';
+    if (instance.watchtowerState.lastTargetType === undefined) instance.watchtowerState.lastTargetType = null;
+    if (instance.watchtowerState.shotsFired === undefined) instance.watchtowerState.shotsFired = 0;
+    if (instance.watchtowerState.kills === undefined) instance.watchtowerState.kills = 0;
+    if (instance.watchtowerState.lastActionTick === undefined) instance.watchtowerState.lastActionTick = 0;
+
+    var reserveSupport = instance.watchtowerState.reserveSupport || {};
+    if (reserveSupport.swordsman === undefined) reserveSupport.swordsman = 0;
+    if (reserveSupport.archer === undefined) reserveSupport.archer = 0;
+    if (reserveSupport.linkedBarracksCount === undefined) reserveSupport.linkedBarracksCount = 0;
+    if (reserveSupport.rangeBonus === undefined) reserveSupport.rangeBonus = 0;
+    if (reserveSupport.attackDamageBonus === undefined) reserveSupport.attackDamageBonus = 0;
+    if (reserveSupport.attackIntervalMultiplier === undefined) reserveSupport.attackIntervalMultiplier = 1;
+    if (reserveSupport.workerProtectRadiusBonus === undefined) reserveSupport.workerProtectRadiusBonus = 0;
+    if (reserveSupport.targetPriorityBonus === undefined) reserveSupport.targetPriorityBonus = 0;
+    if (reserveSupport.supportLabel === undefined) reserveSupport.supportLabel = 'No barracks reserve link';
+    instance.watchtowerState.reserveSupport = reserveSupport;
+
+    return instance.watchtowerState;
+  }
+
+  function getWatchtowerStatus(instanceUid) {
+    var instance = GameState.getInstance(instanceUid);
+    if (!instance || instance.entityId !== 'building.watchtower') return null;
+
+    var balance = GameRegistry.getBalance(instance.entityId) || {};
+    var level = instance.level || 1;
+    var towerDefense = balance.towerDefense || {};
+    var state = ensureWatchtowerState(instanceUid);
+    var targetEntity = state && state.lastTargetType ? GameRegistry.getEntity(state.lastTargetType) : null;
+    var reserveSupport = state && state.reserveSupport ? state.reserveSupport : {};
+    var baseRange = getLevelConfigValue(towerDefense.range, level, getLevelConfigValue(balance.guardRadius, level, 0)) || 0;
+    var baseAttackDamage = getLevelConfigValue(towerDefense.attackDamage, level, 1) || 1;
+    var baseAttackIntervalSeconds = getLevelConfigValue(towerDefense.attackIntervalSeconds, level, 2) || 2;
+    var baseProtectRadius = towerDefense.workerProtectRadius || 0;
+    var attackIntervalMultiplier = Number(reserveSupport.attackIntervalMultiplier) > 0 ? Number(reserveSupport.attackIntervalMultiplier) : 1;
+    var rangeBonus = Number(reserveSupport.rangeBonus) || 0;
+    var attackDamageBonus = Number(reserveSupport.attackDamageBonus) || 0;
+    var protectRadiusBonus = Number(reserveSupport.workerProtectRadiusBonus) || 0;
+
+    return {
+      level: level,
+      range: baseRange + rangeBonus,
+      baseRange: baseRange,
+      rangeBonus: rangeBonus,
+      attackDamage: baseAttackDamage + attackDamageBonus,
+      baseAttackDamage: baseAttackDamage,
+      attackDamageBonus: attackDamageBonus,
+      attackIntervalSeconds: Math.max(0.6, baseAttackIntervalSeconds * attackIntervalMultiplier),
+      baseAttackIntervalSeconds: baseAttackIntervalSeconds,
+      attackIntervalMultiplier: attackIntervalMultiplier,
+      workerProtectRadius: baseProtectRadius + protectRadiusBonus,
+      baseWorkerProtectRadius: baseProtectRadius,
+      workerProtectRadiusBonus: protectRadiusBonus,
+      targetPriorityBonus: (towerDefense.targetPriorityBonus || 0) + (Number(reserveSupport.targetPriorityBonus) || 0),
+      reserveSupportLabel: reserveSupport.supportLabel || 'No barracks reserve link',
+      linkedBarracksCount: reserveSupport.linkedBarracksCount || 0,
+      swordsmanSupport: reserveSupport.swordsman || 0,
+      archerSupport: reserveSupport.archer || 0,
+      statusLabel: state ? state.statusLabel : 'Scanning for threats',
+      cooldownRemaining: state ? Math.max(0, Number(state.cooldownRemaining) || 0) : 0,
+      lastTargetName: targetEntity ? targetEntity.name : '',
+      shotsFired: state ? (state.shotsFired || 0) : 0,
+      kills: state ? (state.kills || 0) : 0
+    };
+  }
+
+  function formatShortDuration(seconds) {
+    var totalSeconds = Math.max(0, Math.floor(seconds || 0));
+    if (totalSeconds < 60) return totalSeconds + 's';
+
+    var minutes = Math.floor(totalSeconds / 60);
+    var remainder = totalSeconds % 60;
+    if (minutes >= 10 || remainder === 0) return minutes + 'm';
+    return minutes + 'm ' + remainder + 's';
+  }
+
+  function getLoadedAggressiveAnimals() {
+    var animals = [];
+    if (!window.GameTerrain || !GameTerrain.getAllChunks) return animals;
+
+    var chunks = GameTerrain.getAllChunks();
+    for (var key in chunks) {
+      var chunk = chunks[key];
+      if (!chunk || !chunk.objects) continue;
+
+      for (var i = 0; i < chunk.objects.length; i++) {
+        var obj = chunk.objects[i];
+        if (!obj || !obj.type || obj.type.indexOf('animal.') !== 0) continue;
+        if (obj.hp <= 0 || obj._destroyed) continue;
+        if (window.GameRegistry && GameRegistry.isAnimalThreat && !GameRegistry.isAnimalThreat(obj.type)) continue;
+
+        var balance = GameRegistry.getBalance(obj.type) || {};
+        animals.push({ object: obj, balance: balance });
+      }
+    }
+
+    return animals;
+  }
+
+  function getSettlementStatus() {
+    var status = {
+      isNight: typeof DayNightSystem !== 'undefined' && DayNightSystem.isNight(),
+      alerts: [],
+      unlitPlots: 0,
+      threatenedWorkers: 0,
+      watchtowerCount: 0,
+      supportedTowerCount: 0,
+      barracksCount: 0,
+      reserveCount: 0,
+      trainingCount: 0
+    };
+    var toneOrder = { critical: 0, warning: 1, info: 2 };
+
+    var resourceStats = (window.TickSystem && TickSystem.getResourceStats) ? TickSystem.getResourceStats() : null;
+    var resourceWarnings = [];
+    if (resourceStats && resourceStats.net) {
+      for (var resId in resourceStats.net) {
+        var netRate = resourceStats.net[resId] || 0;
+        var timeLeft = resourceStats.timeLeft ? resourceStats.timeLeft[resId] : Infinity;
+        if (netRate >= -0.001 || timeLeft === undefined || timeLeft === null || timeLeft === Infinity || timeLeft >= 180) continue;
+
+        var resourceEntity = GameRegistry.getEntity(resId);
+        resourceWarnings.push({
+          resourceId: resId,
+          label: resourceEntity ? resourceEntity.name : resId,
+          timeLeft: timeLeft
+        });
+      }
+    }
+
+    resourceWarnings.sort(function(a, b) {
+      return a.timeLeft - b.timeLeft;
+    });
+
+    if (resourceWarnings.length > 0) {
+      var topResource = resourceWarnings[0];
+      status.alerts.push({
+        tone: topResource.timeLeft < 60 ? 'critical' : 'warning',
+        icon: '⏳',
+        label: topResource.label + ' deficit',
+        detail: formatShortDuration(topResource.timeLeft) + ' left'
+      });
+    }
+
+    var instances = GameState.getAllInstancesLive ? GameState.getAllInstancesLive() : GameState.getAllInstances();
+    for (var uid in instances) {
+      var instance = instances[uid];
+      if (!instance) continue;
+
+      var balance = GameRegistry.getBalance(instance.entityId) || {};
+      if (status.isNight && balance.farming && window.FireSystem && FireSystem.getLightCoverageAt) {
+        var coverage = FireSystem.getLightCoverageAt(instance.x, instance.z, { requireActive: true, includePlayerTorch: false });
+        if (!coverage.lit) {
+          status.unlitPlots++;
+        }
+      }
+
+      if (instance.entityId === 'building.watchtower') {
+        status.watchtowerCount++;
+        var towerState = ensureWatchtowerState(uid);
+        if (towerState && towerState.reserveSupport && towerState.reserveSupport.linkedBarracksCount > 0) {
+          status.supportedTowerCount++;
+        }
+      } else if (instance.entityId === 'building.barracks') {
+        status.barracksCount++;
+        var barracksState = GameState.getBarracksStateLive ? GameState.getBarracksStateLive(uid) : (GameState.getBarracksState ? GameState.getBarracksState(uid) : null);
+        if (barracksState) {
+          status.trainingCount += Array.isArray(barracksState.queue) ? barracksState.queue.length : 0;
+          var reserves = barracksState.reserves || {};
+          for (var reserveType in reserves) {
+            status.reserveCount += reserves[reserveType] || 0;
+          }
+        }
+      }
+    }
+
+    if (status.unlitPlots > 0) {
+      status.alerts.push({
+        tone: 'warning',
+        icon: '🔥',
+        label: 'Night-light gap',
+        detail: status.unlitPlots + ' plot' + (status.unlitPlots === 1 ? '' : 's') + ' paused'
+      });
+    }
+
+    var threatSummary = (window.NPCSystem && NPCSystem.getThreatenedWorkersSummary) ? NPCSystem.getThreatenedWorkersSummary() : null;
+    status.threatenedWorkers = threatSummary ? threatSummary.count : 0;
+    if (status.threatenedWorkers > 0) {
+      var topThreat = threatSummary ? threatSummary.topThreat : null;
+      var isActiveAttack = threatSummary && threatSummary.attackingCount > 0;
+      status.alerts.push({
+        tone: isActiveAttack ? 'critical' : 'warning',
+        icon: '⚠️',
+        label: isActiveAttack ? 'Workers under attack' : 'Threat near workers',
+        detail: status.threatenedWorkers + ' worker' + (status.threatenedWorkers === 1 ? '' : 's') + ' affected' + (topThreat ? (' • ' + topThreat.threatName + ' near ' + topThreat.buildingName) : '')
+      });
+    }
+
+    if (status.watchtowerCount > 0 || status.barracksCount > 0 || status.reserveCount > 0 || status.trainingCount > 0) {
+      var militaryParts = [];
+      if (status.watchtowerCount > 0) militaryParts.push(status.watchtowerCount + ' tower' + (status.watchtowerCount === 1 ? '' : 's'));
+      if (status.supportedTowerCount > 0) militaryParts.push(status.supportedTowerCount + ' supported');
+      if (status.reserveCount > 0) militaryParts.push(status.reserveCount + ' reserve');
+      if (status.trainingCount > 0) militaryParts.push(status.trainingCount + ' training');
+      if (!militaryParts.length && status.barracksCount > 0) militaryParts.push(status.barracksCount + ' barracks');
+
+      status.alerts.push({
+        tone: (status.threatenedWorkers > 0 && status.watchtowerCount <= 0 && status.reserveCount <= 0) ? 'warning' : 'info',
+        icon: '🛡️',
+        label: 'Military',
+        detail: militaryParts.join(' • ')
+      });
+    } else if (status.threatenedWorkers > 0) {
+      status.alerts.push({
+        tone: 'warning',
+        icon: '🛡️',
+        label: 'Military',
+        detail: 'No active defense coverage'
+      });
+    }
+
+    if (!status.alerts.length) {
+      status.alerts.push({ tone: 'info', icon: '✓', label: 'Settlement stable', detail: 'No urgent shortages or threats' });
+    }
+
+    status.alerts.sort(function(a, b) {
+      return (toneOrder[a.tone] || 99) - (toneOrder[b.tone] || 99);
+    });
+    status.alerts = status.alerts.slice(0, 4);
+    return status;
   }
 
   function isFarmPlot(instance) {
@@ -388,6 +858,11 @@ window.GameActions = (function () {
     var hasWaterSupport = !!support.type;
     var workerStatus = (window.NPCSystem && NPCSystem.getFarmWorkerStatus) ? NPCSystem.getFarmWorkerStatus(instanceUid) : null;
     var hasWorkerSupport = !!workerStatus;
+    var isNight = typeof DayNightSystem !== 'undefined' && DayNightSystem.isNight();
+    var nightLightCoverage = (window.FireSystem && FireSystem.getLightCoverageAt)
+      ? FireSystem.getLightCoverageAt(instance.x, instance.z, { requireActive: true, includePlayerTorch: false })
+      : { lit: !isNight, label: isNight ? 'Outside active light' : 'Daytime' };
+    var nightWorkBlocked = isNight && !nightLightCoverage.lit;
     var currentYieldMap = getFarmYieldMap(instanceUid, farmState);
     var storedSummary = getStoredResourceSummary(instanceUid);
     var currentYieldText = formatYieldMap(currentYieldMap);
@@ -414,6 +889,17 @@ window.GameActions = (function () {
       detailText = 'Nearby resident will plant automatically.';
     } else {
       statusText = 'Needs Worker';
+    }
+
+    if (nightWorkBlocked) {
+      statusText = farmState.ready ? 'Night Paused' : 'Unlit at Night';
+      if (farmState.ready) {
+        detailText = cropName + ' is ready, but workers stop here at night until a fueled campfire covers this plot.';
+      } else if (farmState.planted) {
+        detailText = cropName + ' keeps growing, but workers pause here at night until active campfire light reaches this plot.';
+      } else {
+        detailText = 'Workers will not plant here at night until active campfire light covers this plot.';
+      }
     }
 
     if (workerStatus && workerStatus.text) {
@@ -449,6 +935,9 @@ window.GameActions = (function () {
       canHarvest: false,
       hasWorkerSupport: hasWorkerSupport,
       hasWaterSupport: hasWaterSupport,
+      isNight: isNight,
+      nightWorkBlocked: nightWorkBlocked,
+      nightLightLabel: nightWorkBlocked ? 'Outside active campfire light' : (isNight ? (nightLightCoverage.label || 'Campfire coverage active') : 'Daytime'),
       supportSourceType: support.type,
       supportSourceName: support.label,
       dryYieldText: dryYieldText,
@@ -459,7 +948,7 @@ window.GameActions = (function () {
       workerHint: workerHint,
       storedAmount: storedSummary.totalAmount,
       storedSummaryText: storedSummary.text,
-      workerStatusText: workerStatus ? workerStatus.text : workerHint
+      workerStatusText: workerStatus ? workerStatus.text : (nightWorkBlocked ? 'Night pause: outside active campfire light' : workerHint)
     };
   }
 
@@ -570,6 +1059,11 @@ window.GameActions = (function () {
     upgrade: upgrade,
     collectFromBuilding: collectFromBuilding,
     refuel: refuel,
+    getBarracksStatus: getBarracksStatus,
+    setBarracksCommandMode: setBarracksCommandMode,
+    queueBarracksTraining: queueBarracksTraining,
+    getWatchtowerStatus: getWatchtowerStatus,
+    getSettlementStatus: getSettlementStatus,
     getFarmWaterSupport: getFarmWaterSupport,
     getFarmGrowthSeconds: getFarmGrowthSeconds,
     getFarmYieldMap: getFarmYieldMap,
@@ -663,6 +1157,9 @@ window.GameActions = (function () {
       if (mesh) {
         mesh.position.set(inst.x, 0, inst.z);
         mesh.userData.instanceUid = uid;
+        if (BuildingSystem.registerInstanceMesh) {
+          BuildingSystem.registerInstanceMesh(uid, mesh);
+        }
         GameScene.getScene().add(mesh);
       }
       
@@ -675,6 +1172,10 @@ window.GameActions = (function () {
 
   // Restore tile reservations from saved instances
   BuildingSystem.restoreReservations();
+
+  if (typeof BarracksTroopSystem !== 'undefined') {
+    BarracksTroopSystem.init();
+  }
 
   setLoadProgress(70, 'Starting systems...');
 
@@ -725,8 +1226,9 @@ window.GameActions = (function () {
   }
 
   // Initial render
-  if (typeof GameHUD !== 'undefined' && GameHUD.renderAll) {
-    GameHUD.renderAll();
+  if (typeof GameHUD !== 'undefined' && (GameHUD.renderNow || GameHUD.renderAll)) {
+    if (GameHUD.renderNow) GameHUD.renderNow('boot');
+    else GameHUD.renderAll();
   } else {
     console.error('[Game] ❌ CRITICAL: GameHUD not available! Cannot render UI.');
     alert('CRITICAL ERROR: Game UI (HUD) failed to load!\n\nPlease check browser console (F12) for errors.');
@@ -748,46 +1250,78 @@ window.GameActions = (function () {
   }, 300);
 
   var _lastBuildingActionClick = { uid: null, time: 0 };
+  var _inputMouseNdc = new THREE.Vector2();
+  var _inputRaycaster = new THREE.Raycaster();
+  var _inputGroundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  var _inputGroundTarget = new THREE.Vector3();
+  var _hoverPointerClientX = 0;
+  var _hoverPointerClientY = 0;
+  var _hoverRaycastScheduled = false;
+
+  function updatePointerRaycaster(clientX, clientY) {
+    _inputMouseNdc.set(
+      (clientX / window.innerWidth) * 2 - 1,
+      -(clientY / window.innerHeight) * 2 + 1
+    );
+    _inputRaycaster.setFromCamera(_inputMouseNdc, GameScene.getCamera());
+    return _inputRaycaster;
+  }
+
+  function getInteractiveBuildingMeshes() {
+    if (window.BuildingSystem && BuildingSystem.getInteractiveMeshes) {
+      return BuildingSystem.getInteractiveMeshes();
+    }
+    return GameScene.getScene().children;
+  }
+
+  function getInstanceUidFromIntersections(intersects) {
+    for (var i = 0; i < intersects.length; i++) {
+      var obj = intersects[i].object;
+      while (obj && !obj.userData.instanceUid) obj = obj.parent;
+      if (obj && obj.userData.instanceUid) {
+        return obj.userData.instanceUid;
+      }
+    }
+    return null;
+  }
+
+  function runHoverRaycast() {
+    _hoverRaycastScheduled = false;
+    if (BuildingSystem.isBuildMode()) return;
+
+    var interactiveMeshes = getInteractiveBuildingMeshes();
+    if (!interactiveMeshes || !interactiveMeshes.length) {
+      GameHUD.setHoveredInstance(null);
+      return;
+    }
+
+    var raycaster = updatePointerRaycaster(_hoverPointerClientX, _hoverPointerClientY);
+    var hoveredUid = getInstanceUidFromIntersections(raycaster.intersectObjects(interactiveMeshes, true));
+    GameHUD.setHoveredInstance(hoveredUid);
+  }
 
   // Mouse move handler - hover detection + build preview
   document.getElementById('game-canvas').addEventListener('mousemove', function (event) {
     // Build preview mode - update ghost position
     if (BuildingSystem.isBuildMode()) {
-      var mouse = new THREE.Vector2(
-        (event.clientX / window.innerWidth) * 2 - 1,
-        -(event.clientY / window.innerHeight) * 2 + 1
-      );
-      var raycaster = new THREE.Raycaster();
-      raycaster.setFromCamera(mouse, GameScene.getCamera());
-      var groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-      var target = new THREE.Vector3();
-      raycaster.ray.intersectPlane(groundPlane, target);
+      var raycaster = updatePointerRaycaster(event.clientX, event.clientY);
+      var target = raycaster.ray.intersectPlane(_inputGroundPlane, _inputGroundTarget);
       if (target) {
         BuildingSystem.updateBuildPreview(target.x, target.z);
       }
       return; // Skip hover detection in build mode
     }
 
-    var mouse = new THREE.Vector2(
-      (event.clientX / window.innerWidth) * 2 - 1,
-      -(event.clientY / window.innerHeight) * 2 + 1
-    );
-    var raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouse, GameScene.getCamera());
+    _hoverPointerClientX = event.clientX;
+    _hoverPointerClientY = event.clientY;
+    if (_hoverRaycastScheduled) return;
 
-    var intersects = raycaster.intersectObjects(GameScene.getScene().children, true);
-    var hoveredUid = null;
-
-    for (var i = 0; i < intersects.length; i++) {
-      var obj = intersects[i].object;
-      while (obj && !obj.userData.instanceUid) obj = obj.parent;
-      if (obj && obj.userData.instanceUid) {
-        hoveredUid = obj.userData.instanceUid;
-        break;
-      }
+    _hoverRaycastScheduled = true;
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(runHoverRaycast);
+    } else {
+      setTimeout(runHoverRaycast, 16);
     }
-
-    GameHUD.setHoveredInstance(hoveredUid);
   });
 
   // Click handler - build confirm or building selection
@@ -798,20 +1332,12 @@ window.GameActions = (function () {
       return;
     }
 
-    var mouse = new THREE.Vector2(
-      (event.clientX / window.innerWidth) * 2 - 1,
-      -(event.clientY / window.innerHeight) * 2 + 1
-    );
-    var raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouse, GameScene.getCamera());
+    var raycaster = updatePointerRaycaster(event.clientX, event.clientY);
+    var interactiveMeshes = getInteractiveBuildingMeshes();
+    var intersects = raycaster.intersectObjects(interactiveMeshes, true);
+    var instanceUid = getInstanceUidFromIntersections(intersects);
 
-    var intersects = raycaster.intersectObjects(GameScene.getScene().children, true);
-
-    for (var i = 0; i < intersects.length; i++) {
-      var obj = intersects[i].object;
-      while (obj && !obj.userData.instanceUid) obj = obj.parent;
-      if (obj && obj.userData.instanceUid) {
-        var instanceUid = obj.userData.instanceUid;
+    if (instanceUid) {
         var now = Date.now();
         var storage = GameState.getBuildingStorage(instanceUid) || {};
         var hasResources = false;
@@ -852,7 +1378,6 @@ window.GameActions = (function () {
         GameHUD.selectInstance(instanceUid);
         event.preventDefault();
         return;
-      }
     }
 
     _lastBuildingActionClick.uid = null;

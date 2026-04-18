@@ -49,7 +49,28 @@ window.ParticleSystem = (function () {
     return { mesh: mesh, mat: mat, vx: 0, vy: 0, vz: 0, life: 0, maxLife: 1, grav: -2, active: false };
   }
 
+  function areParticlesEnabled() {
+    return !window.GameDebugSettings || !GameDebugSettings.isEnabled || GameDebugSettings.isEnabled('particles');
+  }
+
+  function clearAll() {
+    if (!_initialized) return;
+
+    for (var i = _active.length - 1; i >= 0; i--) {
+      var particle = _active[i];
+      particle.active = false;
+      particle.mesh.visible = false;
+      if (particle.mesh.parent === _scene) {
+        _scene.remove(particle.mesh);
+      }
+      _pool.push(particle);
+    }
+
+    _active.length = 0;
+  }
+
   function emit(presetName, position, config) {
+    if (!areParticlesEnabled()) return;
     if (!_initialized) init();
     var preset = PRESETS[presetName] || {};
     var cfg = config || {};
@@ -82,7 +103,7 @@ window.ParticleSystem = (function () {
       p.active = true;
       p.mesh.visible = true;
 
-      if (!_scene.children.includes(p.mesh)) {
+      if (p.mesh.parent !== _scene) {
         _scene.add(p.mesh);
       }
     }
@@ -90,6 +111,11 @@ window.ParticleSystem = (function () {
 
   function update(dt) {
     if (!_initialized) return;
+    if (!areParticlesEnabled()) {
+      clearAll();
+      return;
+    }
+
     var camera = GameScene.getCamera();
     for (var i = _active.length - 1; i >= 0; i--) {
       var p = _active[i];
@@ -99,6 +125,9 @@ window.ParticleSystem = (function () {
       if (p.life <= 0) {
         p.active = false;
         p.mesh.visible = false;
+        if (p.mesh.parent === _scene) {
+          _scene.remove(p.mesh);
+        }
         _pool.push(p);
         _active.splice(i, 1);
         continue;
@@ -128,6 +157,7 @@ window.ParticleSystem = (function () {
     init: init,
     emit: emit,
     update: update,
+    clearAll: clearAll,
     PRESETS: PRESETS
   };
 })();

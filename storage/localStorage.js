@@ -1,30 +1,204 @@
 window.GameStorage = (function () {
   var SAVE_KEY = "game_save";
+  var WORLD_SAVE_KEY = "game_save_world";
+  var DEFAULT_SAVE_DELAY_MS = 700;
+  var IDLE_SAVE_TIMEOUT_MS = 1200;
+  var MIN_WRITE_INTERVAL_MS = 1500;
+  var WORLD_WRITE_INTERVAL_MS = 45000;
+  var _saveTimer = null;
+  var _idleHandle = null;
+  var _coreDirty = false;
+  var _worldDirty = false;
+  var _lastWriteAt = 0;
+  var _lastWorldWriteAt = 0;
 
-  function save() {
-    var data = GameState.exportState();
+  function beginPerfMark(name) {
+    return (typeof GamePerf !== 'undefined' && GamePerf.begin) ? GamePerf.begin(name) : null;
+  }
+
+  function endPerfMark(mark) {
+    if (mark && typeof GamePerf !== 'undefined' && GamePerf.end) {
+      GamePerf.end(mark);
+    }
+  }
+
+  function buildCoreSaveData() {
+    var data = GameState.exportCoreState ? GameState.exportCoreState() : GameState.exportState();
     data.lastSave = Date.now();
     data.version = window.GAME_MANIFEST.version;
+    return data;
+  }
+
+  function buildWorldSaveData() {
+    var data = GameState.exportWorldState ? GameState.exportWorldState() : {
+      version: window.GAME_MANIFEST.version,
+      chunks: GameState.getAllChunkData ? GameState.getAllChunkData() : {},
+      exploredChunks: GameState.getExplored ? GameState.getExplored() : {}
+    };
+    data.lastSave = Date.now();
+    data.version = window.GAME_MANIFEST.version;
+    return data;
+  }
+
+  function clearPendingSave() {
+    if (_saveTimer !== null) {
+      clearTimeout(_saveTimer);
+      _saveTimer = null;
+    }
+
+    if (_idleHandle !== null && typeof cancelIdleCallback === 'function') {
+      cancelIdleCallback(_idleHandle);
+    }
+    _idleHandle = null;
+  }
+
+  function writeSaveNow(options) {
+    options = options || {};
+    var saveMark = beginPerfMark('save.write');
+    var coreBuildMark = beginPerfMark('save.buildCore');
+    var data = buildCoreSaveData();
+    endPerfMark(coreBuildMark);
+
     try {
+      var coreWriteMark = beginPerfMark('save.writeCore');
       localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+      endPerfMark(coreWriteMark);
+      _lastWriteAt = Date.now();
+
+      var shouldWriteWorld = false;
+      if (_worldDirty) {
+        if (options.forceWorld) {
+          shouldWriteWorld = true;
+        } else if (_lastWorldWriteAt <= 0 || (_lastWriteAt - _lastWorldWriteAt) >= WORLD_WRITE_INTERVAL_MS) {
+          shouldWriteWorld = true;
+        }
+      }
+
+      if (shouldWriteWorld) {
+        var worldBuildMark = beginPerfMark('save.buildWorld');
+        var worldData = buildWorldSaveData();
+        endPerfMark(worldBuildMark);
+
+        var worldWriteMark = beginPerfMark('save.writeWorld');
+        localStorage.setItem(WORLD_SAVE_KEY, JSON.stringify(worldData));
+        endPerfMark(worldWriteMark);
+        _lastWorldWriteAt = _lastWriteAt;
+        _worldDirty = false;
+      }
+
+      _coreDirty = false;
+      endPerfMark(saveMark);
       return true;
     } catch (e) {
+      endPerfMark(saveMark);
       console.error("[Storage] Save failed:", e);
       return false;
     }
   }
 
-  function load() {
-    try {
-      var raw = localStorage.getItem(SAVE_KEY);
-      if (!raw) return false;
-      var data = JSON.parse(raw);
-      var loaded = GameState.importState(data);
-      if (loaded && data.chunks) {
-        save();
+  function flushPending(options) {
+    if (!_coreDirty && !_worldDirty) return true;
+    clearPendingSave();
+    return writeSaveNow(options);
+  }
+
+  function runDeferredWrite() {
+    _saveTimer = null;
+    if (!_coreDirty && !_worldDirty) return;
+
+    if (typeof requestIdleCallback === 'function') {
+      _idleHandle = requestIdleCallback(function () {
+        _idleHandle = null;
+        if (_coreDirty || _worldDirty) writeSaveNow();
+      }, { timeout: IDLE_SAVE_TIMEOUT_MS });
+      return;
+    }
+
+    writeSaveNow();
+  }
+
+  function scheduleSave(delayMs, options) {
+    options = options || {};
+    _coreDirty = true;
+    if (options.includeWorld !== false) {
+      _worldDirty = true;
+    }
+    clearPendingSave();
+
+    var elapsed = Date.now() - _lastWriteAt;
+    var throttleDelay = elapsed >= MIN_WRITE_INTERVAL_MS ? 0 : (MIN_WRITE_INTERVAL_MS - elapsed);
+    var waitMs = Math.max(delayMs || DEFAULT_SAVE_DELAY_MS, throttleDelay);
+    _saveTimer = setTimeout(runDeferredWrite, waitMs);
+    return true;
+  }
+
+  function handleLifecycleFlush() {
+    if (_coreDirty || _worldDirty) {
+      flushPending({ forceWorld: true });
+    }
+  }
+
+  function setupLifecycleHooks() {
+    if (typeof document !== 'undefined' && document.addEventListener) {
+      document.addEventListener('visibilitychange', function () {
+        if (document.hidden) {
+          handleLifecycleFlush();
+        }
+      });
+    }
+
+    if (typeof window !== 'undefined' && window.addEventListener) {
+      window.addEventListener('pagehide', handleLifecycleFlush);
+      window.addEventListener('beforeunload', handleLifecycleFlush);
+    }
+  }
+
+  function save(options) {
+    options = options || {};
+    if (options.immediate) {
+      _coreDirty = true;
+      if (options.includeWorld !== false) {
+        _worldDirty = true;
       }
+      return flushPending({ forceWorld: options.forceWorld === true });
+    }
+    return scheduleSave(options.delayMs, options);
+  }
+
+  function saveNow() {
+    return save({ immediate: true, forceWorld: true });
+  }
+
+  function load() {
+    var loadMark = beginPerfMark('save.load');
+    try {
+      var coreParseMark = beginPerfMark('save.loadCore');
+      var raw = localStorage.getItem(SAVE_KEY);
+      if (!raw) {
+        endPerfMark(coreParseMark);
+        endPerfMark(loadMark);
+        return false;
+      }
+      var data = JSON.parse(raw);
+      endPerfMark(coreParseMark);
+      var loaded = GameState.importState(data);
+      var rawWorld = localStorage.getItem(WORLD_SAVE_KEY);
+      if (loaded && rawWorld && GameState.importWorldState) {
+        try {
+          var worldParseMark = beginPerfMark('save.loadWorld');
+          GameState.importWorldState(JSON.parse(rawWorld));
+          endPerfMark(worldParseMark);
+        } catch (worldError) {
+          console.error("[Storage] World load failed:", worldError);
+        }
+      }
+      if (loaded && (data.chunks || rawWorld)) {
+        saveNow();
+      }
+      endPerfMark(loadMark);
       return loaded;
     } catch (e) {
+      endPerfMark(loadMark);
       console.error("[Storage] Load failed:", e);
       return false;
     }
@@ -35,17 +209,25 @@ window.GameStorage = (function () {
   }
 
   function clearSave() {
+    clearPendingSave();
+    _coreDirty = false;
+    _worldDirty = false;
     localStorage.removeItem(SAVE_KEY);
+    localStorage.removeItem(WORLD_SAVE_KEY);
   }
 
   function checkVersion() {
     var raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return { match: true, saved: null, current: window.GAME_MANIFEST.version };
+    var rawWorld = localStorage.getItem(WORLD_SAVE_KEY);
+    if (!raw && !rawWorld) return { match: true, saved: null, current: window.GAME_MANIFEST.version };
     try {
-      var data = JSON.parse(raw);
+      var data = raw ? JSON.parse(raw) : null;
+      var worldData = rawWorld ? JSON.parse(rawWorld) : null;
+      var savedVersion = data && data.version ? data.version : (worldData ? worldData.version : null);
+      var worldMatches = !worldData || worldData.version === window.GAME_MANIFEST.version;
       return {
-        match: data.version === window.GAME_MANIFEST.version,
-        saved: data.version,
+        match: !!savedVersion && savedVersion === window.GAME_MANIFEST.version && worldMatches,
+        saved: savedVersion,
         current: window.GAME_MANIFEST.version
       };
     } catch (e) {
@@ -69,8 +251,12 @@ window.GameStorage = (function () {
     }
   }
 
+  setupLifecycleHooks();
+
   return {
     save: save,
+    saveNow: saveNow,
+    flushPending: flushPending,
     load: load,
     hasSave: hasSave,
     clearSave: clearSave,

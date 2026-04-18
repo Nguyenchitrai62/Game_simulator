@@ -3,6 +3,20 @@ window.GameCombat = (function () {
   var _attackTimer = 0;
   var ATTACK_INTERVAL = 0.5;  // Faster combat - was 1.0
 
+  function getTargetMesh(target) {
+    if (!target || typeof GameEntities === 'undefined' || !GameEntities.getMeshForObjectId) return null;
+
+    if (_activeCombat && _activeCombat.target === target && _activeCombat.targetMesh && _activeCombat.targetMesh.parent) {
+      return _activeCombat.targetMesh;
+    }
+
+    var mesh = GameEntities.getMeshForObjectId(target.id);
+    if (_activeCombat && _activeCombat.target === target) {
+      _activeCombat.targetMesh = mesh;
+    }
+    return mesh;
+  }
+
   function startCombat(objData) {
     if (_activeCombat) return;
 
@@ -10,14 +24,15 @@ window.GameCombat = (function () {
     if (!balance) return;
 
     // Set max HP from balance if needed
-    var entityBalance = GameRegistry.getBalance(objData.type);
+    var entityBalance = balance;
     objData.maxHp = entityBalance.hp;
     objData.attack = entityBalance.attack || 0;
     objData.defense = entityBalance.defense || 0;
 
     _activeCombat = {
       target: objData,
-      timer: 0
+      timer: 0,
+      targetMesh: getTargetMesh(objData)
     };
 
     // Show combat HP bar
@@ -48,9 +63,7 @@ window.GameCombat = (function () {
     var dz = target.worldZ - playerPos.z;
     var dist = Math.sqrt(dx * dx + dz * dz);
 
-    var targetMesh = GameEntities.getAllMeshes().find(function (m) {
-      return m.userData.objectId === target.id;
-    });
+    var targetMesh = getTargetMesh(target);
     if (targetMesh) {
       var desiredAngle = Math.atan2(playerPos.x - target.worldX, playerPos.z - target.worldZ);
       var angleDiff = desiredAngle - targetMesh.rotation.y;
@@ -120,9 +133,7 @@ window.GameCombat = (function () {
     GameHUD.renderAll();
 
     // Flash the target mesh - enhanced duration (250ms)
-    var mesh = GameEntities.getAllMeshes().find(function (m) {
-      return m.userData.objectId === target.id;
-    });
+    var mesh = getTargetMesh(target);
     if (mesh) {
       var flashedMaterials = [];
       mesh.traverse(function (child) {
@@ -219,8 +230,14 @@ window.GameCombat = (function () {
       var respawnTime = balance ? (balance.respawnTime || 60) : 60;
       function tryAnimalRespawn() {
         if (!target || !target._destroyed) return;
-        // Check if player is too close
-        if (window.GamePlayer) {
+
+        var relocated = false;
+        if (window.GameTerrain && GameTerrain.relocateRespawnedAnimal) {
+          relocated = GameTerrain.relocateRespawnedAnimal(target);
+        }
+
+        // Check if player is too close when no new spawn point was found
+        if (!relocated && window.GamePlayer) {
           var playerPos = GamePlayer.getPosition();
           var dx = Math.abs(target.worldX - playerPos.x);
           var dz = Math.abs(target.worldZ - playerPos.z);
@@ -229,8 +246,9 @@ window.GameCombat = (function () {
             return;
           }
         }
-        target.hp = target.maxHp;
+        target.hp = target.maxHp || (balance ? balance.hp : 1) || 1;
         target._destroyed = false;
+        target.respawnAt = 0;
         GameEntities.showObject(target);
       }
       setTimeout(tryAnimalRespawn, respawnTime * 1000);

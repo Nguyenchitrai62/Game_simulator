@@ -1,6 +1,19 @@
 window.FireSystem = (function () {
   var _lights = {};
   var _playerTorchLight = null;
+  var _warmOrange = new THREE.Color(0xFF8C00);
+  var _warmYellow = new THREE.Color(0xFFD700);
+  var _deepOrange = new THREE.Color(0xFF6600);
+  var _fireColor = new THREE.Color();
+  var _torchColor = new THREE.Color();
+  var _activeFires = [];
+  var _activeFireCount = 0;
+  var _lightSources = [];
+  var _lightSourceCount = 0;
+  var _activeLightSources = [];
+  var _activeLightSourceCount = 0;
+  var _lightCoverageCache = Object.create(null);
+  var _playerTorchLightInfo = null;
 
   function hashUid(uid) {
     var hash = 0;
@@ -12,7 +25,7 @@ window.FireSystem = (function () {
   }
 
   function init() {
-    var instances = GameState.getAllInstances();
+    var instances = GameState.getAllInstancesLive ? GameState.getAllInstancesLive() : GameState.getAllInstances();
     for (var uid in instances) {
       var inst = instances[uid];
       var balance = GameRegistry.getBalance(inst.entityId);
@@ -65,6 +78,61 @@ window.FireSystem = (function () {
     }
   }
 
+  function resetLightCoverageCache() {
+    _lightCoverageCache = Object.create(null);
+  }
+
+  function pushLightSource(target, index, x, z, radius, sourceUid, sourceType, entityId, isCampfire, intensity, label) {
+    var entry = target[index];
+    if (!entry) {
+      entry = {};
+      target[index] = entry;
+    }
+
+    entry.x = x;
+    entry.z = z;
+    entry.radius = radius;
+    entry.sourceUid = sourceUid;
+    entry.sourceType = sourceType;
+    entry.entityId = entityId;
+    entry.isCampfire = isCampfire;
+    entry.intensity = intensity;
+    entry.label = label;
+    return entry;
+  }
+
+  function getFlameMeshParts(mesh) {
+    if (!mesh) return null;
+    if (mesh.userData && mesh.userData.fireParts) {
+      return mesh.userData.fireParts;
+    }
+
+    var parts = {
+      outer: [],
+      inner: [],
+      glow: [],
+      ember: []
+    };
+
+    mesh.traverse(function (obj) {
+      if (!obj || !obj.isMesh) return;
+      var name = obj.name || '';
+      if (name === 'flameOuter' || name === 'torchFlame') {
+        parts.outer.push(obj);
+      } else if (name === 'flameInner' || name === 'torchFlameInner') {
+        parts.inner.push(obj);
+      } else if (name === 'flameGlow' || name === 'torchGlow') {
+        parts.glow.push(obj);
+      } else if (name.indexOf('ember') === 0 || name === 'ember') {
+        parts.ember.push(obj);
+      }
+    });
+
+    mesh.userData = mesh.userData || {};
+    mesh.userData.fireParts = parts;
+    return parts;
+  }
+
   function update(dt) {
     if (typeof DayNightSystem === 'undefined') return;
     if (typeof GameState === 'undefined') return;
@@ -72,10 +140,10 @@ window.FireSystem = (function () {
     var darkness = DayNightSystem.getDarkness();
     var t = performance.now() * 0.001;
 
-    var warmOrange = new THREE.Color(0xFF8C00);
-    var warmYellow = new THREE.Color(0xFFD700);
-    var deepOrange = new THREE.Color(0xFF6600);
-    var fireColor = new THREE.Color();
+    _lightSourceCount = 0;
+    _activeLightSourceCount = 0;
+    _playerTorchLightInfo = null;
+    resetLightCoverageCache();
 
     for (var uid in _lights) {
       var fire = _lights[uid];
@@ -88,8 +156,27 @@ window.FireSystem = (function () {
       }
 
       var balance = GameRegistry.getBalance(instance.entityId);
+      if (!balance) continue;
+
+      var lightRadius = fire.radius || balance.lightRadius || 0;
+      if (lightRadius > 0) {
+        pushLightSource(
+          _lightSources,
+          _lightSourceCount++,
+          fire.x,
+          fire.z,
+          lightRadius,
+          uid,
+          fire.isCampfire ? 'campfire' : 'light',
+          instance.entityId,
+          !!fire.isCampfire,
+          1,
+          fire.isCampfire ? 'Campfire coverage' : 'Light coverage'
+        );
+      }
+
       var fuel = GameState.getFireFuel ? GameState.getFireFuel(uid) : null;
-      var maxFuel = balance ? (balance.fuelCapacity || 999) : 999;
+      var maxFuel = balance.fuelCapacity || 999;
       var currentFuel = (fuel !== null && fuel !== undefined) ? fuel : maxFuel;
       var hasFuel = currentFuel > 0;
 
@@ -120,16 +207,32 @@ window.FireSystem = (function () {
       if (darkness > 0.05 && hasFuel) {
         var intensityScale = Math.min(1.0, darkness * 2.5) * fuelRatio;
 
+        if (lightRadius > 0) {
+          pushLightSource(
+            _activeLightSources,
+            _activeLightSourceCount++,
+            fire.x,
+            fire.z,
+            lightRadius,
+            uid,
+            fire.isCampfire ? 'campfire' : 'light',
+            instance.entityId,
+            !!fire.isCampfire,
+            intensityScale,
+            fire.isCampfire ? 'Campfire coverage' : 'Light coverage'
+          );
+        }
+
         var finalIntensity = fire.baseIntensity * intensityScale * (1.0 + flicker);
         fire.light.intensity = Math.max(0, finalIntensity);
 
         var colorShift = Math.sin(t * 3.0 + seed * 1.5) * 0.5 + 0.5;
         if (colorShift < 0.5) {
-          fireColor.lerpColors(deepOrange, warmOrange, colorShift * 2);
+          _fireColor.lerpColors(_deepOrange, _warmOrange, colorShift * 2);
         } else {
-          fireColor.lerpColors(warmOrange, warmYellow, (colorShift - 0.5) * 2);
+          _fireColor.lerpColors(_warmOrange, _warmYellow, (colorShift - 0.5) * 2);
         }
-        fire.light.color.copy(fireColor);
+        fire.light.color.copy(_fireColor);
 
         var yJitter;
         if (fire.isCampfire) {
@@ -169,75 +272,79 @@ window.FireSystem = (function () {
       }
     }
 
+    _lightSources.length = _lightSourceCount;
+    _activeLightSources.length = _activeLightSourceCount;
+
     updatePlayerTorch(dt, darkness, t);
   }
 
   function animateFlameMesh(mesh, t, seed, flicker, fuelRatio, darkness) {
     var visibleScale = Math.max(0.3, Math.min(1.0, darkness * 3)) * fuelRatio;
 
-    mesh.traverse(function (obj) {
-      if (!obj.isMesh) return;
-      var name = obj.name || '';
+    var parts = getFlameMeshParts(mesh);
+    if (!parts) return;
 
-      if (name === 'flameOuter' || name === 'torchFlame') {
-        if (obj.userData.baseScaleY === undefined) {
-          obj.userData.baseScaleY = obj.scale.y;
-          obj.userData.baseScaleX = obj.scale.x;
-          obj.userData.baseScaleZ = obj.scale.z;
-        }
-        var sf = 1.0 + flicker * 2.5;
-        obj.scale.y = obj.userData.baseScaleY * sf * visibleScale;
-        obj.scale.x = obj.userData.baseScaleX * (1.0 + flicker * 0.5) * visibleScale;
-        obj.scale.z = obj.userData.baseScaleZ * (1.0 + flicker * 0.5) * visibleScale;
-        obj.rotation.z = Math.sin(t * 8.0 + seed) * 0.08;
-        obj.rotation.x = Math.sin(t * 6.0 + seed * 0.7) * 0.05;
-        obj.material.opacity = (0.85 * visibleScale + 0.1);
+    for (var i = 0; i < parts.outer.length; i++) {
+      var outer = parts.outer[i];
+      if (outer.userData.baseScaleY === undefined) {
+        outer.userData.baseScaleY = outer.scale.y;
+        outer.userData.baseScaleX = outer.scale.x;
+        outer.userData.baseScaleZ = outer.scale.z;
       }
+      var sf = 1.0 + flicker * 2.5;
+      outer.scale.y = outer.userData.baseScaleY * sf * visibleScale;
+      outer.scale.x = outer.userData.baseScaleX * (1.0 + flicker * 0.5) * visibleScale;
+      outer.scale.z = outer.userData.baseScaleZ * (1.0 + flicker * 0.5) * visibleScale;
+      outer.rotation.z = Math.sin(t * 8.0 + seed) * 0.08;
+      outer.rotation.x = Math.sin(t * 6.0 + seed * 0.7) * 0.05;
+      outer.material.opacity = (0.85 * visibleScale + 0.1);
+    }
 
-      if (name === 'flameInner' || name === 'torchFlameInner') {
-        if (obj.userData.baseScaleY === undefined) {
-          obj.userData.baseScaleY = obj.scale.y;
-        }
-        var innerFlicker = flicker * 2.0;
-        obj.scale.y = obj.userData.baseScaleY * (1.0 + innerFlicker) * visibleScale;
-        obj.material.opacity = (0.8 * visibleScale + 0.15);
+    for (var j = 0; j < parts.inner.length; j++) {
+      var inner = parts.inner[j];
+      if (inner.userData.baseScaleY === undefined) {
+        inner.userData.baseScaleY = inner.scale.y;
       }
+      var innerFlicker = flicker * 2.0;
+      inner.scale.y = inner.userData.baseScaleY * (1.0 + innerFlicker) * visibleScale;
+      inner.material.opacity = (0.8 * visibleScale + 0.15);
+    }
 
-      if (name === 'flameGlow' || name === 'torchGlow') {
-        var glowPulse = 0.5 + 0.5 * Math.sin(t * 4.0 + seed);
-        obj.material.opacity = glowPulse * visibleScale * 0.35 + 0.05;
-        var glowScale = (0.85 + 0.2 * Math.sin(t * 3.5 + seed * 1.2)) * visibleScale;
-        obj.scale.set(glowScale, glowScale, glowScale);
-      }
+    for (var glowIndex = 0; glowIndex < parts.glow.length; glowIndex++) {
+      var glow = parts.glow[glowIndex];
+      var glowPulse = 0.5 + 0.5 * Math.sin(t * 4.0 + seed);
+      glow.material.opacity = glowPulse * visibleScale * 0.35 + 0.05;
+      var glowScale = (0.85 + 0.2 * Math.sin(t * 3.5 + seed * 1.2)) * visibleScale;
+      glow.scale.set(glowScale, glowScale, glowScale);
+    }
 
-      if (name.indexOf('ember') === 0 || name === 'ember') {
-        if (obj.userData.baseY !== undefined) {
-          obj.position.y = obj.userData.baseY + Math.sin(t * 2.0 + obj.userData.emberPhase) * 0.04;
-        }
-        obj.material.opacity = (0.4 + 0.5 * Math.abs(Math.sin(t * 5.0 + (obj.userData.emberPhase || 0)))) * visibleScale;
+    for (var emberIndex = 0; emberIndex < parts.ember.length; emberIndex++) {
+      var ember = parts.ember[emberIndex];
+      if (ember.userData.baseY !== undefined) {
+        ember.position.y = ember.userData.baseY + Math.sin(t * 2.0 + ember.userData.emberPhase) * 0.04;
       }
-    });
+      ember.material.opacity = (0.4 + 0.5 * Math.abs(Math.sin(t * 5.0 + (ember.userData.emberPhase || 0)))) * visibleScale;
+    }
   }
 
   function hideFlameMesh(mesh) {
-    mesh.traverse(function (obj) {
-      if (!obj.isMesh) return;
-      var name = obj.name || '';
-      if (name === 'flameOuter' || name === 'torchFlame' ||
-          name === 'flameInner' || name === 'torchFlameInner' ||
-          name === 'flameGlow' || name === 'torchGlow') {
-        obj.material.opacity = 0;
+    var parts = getFlameMeshParts(mesh);
+    if (!parts) return;
+
+    var groups = [parts.outer, parts.inner, parts.glow, parts.ember];
+    for (var groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+      var group = groups[groupIndex];
+      for (var itemIndex = 0; itemIndex < group.length; itemIndex++) {
+        group[itemIndex].material.opacity = 0;
       }
-      if (name.indexOf('ember') === 0 || name === 'ember') {
-        obj.material.opacity = 0;
-      }
-    });
+    }
   }
 
   function updatePlayerTorch(dt, darkness, t) {
     if (typeof GamePlayer === 'undefined') return;
 
     var hasActiveTorch = GamePlayer.hasTorchLight && GamePlayer.hasTorchLight();
+    _playerTorchLightInfo = null;
 
     if (hasActiveTorch) {
       if (!_playerTorchLight) {
@@ -269,17 +376,25 @@ window.FireSystem = (function () {
         var finalIntensity = baseInt * intensityScale * (1.0 + flicker);
         _playerTorchLight.intensity = Math.max(0, finalIntensity);
 
-        var warmOrangePT = new THREE.Color(0xFF8C00);
-        var warmYellowPT = new THREE.Color(0xFFD700);
-        var deepOrangePT = new THREE.Color(0xFF6600);
-        var torchColor = new THREE.Color();
+        _playerTorchLightInfo = {
+          x: pos.x,
+          z: pos.z,
+          radius: torchBalance.lightRadius || 6,
+          intensity: intensityScale,
+          sourceUid: 'player_torch',
+          sourceType: 'torch',
+          entityId: 'item.handheld_torch',
+          isCampfire: false,
+          label: 'Torch coverage'
+        };
+
         var cs = Math.sin(t * 3.5) * 0.5 + 0.5;
         if (cs < 0.5) {
-          torchColor.lerpColors(deepOrangePT, warmOrangePT, cs * 2);
+          _torchColor.lerpColors(_deepOrange, _warmOrange, cs * 2);
         } else {
-          torchColor.lerpColors(warmOrangePT, warmYellowPT, (cs - 0.5) * 2);
+          _torchColor.lerpColors(_warmOrange, _warmYellow, (cs - 0.5) * 2);
         }
-        _playerTorchLight.color.copy(torchColor);
+        _playerTorchLight.color.copy(_torchColor);
 
         var yJitter = Math.sin(t * 5.0) * 0.12 + Math.sin(t * 10.0) * 0.06;
         _playerTorchLight.position.set(pos.x, 1.6 + yJitter, pos.z);
@@ -310,53 +425,117 @@ window.FireSystem = (function () {
     return _lights;
   }
 
+  function isNightLightActive() {
+    return (typeof DayNightSystem !== 'undefined') && DayNightSystem.isNight();
+  }
+
+  function getLightCoverageAt(worldX, worldZ, options) {
+    options = options || {};
+
+    var requireActive = options.requireActive !== false;
+    var includePlayerTorch = !!options.includePlayerTorch;
+    var nightActive = isNightLightActive();
+    var cacheKey = (requireActive ? '1' : '0') + '|' + (includePlayerTorch ? '1' : '0') + '|' + Math.round(worldX * 10) + '|' + Math.round(worldZ * 10);
+    var cached = _lightCoverageCache[cacheKey];
+    if (cached) return cached;
+
+    var bestMatch = {
+      lit: false,
+      distance: Infinity,
+      radius: 0,
+      sourceUid: null,
+      sourceType: null,
+      entityId: null,
+      isCampfire: false,
+      label: requireActive ? 'Outside active light' : 'Outside light radius'
+    };
+
+    if (requireActive && !nightActive) {
+      bestMatch.label = 'Daytime';
+      _lightCoverageCache[cacheKey] = bestMatch;
+      return bestMatch;
+    }
+
+    var sources = requireActive ? _activeLightSources : _lightSources;
+    for (var i = 0; i < sources.length; i++) {
+      var source = sources[i];
+      if (!source || source.radius <= 0) continue;
+
+      var dx = source.x - worldX;
+      var dz = source.z - worldZ;
+      var distanceSq = dx * dx + dz * dz;
+      if (distanceSq > (source.radius * source.radius) || distanceSq >= (bestMatch.distance * bestMatch.distance)) continue;
+
+      var distance = Math.sqrt(distanceSq);
+
+      bestMatch = {
+        lit: true,
+        distance: distance,
+        radius: source.radius,
+        sourceUid: source.sourceUid,
+        sourceType: source.sourceType,
+        entityId: source.entityId,
+        isCampfire: !!source.isCampfire,
+        label: source.label
+      };
+    }
+
+    if (includePlayerTorch && _playerTorchLightInfo) {
+      var torchDx = _playerTorchLightInfo.x - worldX;
+      var torchDz = _playerTorchLightInfo.z - worldZ;
+      var torchDistance = Math.sqrt(torchDx * torchDx + torchDz * torchDz);
+
+      if (torchDistance <= _playerTorchLightInfo.radius && torchDistance < bestMatch.distance) {
+        bestMatch = {
+          lit: true,
+          distance: torchDistance,
+          radius: _playerTorchLightInfo.radius,
+          sourceUid: _playerTorchLightInfo.sourceUid,
+          sourceType: _playerTorchLightInfo.sourceType,
+          entityId: _playerTorchLightInfo.entityId,
+          isCampfire: false,
+          label: _playerTorchLightInfo.label
+        };
+      }
+    }
+
+    _lightCoverageCache[cacheKey] = bestMatch;
+    return bestMatch;
+  }
+
+  function isPositionLit(worldX, worldZ, options) {
+    return !!getLightCoverageAt(worldX, worldZ, options).lit;
+  }
+
   function getActiveFires() {
-    var result = [];
-    var darkness = (typeof DayNightSystem !== 'undefined') ? DayNightSystem.getDarkness() : 0;
+    _activeFireCount = 0;
 
-    for (var uid in _lights) {
-      var fire = _lights[uid];
-      if (!fire.light || fire.light.intensity <= 0) continue;
-      var instance = GameState.getInstance(uid);
-      if (!instance) continue;
-      var balance = GameRegistry.getBalance(instance.entityId);
-      if (!balance) continue;
-
-      var fuel = GameState.getFireFuel ? GameState.getFireFuel(uid) : null;
-      var maxFuel = balance.fuelCapacity || 999;
-      var currentFuel = (fuel !== null && fuel !== undefined) ? fuel : maxFuel;
-      if (currentFuel <= 0) continue;
-
-      var radius = (balance.lightRadius || 10) * 0.8;
-      var intensity = Math.min(1.0, darkness * 2.5) * Math.min(1.0, currentFuel / Math.max(1, maxFuel) * 3);
-
-      result.push({
-        x: fire.x,
-        z: fire.z,
-        radius: radius,
-        intensity: intensity,
-        isCampfire: fire.isCampfire
-      });
+    function pushActiveFire(x, z, radius, intensity, isCampfire) {
+      var entry = _activeFires[_activeFireCount];
+      if (!entry) {
+        entry = {};
+        _activeFires[_activeFireCount] = entry;
+      }
+      entry.x = x;
+      entry.z = z;
+      entry.radius = radius;
+      entry.intensity = intensity;
+      entry.isCampfire = isCampfire;
+      _activeFireCount += 1;
     }
 
-    var hasActiveTorch = (typeof GamePlayer !== 'undefined' && GamePlayer.hasTorchLight && GamePlayer.hasTorchLight());
-    if (hasActiveTorch && darkness > 0.05) {
-      var pos = GamePlayer.getPosition();
-      var torchBalance = GameRegistry.getBalance("item.handheld_torch") || {};
-      var torchFuel = GameState.getHandheldTorch ? GameState.getHandheldTorch() : null;
-      var torchActive = torchFuel !== null;
-      var torchIntensity = torchActive ? Math.min(1.0, darkness * 2.5) : 0;
-
-      result.push({
-        x: pos.x,
-        z: pos.z,
-        radius: 6,
-        intensity: torchIntensity,
-        isCampfire: false
-      });
+    for (var i = 0; i < _activeLightSourceCount; i++) {
+      var source = _activeLightSources[i];
+      if (!source || source.intensity <= 0) continue;
+      pushActiveFire(source.x, source.z, source.radius * 0.8, source.intensity, source.isCampfire);
     }
 
-    return result;
+    if (_playerTorchLightInfo && _playerTorchLightInfo.intensity > 0) {
+      pushActiveFire(_playerTorchLightInfo.x, _playerTorchLightInfo.z, _playerTorchLightInfo.radius, _playerTorchLightInfo.intensity, false);
+    }
+
+    _activeFires.length = _activeFireCount;
+    return _activeFires;
   }
 
   return {
@@ -365,6 +544,8 @@ window.FireSystem = (function () {
     addFire: addFire,
     removeFire: removeFire,
     getFireLights: getFireLights,
+    getLightCoverageAt: getLightCoverageAt,
+    isPositionLit: isPositionLit,
     getActiveFires: getActiveFires
   };
 })();

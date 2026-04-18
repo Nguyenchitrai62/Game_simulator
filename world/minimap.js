@@ -1,8 +1,15 @@
 window.MiniMap = (function () {
   var _miniCanvas = null;
   var _miniCtx = null;
-  var _updateCounter = 0;
-  var _UPDATE_INTERVAL = 4;
+  var _dangerMapNextRefreshAt = 0;
+  var DANGER_MAP_REFRESH_MS = 260;
+  var DANGER_MAP_OPEN_REFRESH_MS = 140;
+  var _lastMiniDrawAt = 0;
+  var _lastFullMapDrawAt = 0;
+  var _fullMapDirty = false;
+  var MINIMAP_REFRESH_MS = 90;
+  var FULL_MAP_REFRESH_MS = 140;
+  var FULL_MAP_INTERACT_REFRESH_MS = 60;
 
   // Full map state
   var _mapOpen = false;
@@ -16,6 +23,7 @@ window.MiniMap = (function () {
   var _dragCX = 0, _dragCZ = 0;
   var _hoverInfo = '';
   var _hoverX = 0, _hoverY = 0;
+  var _dangerMap = {};
 
   var CHUNK = 16;
 
@@ -36,12 +44,176 @@ window.MiniMap = (function () {
     tin:    { c: '#bbbbdd', s: 'rect' },
     iron:   { c: '#cc9966', s: 'rect' },
     coal:   { c: '#555577', s: 'rect' },
-    animal: { c: '#ff3344', s: 'tri' }
+    prey:   { c: '#d8cbb5', s: 'circle' },
+    threat: { c: '#ff3344', s: 'tri' }
   };
 
   function iconFor(type) {
+    if (type && type.indexOf('animal.') === 0) {
+      if (window.GameRegistry && GameRegistry.isAnimalThreat && GameRegistry.isAnimalThreat(type)) return ICON.threat;
+      if (window.GameRegistry && GameRegistry.isAnimalPrey && GameRegistry.isAnimalPrey(type)) return ICON.prey;
+      return ICON.threat;
+    }
     for (var k in ICON) { if (type.indexOf(k) >= 0) return ICON[k]; }
     return null;
+  }
+
+  function getActiveThreatSources() {
+    var activeSources = {};
+    if (!window.NPCSystem || !NPCSystem.getThreatenedWorkersSummary) return activeSources;
+
+    var summary = NPCSystem.getThreatenedWorkersSummary();
+    if (!summary || !summary.workers) return activeSources;
+
+    for (var i = 0; i < summary.workers.length; i++) {
+      var workerThreat = summary.workers[i];
+      if (!workerThreat || !workerThreat.threatSourceId) continue;
+
+      if (!activeSources[workerThreat.threatSourceId]) {
+        activeSources[workerThreat.threatSourceId] = {
+          workerCount: 0,
+          attackingCount: 0
+        };
+      }
+
+      activeSources[workerThreat.threatSourceId].workerCount += 1;
+      if (workerThreat.threatLevel === 'attacking') {
+        activeSources[workerThreat.threatSourceId].attackingCount += 1;
+      }
+    }
+
+    return activeSources;
+  }
+
+  function getMapInstances() {
+    if (!window.GameState) return {};
+    if (GameState.getAllInstancesLive) return GameState.getAllInstancesLive();
+    return GameState.getAllInstances ? GameState.getAllInstances() : {};
+  }
+
+  function getThreatWeight(type, balance) {
+    var attack = Math.max(0, Number(balance && balance.attack) || 0);
+    var aggroRange = Math.max(0, Number(balance && balance.aggroRange) || 0);
+    return 0.8 + attack * 0.35 + aggroRange * 0.45;
+  }
+
+  function getDangerLevel(entry) {
+    if (!entry || !entry.threatCount) return null;
+    if (entry.activePressure > 0 || entry.score >= 8) return 'high';
+    if (entry.score >= 4.2) return 'medium';
+    return 'low';
+  }
+
+  function getDangerLevelRank(level) {
+    if (level === 'high') return 3;
+    if (level === 'medium') return 2;
+    if (level === 'low') return 1;
+    return 0;
+  }
+
+  function getDangerColors(entry, timeMs) {
+    if (!entry || !entry.level) return null;
+
+    var pulse = 0.04 + (Math.sin((timeMs || 0) * 0.005) + 1) * 0.04;
+    if (entry.level === 'high') {
+      return {
+        fill: 'rgba(255,72,72,' + (entry.activePressure > 0 ? (0.28 + pulse) : 0.26) + ')',
+        stroke: 'rgba(255,170,170,0.72)'
+      };
+    }
+    if (entry.level === 'medium') {
+      return {
+        fill: 'rgba(255,150,60,0.18)',
+        stroke: 'rgba(255,196,120,0.5)'
+      };
+    }
+    return {
+      fill: 'rgba(255,220,120,0.1)',
+      stroke: 'rgba(255,230,160,0.28)'
+    };
+  }
+
+  function buildDangerMap(chunks) {
+    var dangerMap = {};
+    var activeSources = getActiveThreatSources();
+
+    for (var key in chunks) {
+      var chunk = chunks[key];
+      if (!chunk || !chunk.objects || !chunk.objects.length) continue;
+
+      var entry = chunk.predatorZone ? {
+        score: Number(chunk.predatorZone.dangerBonus) || 0,
+        threatCount: 0,
+        activePressure: 0,
+        strongestThreat: '',
+        strongestWeight: Number(chunk.predatorZone.dangerBonus) || 0,
+        zoneLabel: chunk.predatorZone.label || 'Predator Zone',
+        level: chunk.predatorZone.level || null
+      } : null;
+
+      for (var i = 0; i < chunk.objects.length; i++) {
+        var obj = chunk.objects[i];
+        if (!obj || obj._destroyed || obj.hp <= 0 || !obj.type || obj.type.indexOf('animal.') !== 0) continue;
+        if (!window.GameRegistry || !GameRegistry.isAnimalThreat || !GameRegistry.isAnimalThreat(obj.type)) continue;
+
+        if (!entry) {
+          entry = {
+            score: 0,
+            threatCount: 0,
+            activePressure: 0,
+            strongestThreat: '',
+            strongestWeight: 0,
+            level: null
+          };
+        }
+
+        var balance = GameRegistry.getBalance ? (GameRegistry.getBalance(obj.type) || {}) : {};
+        var weight = getThreatWeight(obj.type, balance);
+        var activeSource = activeSources[obj.id];
+        if (activeSource) {
+          weight += 2.4 + activeSource.workerCount * 0.85 + activeSource.attackingCount * 1.25;
+          entry.activePressure += activeSource.attackingCount > 0 ? activeSource.attackingCount : 1;
+        }
+
+        entry.score += weight;
+        entry.threatCount += 1;
+        if (weight > entry.strongestWeight) {
+          entry.strongestWeight = weight;
+          entry.strongestThreat = ((GameRegistry.getEntity && GameRegistry.getEntity(obj.type)) || {}).name || obj.type;
+        }
+      }
+
+      if (entry) {
+        var computedLevel = getDangerLevel(entry);
+        if (getDangerLevelRank(computedLevel) > getDangerLevelRank(entry.level)) {
+          entry.level = computedLevel;
+        }
+        dangerMap[key] = entry;
+      }
+    }
+
+    return dangerMap;
+  }
+
+  function getDangerInfoForChunk(cx, cz) {
+    var entry = _dangerMap[cx + ',' + cz];
+    if (!entry) return '';
+
+    var label = entry.zoneLabel || (entry.level === 'high' ? 'High danger zone' : (entry.level === 'medium' ? 'Medium danger zone' : 'Low danger zone'));
+    var detail = label;
+    if (entry.threatCount > 0) {
+      detail += ' • ' + entry.threatCount + ' threat' + (entry.threatCount === 1 ? '' : 's');
+    } else if (entry.zoneLabel) {
+      detail += ' • respawn hotspot';
+    }
+
+    if (entry.activePressure > 0) {
+      detail += ' • workers under attack';
+    } else if (entry.strongestThreat) {
+      detail += ' • ' + entry.strongestThreat;
+    }
+
+    return detail;
   }
 
   // Convert world direction to minimap canvas angle.
@@ -54,6 +226,25 @@ window.MiniMap = (function () {
     return Math.atan2(cdx, -cdy);
   }
 
+  function isMinimapEnabled() {
+    return !window.GameDebugSettings || !GameDebugSettings.isEnabled || GameDebugSettings.isEnabled('minimap');
+  }
+
+  function refreshVisibility() {
+    var minimapEl = document.getElementById('minimap');
+    var popup = document.getElementById('map-popup');
+    var enabled = isMinimapEnabled();
+
+    if (minimapEl) {
+      minimapEl.style.display = enabled ? '' : 'none';
+    }
+
+    if (!enabled) {
+      _mapOpen = false;
+      if (popup) popup.style.display = 'none';
+    }
+  }
+
   function init() {
     _miniCanvas = document.getElementById('minimap-canvas');
     if (_miniCanvas) _miniCtx = _miniCanvas.getContext('2d');
@@ -63,6 +254,7 @@ window.MiniMap = (function () {
       _mapCtx = _mapCanvas.getContext('2d');
       setupMapInput();
     }
+    refreshVisibility();
     console.log('[MiniMap] Initialized');
   }
 
@@ -76,7 +268,10 @@ window.MiniMap = (function () {
     });
     window.addEventListener('mousemove', function(e) {
       if (!_dragging) {
-        if (_mapOpen && _mapCanvas) updateHover(e);
+        if (_mapOpen && _mapCanvas) {
+          updateHover(e);
+          _fullMapDirty = true;
+        }
         return;
       }
       // Inverse of the rotation: worldDX = (sdx + sdy)/(2*rawScale), worldDZ = (sdy - sdx)/(2*rawScale)
@@ -85,14 +280,17 @@ window.MiniMap = (function () {
       var sdy = e.clientY - _dragSY;
       _camX = _dragCX - (sdx + sdy) / (2 * rawScale);
       _camZ = _dragCZ - (sdy - sdx) / (2 * rawScale);
+      _fullMapDirty = true;
     });
     window.addEventListener('mouseup', function() {
       _dragging = false;
       if (_mapCanvas) _mapCanvas.style.cursor = 'default';
+      _fullMapDirty = true;
     });
     _mapCanvas.addEventListener('wheel', function(e) {
       e.preventDefault();
       _zoom = Math.max(0.3, Math.min(4.0, _zoom * (e.deltaY < 0 ? 1.2 : 0.83)));
+      _fullMapDirty = true;
     });
   }
 
@@ -109,7 +307,7 @@ window.MiniMap = (function () {
 
     _hoverInfo = '';
     var best = 3 * _zoom * 15;
-    var instances = GameState.getAllInstances ? GameState.getAllInstances() : {};
+    var instances = getMapInstances();
     for (var uid in instances) {
       var inst = instances[uid];
       var d = Math.sqrt(Math.pow(inst.x - worldMX, 2) + Math.pow(inst.z - worldMZ, 2));
@@ -119,16 +317,46 @@ window.MiniMap = (function () {
         _hoverInfo = (ent ? ent.name : inst.entityId) + ' (' + Math.floor(inst.x) + ',' + Math.floor(inst.z) + ')';
       }
     }
+
+    var dangerInfo = getDangerInfoForChunk(Math.floor(worldMX / CHUNK), Math.floor(worldMZ / CHUNK));
+    if (dangerInfo) {
+      _hoverInfo = _hoverInfo ? (_hoverInfo + ' • ' + dangerInfo) : dangerInfo;
+    }
+
     _hoverX = mx; _hoverY = my;
   }
 
-  function update() {
-    _updateCounter++;
-    if (_updateCounter % _UPDATE_INTERVAL !== 0) return;
-    if (typeof GamePlayer === 'undefined' || !GamePlayer.getPosition) return;
+  function refreshDangerMap(force) {
+    var now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    if (!force && now < _dangerMapNextRefreshAt) return;
 
-    drawMinimap();
-    if (_mapOpen) drawFullMap();
+    var chunks = GameTerrain.getAllChunks ? GameTerrain.getAllChunks() : {};
+    _dangerMap = buildDangerMap(chunks);
+    _dangerMapNextRefreshAt = now + (_mapOpen ? DANGER_MAP_OPEN_REFRESH_MS : DANGER_MAP_REFRESH_MS);
+    if (_mapOpen) _fullMapDirty = true;
+  }
+
+  function update() {
+    if (!isMinimapEnabled()) return;
+    if (typeof GamePlayer === 'undefined' || !GamePlayer.getPosition) return;
+    if (!_miniCtx && !_mapOpen) return;
+    var now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+
+    refreshDangerMap(false);
+
+    if (_miniCtx && (now - _lastMiniDrawAt >= MINIMAP_REFRESH_MS)) {
+      drawMinimap();
+      _lastMiniDrawAt = now;
+    }
+
+    if (_mapOpen) {
+      var fullMapInterval = _dragging ? FULL_MAP_INTERACT_REFRESH_MS : FULL_MAP_REFRESH_MS;
+      if (_fullMapDirty || (now - _lastFullMapDrawAt >= fullMapInterval)) {
+        drawFullMap();
+        _lastFullMapDrawAt = now;
+        _fullMapDirty = false;
+      }
+    }
   }
 
   // ========== MINIMAP ==========
@@ -137,7 +365,9 @@ window.MiniMap = (function () {
     var dir = GamePlayer.getDirection ? GamePlayer.getDirection() : { x: 0, z: 1 };
     var explored = GameState.getExplored ? GameState.getExplored() : {};
     var chunks = GameTerrain.getAllChunks ? GameTerrain.getAllChunks() : {};
-    var instances = GameState.getAllInstances ? GameState.getAllInstances() : {};
+    var instances = getMapInstances();
+    var now = performance.now();
+    var isNight = typeof DayNightSystem !== 'undefined' && DayNightSystem.isNight();
 
     var w = _miniCanvas.width, h = _miniCanvas.height;
     var cx = w / 2, cy = h / 2;
@@ -181,6 +411,20 @@ window.MiniMap = (function () {
       _miniCtx.fillStyle = 'rgb(' + (25 + hash) + ',' + (40 + hash) + ',' + (22 + hash) + ')';
       _miniCtx.fillRect(x0, y0, cs, cs);
 
+      var dangerEntry = _dangerMap[ch.cx + ',' + ch.cz];
+      if (dangerEntry) {
+        var dangerColors = getDangerColors(dangerEntry, now);
+        if (dangerColors) {
+          _miniCtx.fillStyle = dangerColors.fill;
+          _miniCtx.fillRect(x0, y0, cs, cs);
+          if (dangerEntry.level !== 'low' || dangerEntry.activePressure > 0) {
+            _miniCtx.strokeStyle = dangerColors.stroke;
+            _miniCtx.lineWidth = 1;
+            _miniCtx.strokeRect(x0 + 0.5, y0 + 0.5, Math.max(1, cs - 1), Math.max(1, cs - 1));
+          }
+        }
+      }
+
       if (ch.objects) {
         for (var i = 0; i < ch.objects.length; i++) {
           var obj = ch.objects[i];
@@ -218,14 +462,15 @@ window.MiniMap = (function () {
       var by = cy + (inst.z - pos.z) * scale;
       if (bx < -8 || bx > w + 8 || by < -8 || by > h + 8) continue;
       var bBal = GameRegistry.getBalance(inst.entityId);
-      if (bBal && bBal.lightRadius) {
-        var fg = _miniCtx.createRadialGradient(bx, by, 0, bx, by, 6);
-        fg.addColorStop(0, 'rgba(255,150,50,0.5)');
-        fg.addColorStop(1, 'rgba(255,100,0,0)');
-        _miniCtx.fillStyle = fg;
-        _miniCtx.beginPath();
-        _miniCtx.arc(bx, by, 6, 0, Math.PI * 2);
-        _miniCtx.fill();
+      if (isNight && bBal && bBal.lightRadius) {
+        var fuel = GameState.getFireFuel ? GameState.getFireFuel(uid) : null;
+        var hasFuel = fuel === null || fuel === undefined || fuel > 0;
+        if (hasFuel) {
+          _miniCtx.fillStyle = 'rgba(255,150,50,0.28)';
+          _miniCtx.beginPath();
+          _miniCtx.arc(bx, by, 4.5, 0, Math.PI * 2);
+          _miniCtx.fill();
+        }
       }
       _miniCtx.fillStyle = '#ffcc33';
       _miniCtx.fillRect(bx - 2, by - 2, 4, 4);
@@ -288,11 +533,12 @@ window.MiniMap = (function () {
     var dir = GamePlayer.getDirection ? GamePlayer.getDirection() : { x: 0, z: 1 };
     var explored = GameState.getExplored ? GameState.getExplored() : {};
     var chunks = GameTerrain.getAllChunks ? GameTerrain.getAllChunks() : {};
-    var instances = GameState.getAllInstances ? GameState.getAllInstances() : {};
+    var instances = getMapInstances();
 
     var w = _mapCanvas.width, h = _mapCanvas.height;
     var scale = 3 * _zoom;
     var rawScale = scale * SQRT2_2;
+    var now = performance.now();
 
     _mapCtx.clearRect(0, 0, w, h);
     _mapCtx.fillStyle = '#06080a';
@@ -356,6 +602,14 @@ window.MiniMap = (function () {
         'rgb(' + (30 + hash * 2) + ',' + (48 + hash * 2) + ',' + (28 + hash) + ')',
         'rgba(60,90,60,0.15)');
 
+      var dangerEntry = _dangerMap[expKey];
+      if (dangerEntry) {
+        var dangerColors = getDangerColors(dangerEntry, now);
+        if (dangerColors) {
+          drawChunkQuad(ecx, ecz, dangerColors.fill, dangerEntry.level === 'low' ? null : dangerColors.stroke);
+        }
+      }
+
       // Draw objects only for active (loaded) chunks
       var activeCh = activeChunks[expKey];
       if (activeCh && activeCh.objects) {
@@ -369,6 +623,13 @@ window.MiniMap = (function () {
           var ds = Math.max(2, scale * 0.4);
           _mapCtx.fillStyle = ic.c;
           drawIcon(sp.x, sp.y, ds, ic.s);
+        }
+      }
+
+      if (dangerEntry && (dangerEntry.level === 'high' || dangerEntry.activePressure > 0 || dangerEntry.zoneLabel)) {
+        var dp = w2s(ecx * CHUNK + CHUNK / 2, ecz * CHUNK + CHUNK / 2);
+        if (dp.x > -20 && dp.x < w + 20 && dp.y > -20 && dp.y < h + 20) {
+          drawDangerBadge(dp.x, dp.y, Math.max(4, scale * 0.45), dangerEntry.activePressure > 0);
         }
       }
     }
@@ -440,15 +701,10 @@ window.MiniMap = (function () {
       var bBal = GameRegistry.getBalance(inst.entityId);
       var bSize = Math.max(4, scale * 0.6);
 
-      if (bBal && bBal.lightRadius) {
-        var glowR = bSize * 3;
-        var fg = _mapCtx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, glowR);
-        fg.addColorStop(0, 'rgba(255,150,50,0.45)');
-        fg.addColorStop(1, 'rgba(255,100,0,0)');
-        _mapCtx.fillStyle = fg;
-        _mapCtx.beginPath();
-        _mapCtx.arc(sp.x, sp.y, glowR, 0, Math.PI * 2);
-        _mapCtx.fill();
+      var coverageSpecs = getMapCoverageSpecs(inst, bBal, inst.level || 1);
+      for (var coverageIndex = 0; coverageIndex < coverageSpecs.length; coverageIndex++) {
+        var coverage = coverageSpecs[coverageIndex];
+        drawWorldCoverageRing(sp.x, sp.y, coverage.radius, rawScale, coverage.fill, coverage.stroke, coverage.lineWidth);
       }
 
       _mapCtx.fillStyle = '#ffcc33';
@@ -536,6 +792,70 @@ window.MiniMap = (function () {
     _mapCtx.fill();
   }
 
+  function drawDangerBadge(x, y, s, isCritical) {
+    _mapCtx.fillStyle = isCritical ? '#ff5555' : '#ff8a4a';
+    _mapCtx.beginPath();
+    _mapCtx.moveTo(x, y - s);
+    _mapCtx.lineTo(x + s, y + s * 0.85);
+    _mapCtx.lineTo(x - s, y + s * 0.85);
+    _mapCtx.closePath();
+    _mapCtx.fill();
+    _mapCtx.strokeStyle = 'rgba(255,245,245,0.9)';
+    _mapCtx.lineWidth = 1;
+    _mapCtx.stroke();
+
+    _mapCtx.fillStyle = '#fff';
+    _mapCtx.font = 'bold ' + Math.max(7, Math.floor(s * 1.5)) + 'px sans-serif';
+    _mapCtx.textAlign = 'center';
+    _mapCtx.textBaseline = 'middle';
+    _mapCtx.fillText('!', x, y + s * 0.15);
+  }
+
+  function getMapCoverageSpecs(instance, balance, level) {
+    var specs = [];
+    if (!instance || !balance) return specs;
+
+    if (balance.lightRadius) {
+      var currentFuel = GameState.getFireFuel ? GameState.getFireFuel(instance.uid) : null;
+      var isFueled = currentFuel === null || currentFuel === undefined || currentFuel > 0;
+      var isNight = typeof DayNightSystem !== 'undefined' && DayNightSystem.isNight();
+      specs.push({
+        radius: balance.lightRadius,
+        fill: isFueled ? (isNight ? 'rgba(255,176,71,0.14)' : 'rgba(255,176,71,0.08)') : 'rgba(233,69,96,0.05)',
+        stroke: isFueled ? 'rgba(255,190,110,0.5)' : 'rgba(233,69,96,0.45)',
+        lineWidth: isFueled ? 1 : 1.2
+      });
+    }
+
+    var guardRadius = (balance.guardRadius && balance.guardRadius[level]) ? balance.guardRadius[level] : 0;
+    if (!guardRadius && balance.towerDefense && balance.towerDefense.range) {
+      guardRadius = balance.towerDefense.range[level] || balance.towerDefense.range[1] || 0;
+    }
+    if (guardRadius > 0 && instance.entityId === 'building.watchtower') {
+      specs.push({
+        radius: guardRadius,
+        fill: 'rgba(231,111,81,0.08)',
+        stroke: 'rgba(231,111,81,0.45)',
+        lineWidth: 1
+      });
+    }
+
+    return specs;
+  }
+
+  function drawWorldCoverageRing(screenX, screenY, radiusWorld, rawScale, fillColor, strokeColor, lineWidth) {
+    var screenRadius = radiusWorld * rawScale;
+    if (screenRadius < 2) return;
+
+    _mapCtx.beginPath();
+    _mapCtx.arc(screenX, screenY, screenRadius, 0, Math.PI * 2);
+    _mapCtx.fillStyle = fillColor;
+    _mapCtx.fill();
+    _mapCtx.strokeStyle = strokeColor;
+    _mapCtx.lineWidth = lineWidth || 1;
+    _mapCtx.stroke();
+  }
+
   function drawMapUI(w, h, pos) {
     // Bottom bar
     _mapCtx.fillStyle = 'rgba(0,0,0,0.7)';
@@ -552,18 +872,22 @@ window.MiniMap = (function () {
 
     // Legend top-right
     var items = [
-      { c: '#3aaa3a', l: 'Cay' },
-      { c: '#9999bb', l: 'Da/Khoang' },
+      { c: '#3aaa3a', l: 'Trees' },
+      { c: '#9999bb', l: 'Ore' },
       { c: '#ff5577', l: 'Berry' },
-      { c: '#ff3344', l: 'Dong vat' },
-      { c: '#ffcc33', l: 'Toa nha' },
-      { c: '#3388cc', l: 'Nuoc' }
+      { c: '#d8cbb5', l: 'Prey' },
+      { c: '#ff3344', l: 'Threat' },
+      { c: '#ff8a4a', l: 'Danger' },
+      { c: '#ffb047', l: 'Light cover' },
+      { c: '#e76f51', l: 'Defense cover' },
+      { c: '#ffcc33', l: 'Buildings' },
+      { c: '#3388cc', l: 'Water' }
     ];
-    var lx = w - 95, ly = 8;
+    var lx = w - 126, ly = 8;
     _mapCtx.fillStyle = 'rgba(0,0,0,0.75)';
-    _mapCtx.fillRect(lx, ly, 88, items.length * 16 + 6);
+    _mapCtx.fillRect(lx, ly, 118, items.length * 16 + 6);
     _mapCtx.strokeStyle = 'rgba(80,140,100,0.3)';
-    _mapCtx.strokeRect(lx, ly, 88, items.length * 16 + 6);
+    _mapCtx.strokeRect(lx, ly, 118, items.length * 16 + 6);
     for (var i = 0; i < items.length; i++) {
       var iy = ly + 10 + i * 16;
       _mapCtx.fillStyle = items[i].c;
@@ -603,6 +927,11 @@ window.MiniMap = (function () {
   }
 
   function toggleMap() {
+    if (!isMinimapEnabled()) {
+      refreshVisibility();
+      return;
+    }
+
     _mapOpen = !_mapOpen;
     var popup = document.getElementById('map-popup');
     if (popup) popup.style.display = _mapOpen ? 'flex' : 'none';
@@ -612,6 +941,10 @@ window.MiniMap = (function () {
       _camZ = pos.z;
       _zoom = 1.0;
       resizeMapCanvas();
+      refreshDangerMap(true);
+      _lastFullMapDrawAt = 0;
+      _fullMapDirty = true;
+      drawFullMap();
     }
   }
 
@@ -621,6 +954,7 @@ window.MiniMap = (function () {
     if (!popup) return;
     _mapCanvas.width = popup.clientWidth;
     _mapCanvas.height = popup.clientHeight - 32;
+    _fullMapDirty = true;
   }
 
   function isMapOpen() { return _mapOpen; }
@@ -629,6 +963,7 @@ window.MiniMap = (function () {
     init: init,
     update: update,
     toggleMap: toggleMap,
-    isMapOpen: isMapOpen
+    isMapOpen: isMapOpen,
+    refreshVisibility: refreshVisibility
   };
 })();

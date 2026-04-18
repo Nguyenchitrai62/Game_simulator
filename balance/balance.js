@@ -59,6 +59,26 @@ window.GAME_BALANCE = {
     respawnTime: 120,
     aggroRange: 2.5
   },
+  "animal.deer": {
+    hp: 10,
+    attack: 0,
+    defense: 0,
+    rewards: { "resource.food": 4, "resource.leather": 1 },
+    respawnTime: 45,
+    animalDisposition: "prey",
+    fleeRange: 3.2,
+    fleeSpeed: 1.08
+  },
+  "animal.rabbit": {
+    hp: 6,
+    attack: 0,
+    defense: 0,
+    rewards: { "resource.food": 2 },
+    respawnTime: 35,
+    animalDisposition: "prey",
+    fleeRange: 2.7,
+    fleeSpeed: 1.2
+  },
 
   // === CÔNG TRÌNH (thời Đá) ===
   "building.wood_cutter": {
@@ -99,7 +119,9 @@ window.GAME_BALANCE = {
     produces: {},
     harvestNodeTypes: ["node.tree", "node.rock", "node.berry_bush", "node.flint_deposit"],
     supportsFarmPlots: true,
+    farmWaterLevel: 3,
     treeCare: {
+      requiredWorkerLevel: 3,
       harvestOnlyMaxStage: true,
       waterSearchRadius: 6,
       riverBoostRadius: 3,
@@ -125,6 +147,7 @@ window.GAME_BALANCE = {
     farming: {
       cropKey: "root_crop",
       cropName: "Root Crop",
+      workerHint: "Needs a nearby resident worker. Watering requires a Level 3 Resident House.",
       dryGrowthSeconds: 45,
       wateredGrowthSeconds: 24,
       riverGrowthSeconds: 18,
@@ -152,7 +175,7 @@ window.GAME_BALANCE = {
       cropKey: "sapling_bed",
       cropName: "Sapling Bed",
       workerCropLabel: "saplings",
-      workerHint: "Needs a Level 2 Resident House nearby.",
+      workerHint: "Needs a Level 2 Resident House nearby. Watering requires Level 3.",
       requiredWorkerBuildingIds: ["building.berry_gatherer"],
       requiredWorkerLevel: 2,
       visualKind: "sapling",
@@ -199,17 +222,76 @@ window.GAME_BALANCE = {
     }
   },
   "building.barracks": {
-    // Doanh trại - bảo vệ khu vực (chưa triển khai)
+    // Doanh trại - trung tâm huấn luyện quân sự và dự bị phòng thủ
     cost: { "resource.wood": 50, "resource.stone": 40, "resource.tool": 5 },
     searchRadius: { 1: 0, 2: 0 },
     workerCount: { 1: 0, 2: 0 },
     storageCapacity: { 1: 0, 2: 0 },
     productionSpeed: { 1: 1.0, 2: 1.0 },
     produces: {},
-    guardCount: { 1: 2, 2: 3 },   // số lính theo level
-    guardRadius: { 1: 8, 2: 12 },   // bán kính bảo vệ (ô)
+    guardCount: { 1: 4, 2: 8 },   // sức chứa quân dự bị theo level
+    guardRadius: { 1: 10, 2: 14 },   // bán kính chỉ huy / bảo vệ (ô)
+    military: {
+      queueSize: { 1: 2, 2: 4 },
+      trainingSpeed: { 1: 1.0, 2: 1.35 },
+      units: {
+        swordsman: {
+          label: "Swordsman",
+          role: "Melee reserve",
+          unlockLevel: 1,
+          trainingSeconds: 18,
+          attackDamage: 5,
+          attackRange: 1.5,
+          attackIntervalSeconds: 0.95,
+          moveSpeed: 3.2,
+          cost: { "resource.wood": 16, "resource.food": 12 },
+          towerSupport: {
+            label: "Reserve screen",
+            workerProtectRadiusBonus: 2.0,
+            targetPriorityBonus: 1.4
+          }
+        },
+        archer: {
+          label: "Archer",
+          role: "Ranged reserve",
+          unlockLevel: 2,
+          trainingSeconds: 26,
+          attackDamage: 4,
+          attackRange: 6.5,
+          attackIntervalSeconds: 1.25,
+          moveSpeed: 3.0,
+          cost: { "resource.wood": 14, "resource.food": 12, "resource.flint": 6 },
+          towerSupport: {
+            label: "Archer overwatch",
+            rangeBonus: 1.5,
+            attackDamageBonus: 2,
+            attackIntervalMultiplier: 0.82
+          }
+        }
+      }
+    },
     upgrades: {
       2: { cost: { "resource.wood": 100, "resource.stone": 80, "resource.tool": 10 }, productionMultiplier: 1.0 }
+    }
+  },
+  "building.watchtower": {
+    // Tháp canh - tự động bắn thú dữ quanh khu lao động
+    cost: { "resource.wood": 40, "resource.stone": 25, "resource.flint": 6 },
+    searchRadius: { 1: 0, 2: 0 },
+    workerCount: { 1: 0, 2: 0 },
+    storageCapacity: { 1: 0, 2: 0 },
+    productionSpeed: { 1: 1.0, 2: 1.0 },
+    produces: {},
+    guardRadius: { 1: 9, 2: 12 },
+    towerDefense: {
+      range: { 1: 9, 2: 12 },
+      attackDamage: { 1: 6, 2: 10 },
+      attackIntervalSeconds: { 1: 2.0, 2: 1.4 },
+      workerProtectRadius: 4.5,
+      targetPriorityBonus: 3
+    },
+    upgrades: {
+      2: { cost: { "resource.wood": 70, "resource.stone": 45, "resource.flint": 10 }, productionMultiplier: 1.0 }
     }
   },
 

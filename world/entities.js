@@ -2,9 +2,85 @@ window.GameEntities = (function () {
   var _meshMap = new Map();
   var _dataMap = new Map();
   var _meshCounter = 0;
+  var ACTIVE_CULLED_ANIMAL_DISTANCE = 18;
+  var ACTIVE_CULLED_ANIMAL_DISTANCE_SQ = ACTIVE_CULLED_ANIMAL_DISTANCE * ACTIVE_CULLED_ANIMAL_DISTANCE;
 
   function init() {
     // Will populate as chunks are generated
+  }
+
+  function disposeMaterial(material, disposedMaterials) {
+    if (!material) return;
+    if (disposedMaterials.indexOf(material) !== -1) return;
+    disposedMaterials.push(material);
+    if (material.dispose) material.dispose();
+  }
+
+  function disposeObject3D(object3D) {
+    if (!object3D) return;
+
+    var disposedMaterials = [];
+    object3D.traverse(function(child) {
+      if (!child) return;
+      if (typeof AtmosphereSystem !== 'undefined' && AtmosphereSystem.unregisterWindTarget) {
+        AtmosphereSystem.unregisterWindTarget(child);
+      }
+      if (child.geometry && child.geometry.dispose) {
+        child.geometry.dispose();
+      }
+      if (child.material) {
+        if (Array.isArray(child.material)) {
+          for (var i = 0; i < child.material.length; i++) {
+            disposeMaterial(child.material[i], disposedMaterials);
+          }
+        } else {
+          disposeMaterial(child.material, disposedMaterials);
+        }
+      }
+    });
+  }
+
+  function removeObjectMesh(objData) {
+    if (!objData) return false;
+
+    var mesh = _meshMap.get(objData.id);
+    if (!mesh) return false;
+
+    if (typeof AtmosphereSystem !== 'undefined' && AtmosphereSystem.unregisterWindTarget) {
+      AtmosphereSystem.unregisterWindTarget(mesh);
+    }
+
+    GameScene.getScene().remove(mesh);
+    _meshMap.delete(objData.id);
+    _dataMap.delete(mesh.id);
+    disposeObject3D(mesh);
+    return true;
+  }
+
+  function removeChunkObjects(chunkData) {
+    if (!chunkData || !chunkData.objects) return;
+
+    for (var i = 0; i < chunkData.objects.length; i++) {
+      removeObjectMesh(chunkData.objects[i]);
+    }
+  }
+
+  function applyMeshVisibility(mesh) {
+    if (!mesh) return;
+    mesh.visible = !mesh.userData._hidden && !mesh.userData._chunkCulled;
+  }
+
+  function setChunkObjectsVisible(chunkData, visible) {
+    if (!chunkData || !chunkData.objects) return;
+
+    var isChunkCulled = visible === false;
+    for (var i = 0; i < chunkData.objects.length; i++) {
+      var objData = chunkData.objects[i];
+      var mesh = objData ? _meshMap.get(objData.id) : null;
+      if (!mesh) continue;
+      mesh.userData._chunkCulled = isChunkCulled;
+      applyMeshVisibility(mesh);
+    }
   }
 
   function createObjectForChunk(chunkData) {
@@ -23,7 +99,10 @@ window.GameEntities = (function () {
       if (mesh) {
         mesh.position.set(cx * chunkSize + obj.x, 0, cz * chunkSize + obj.z);
         mesh.userData.objectId = obj.id;
+        mesh.userData.chunkKey = cx + ',' + cz;
+        mesh.userData._chunkCulled = chunkData.isVisible === false;
         GameScene.getScene().add(mesh);
+        applyMeshVisibility(mesh);
 
         _meshMap.set(obj.id, mesh);
         _dataMap.set(mesh.id, obj);
@@ -329,28 +408,32 @@ window.GameEntities = (function () {
       addOreSpikes(group, 0x6A6A6A, 1, nodeInfo && nodeInfo.shardCount ? nodeInfo.shardCount : 2, nodeInfo && nodeInfo.shardHeight ? nodeInfo.shardHeight : 0.22);
       group.scale.set(scale, scale, scale);
 
-    } else if (type === "animal.wolf" || type === "animal.boar" || type === "animal.bear" || type === "animal.lion" || type === "animal.bandit" || type === "animal.sabertooth") {
+    } else if (type === "animal.wolf" || type === "animal.boar" || type === "animal.bear" || type === "animal.lion" || type === "animal.bandit" || type === "animal.sabertooth" || type === "animal.deer" || type === "animal.rabbit") {
+      var isRabbit = type === "animal.rabbit";
+      var isDeer = type === "animal.deer";
       var animalColor = mainColor || (type === "animal.wolf" ? 0x808080 : 
                                         type === "animal.boar" ? 0x8B6914 : 
                                         type === "animal.lion" ? 0xC4A24E :
                                         type === "animal.bandit" ? 0x333366 :
-                                        type === "animal.sabertooth" ? 0xF4A460 : 0x5C4033);
+                                        type === "animal.sabertooth" ? 0xF4A460 :
+                                        type === "animal.deer" ? 0xA66B3D :
+                                        type === "animal.rabbit" ? 0xD8CBB5 : 0x5C4033);
       var animalScale = scale || (type === "animal.bear" || type === "animal.lion" || type === "animal.sabertooth" ? 0.8 : 
-                                    type === "animal.bandit" ? 0.7 : 0.6);
+                                    type === "animal.bandit" ? 0.7 :
+                                    type === "animal.deer" ? 0.62 :
+                                    type === "animal.rabbit" ? 0.38 : 0.6);
 
-      // Body - tapered for animals, wider for bandit
-      var bodyLen = type === "animal.bear" || type === "animal.lion" ? 0.7 : (type === "animal.bandit" ? 0.35 : 0.5);
-      var bodyW = 0.3 * animalScale / 0.6;
-      var bodyH = type === "animal.bandit" ? 0.4 * animalScale / 0.6 : 0.25 * animalScale / 0.6;
+      var bodyLen = isDeer ? 0.62 : (isRabbit ? 0.34 : (type === "animal.bear" || type === "animal.lion" ? 0.7 : (type === "animal.bandit" ? 0.35 : 0.5)));
+      var bodyW = (isRabbit ? 0.24 : 0.3) * animalScale / 0.6;
+      var bodyH = type === "animal.bandit" ? 0.4 * animalScale / 0.6 : (isRabbit ? 0.2 : 0.25) * animalScale / 0.6;
       var bodyGeo = new THREE.BoxGeometry(bodyLen, bodyH, bodyW);
       var bodyMat = new THREE.MeshLambertMaterial({ color: animalColor });
       var body = new THREE.Mesh(bodyGeo, bodyMat);
-      body.position.y = type === "animal.bandit" ? 0.4 : 0.3;
+      body.position.y = type === "animal.bandit" ? 0.4 : (isRabbit ? 0.22 : 0.3);
       body.castShadow = true;
       group.add(body);
 
-      // Head
-      var headSize = type === "animal.bear" ? 0.18 : (type === "animal.bandit" ? 0.14 : 0.15) * animalScale / 0.6;
+      var headSize = type === "animal.bear" ? 0.18 : (type === "animal.bandit" ? 0.14 : (isRabbit ? 0.12 : (isDeer ? 0.14 : 0.15))) * animalScale / 0.6;
       var headGeo;
       if (type === "animal.bear") {
         headGeo = new THREE.SphereGeometry(headSize, 8, 6);
@@ -358,43 +441,49 @@ window.GameEntities = (function () {
         headGeo = new THREE.BoxGeometry(headSize, headSize, type === "animal.bandit" ? headSize * 0.8 : headSize * 0.9);
       }
       var head = new THREE.Mesh(headGeo, bodyMat);
-      head.position.set(bodyLen / 2 + headSize / 2 + 0.02, type === "animal.bandit" ? 0.55 : 0.35, 0);
+      head.position.set(bodyLen / 2 + headSize / 2 + 0.02, type === "animal.bandit" ? 0.55 : (isRabbit ? 0.28 : 0.35), 0);
       head.castShadow = true;
       group.add(head);
 
-      // Eyes
-      var eyeSize = type === "animal.bear" ? 0.025 : 0.02;
+      var eyeSize = isRabbit ? 0.016 : (type === "animal.bear" ? 0.025 : 0.02);
       var eyeGeo = new THREE.SphereGeometry(eyeSize, 4, 4);
-      var eyeMat = new THREE.MeshBasicMaterial({ color: 0xff3333 });
+      var eyeMat = new THREE.MeshBasicMaterial({ color: (isRabbit || isDeer) ? 0x1a120f : 0xff3333 });
       var eye1 = new THREE.Mesh(eyeGeo, eyeMat);
-      eye1.position.set(bodyLen / 2 + headSize + 0.01, (type === "animal.bandit" ? 0.57 : 0.37) * animalScale / 0.6, 0.04);
+      eye1.position.set(bodyLen / 2 + headSize + 0.01, (type === "animal.bandit" ? 0.57 : (isRabbit ? 0.295 : 0.37)) * animalScale / 0.6, 0.04);
       group.add(eye1);
       var eye2 = new THREE.Mesh(eyeGeo, eyeMat);
-      eye2.position.set(bodyLen / 2 + headSize + 0.01, (type === "animal.bandit" ? 0.57 : 0.37) * animalScale / 0.6, -0.04);
+      eye2.position.set(bodyLen / 2 + headSize + 0.01, (type === "animal.bandit" ? 0.57 : (isRabbit ? 0.295 : 0.37)) * animalScale / 0.6, -0.04);
       group.add(eye2);
 
-      // Ears (for wolf, bear, lion, sabertooth)
-      if (type === "animal.wolf" || type === "animal.bear" || type === "animal.lion" || type === "animal.sabertooth") {
-        var earGeo = new THREE.ConeGeometry(0.03 * animalScale / 0.6, 0.08 * animalScale / 0.6, 4);
+      if (isRabbit) {
+        var rabbitEarGeo = new THREE.BoxGeometry(0.03 * animalScale / 0.6, 0.14 * animalScale / 0.6, 0.02 * animalScale / 0.6);
+        var rabbitEar1 = new THREE.Mesh(rabbitEarGeo, bodyMat);
+        rabbitEar1.position.set(bodyLen / 2 + headSize * 0.15, 0.4 * animalScale / 0.6, 0.04 * animalScale / 0.6);
+        rabbitEar1.rotation.z = -0.12;
+        group.add(rabbitEar1);
+        var rabbitEar2 = new THREE.Mesh(rabbitEarGeo, bodyMat);
+        rabbitEar2.position.set(bodyLen / 2 + headSize * 0.15, 0.4 * animalScale / 0.6, -0.04 * animalScale / 0.6);
+        rabbitEar2.rotation.z = -0.12;
+        group.add(rabbitEar2);
+      } else if (type === "animal.wolf" || type === "animal.bear" || type === "animal.lion" || type === "animal.sabertooth" || isDeer) {
+        var earGeo = new THREE.ConeGeometry((isDeer ? 0.024 : 0.03) * animalScale / 0.6, (isDeer ? 0.11 : 0.08) * animalScale / 0.6, 4);
         var ear1 = new THREE.Mesh(earGeo, bodyMat);
-        ear1.position.set(bodyLen / 2 + headSize * 0.3, 0.4 * animalScale / 0.6, 0.06 * animalScale / 0.6);
+        ear1.position.set(bodyLen / 2 + headSize * 0.3, (isDeer ? 0.44 : 0.4) * animalScale / 0.6, 0.06 * animalScale / 0.6);
         group.add(ear1);
         var ear2 = new THREE.Mesh(earGeo, bodyMat);
-        ear2.position.set(bodyLen / 2 + headSize * 0.3, 0.4 * animalScale / 0.6, -0.06 * animalScale / 0.6);
+        ear2.position.set(bodyLen / 2 + headSize * 0.3, (isDeer ? 0.44 : 0.4) * animalScale / 0.6, -0.06 * animalScale / 0.6);
         group.add(ear2);
       }
 
-      // Tail (for wolf, lion, sabertooth, boar)
       if (type !== "animal.bandit") {
-        var tailGeo = new THREE.CylinderGeometry(0.015 * animalScale / 0.6, 0.025 * animalScale / 0.6, 0.2 * animalScale / 0.6, 4);
+        var tailGeo = new THREE.CylinderGeometry(0.015 * animalScale / 0.6, 0.025 * animalScale / 0.6, (isRabbit ? 0.08 : (isDeer ? 0.14 : 0.2)) * animalScale / 0.6, 4);
         var tailMat = new THREE.MeshLambertMaterial({ color: animalColor });
         var tail = new THREE.Mesh(tailGeo, tailMat);
-        tail.position.set(-bodyLen / 2 - 0.08, 0.3, 0);
-        tail.rotation.z = type === "animal.boar" ? -0.2 : 0.8;
+        tail.position.set(-bodyLen / 2 - (isRabbit ? 0.03 : 0.08), isRabbit ? 0.22 : 0.3, 0);
+        tail.rotation.z = type === "animal.boar" ? -0.2 : (isRabbit ? Math.PI / 2 : 0.8);
         tail.name = "tail";
         group.add(tail);
 
-        // Lion mane
         if (type === "animal.lion") {
           var maneGeo = new THREE.TorusGeometry(0.1 * animalScale / 0.6, 0.035 * animalScale / 0.6, 6, 12);
           var maneMat = new THREE.MeshLambertMaterial({ color: 0xD4A030 });
@@ -403,9 +492,19 @@ window.GameEntities = (function () {
           mane.rotation.y = Math.PI / 2;
           group.add(mane);
         }
+
+        if (isDeer) {
+          var antlerGeo = new THREE.BoxGeometry(0.015, 0.12, 0.015);
+          var antlerMat = new THREE.MeshLambertMaterial({ color: 0xF1E3C6 });
+          var antler1 = new THREE.Mesh(antlerGeo, antlerMat);
+          antler1.position.set(bodyLen / 2 + headSize * 0.05, 0.46 * animalScale / 0.6, 0.04 * animalScale / 0.6);
+          group.add(antler1);
+          var antler2 = new THREE.Mesh(antlerGeo, antlerMat);
+          antler2.position.set(bodyLen / 2 + headSize * 0.05, 0.46 * animalScale / 0.6, -0.04 * animalScale / 0.6);
+          group.add(antler2);
+        }
       }
 
-      // Sabertooth oversized fangs
       if (type === "animal.sabertooth") {
         var fangGeo = new THREE.ConeGeometry(0.015, 0.08, 4);
         var fangMat = new THREE.MeshLambertMaterial({ color: 0xFFFFF0 });
@@ -417,7 +516,6 @@ window.GameEntities = (function () {
         group.add(fang2);
       }
 
-      // Boar tusks (enhanced - larger)
       if (type === "animal.boar") {
         var tuskGeo = new THREE.ConeGeometry(0.02, 0.1, 4);
         var tuskMat = new THREE.MeshLambertMaterial({ color: 0xFFFFF0 });
@@ -430,16 +528,13 @@ window.GameEntities = (function () {
         tusk2.rotation.z = -0.3;
         group.add(tusk2);
 
-        // Boar curly tail
         var curlyTailGeo = new THREE.TorusGeometry(0.04 * animalScale / 0.6, 0.01 * animalScale / 0.6, 4, 8, Math.PI);
         var curlyTail = new THREE.Mesh(curlyTailGeo, bodyMat);
         curlyTail.position.set(-bodyLen / 2 - 0.05, 0.35, 0);
         group.add(curlyTail);
       }
 
-      // Bandit - humanoid with weapon
       if (type === "animal.bandit") {
-        // Weapon (club/sword)
         var weaponGeo = new THREE.BoxGeometry(0.04, 0.25, 0.04);
         var weaponMat = new THREE.MeshLambertMaterial({ color: 0x5C4033 });
         var weapon = new THREE.Mesh(weaponGeo, weaponMat);
@@ -448,9 +543,7 @@ window.GameEntities = (function () {
         group.add(weapon);
       }
 
-      // Legs
       if (type === "animal.bandit") {
-        // Humanoid legs (2 visible from isometric)
         var bLegGeo = new THREE.BoxGeometry(0.08, 0.2, 0.08);
         var legMat2 = new THREE.MeshLambertMaterial({ color: 0x3a3a5c });
         var bLeg1 = new THREE.Mesh(bLegGeo, legMat2);
@@ -462,10 +555,11 @@ window.GameEntities = (function () {
         bLeg2.name = "leg";
         group.add(bLeg2);
       } else {
-        var legGeo = new THREE.BoxGeometry(0.06, 0.2, 0.06);
-        [[-0.15, -0.1], [-0.15, 0.1], [0.15, -0.1], [0.15, 0.1]].forEach(function (pos) {
+        var legGeo = new THREE.BoxGeometry(isRabbit ? 0.05 : 0.06, isRabbit ? 0.12 : (isDeer ? 0.24 : 0.2), isRabbit ? 0.05 : 0.06);
+        var legOffsets = isRabbit ? [[-0.1, -0.08], [-0.1, 0.08], [0.1, -0.08], [0.1, 0.08]] : (isDeer ? [[-0.18, -0.1], [-0.18, 0.1], [0.18, -0.1], [0.18, 0.1]] : [[-0.15, -0.1], [-0.15, 0.1], [0.15, -0.1], [0.15, 0.1]]);
+        legOffsets.forEach(function (pos) {
           var leg = new THREE.Mesh(legGeo, bodyMat);
-          leg.position.set(pos[0], 0.1, pos[1]);
+          leg.position.set(pos[0], isRabbit ? 0.06 : (isDeer ? 0.12 : 0.1), pos[1]);
           leg.castShadow = true;
           leg.name = "leg";
           group.add(leg);
@@ -497,7 +591,9 @@ window.GameEntities = (function () {
     var existingMesh = _meshMap.get(objData.id);
     if (!existingMesh) return false;
 
-    var wasHidden = !!existingMesh.userData._hidden || existingMesh.visible === false;
+    var wasHidden = !!existingMesh.userData._hidden;
+    var wasChunkCulled = !!existingMesh.userData._chunkCulled;
+    var chunkKey = existingMesh.userData.chunkKey;
     var nextX = objData && objData.worldX !== undefined ? objData.worldX : existingMesh.position.x;
     var nextY = existingMesh.position && existingMesh.position.y !== undefined ? existingMesh.position.y : 0;
     var nextZ = objData && objData.worldZ !== undefined ? objData.worldZ : existingMesh.position.z;
@@ -509,6 +605,7 @@ window.GameEntities = (function () {
     GameScene.getScene().remove(existingMesh);
     _meshMap.delete(objData.id);
     _dataMap.delete(existingMesh.id);
+    disposeObject3D(existingMesh);
 
     var entity = GameRegistry.getEntity(objData.type);
     var refreshedMesh = createMesh(objData.type, entity, objData);
@@ -516,11 +613,13 @@ window.GameEntities = (function () {
 
     refreshedMesh.position.set(nextX, nextY, nextZ);
     refreshedMesh.userData.objectId = objData.id;
+    refreshedMesh.userData.chunkKey = chunkKey;
+    refreshedMesh.userData._chunkCulled = wasChunkCulled;
 
     if (wasHidden) {
       refreshedMesh.userData._hidden = true;
-      refreshedMesh.visible = false;
     }
+    applyMeshVisibility(refreshedMesh);
 
     GameScene.getScene().add(refreshedMesh);
     _meshMap.set(objData.id, refreshedMesh);
@@ -533,7 +632,7 @@ window.GameEntities = (function () {
     var mesh = _meshMap.get(objData.id);
     if (mesh) {
       mesh.userData._hidden = true;
-      mesh.visible = false;
+      applyMeshVisibility(mesh);
     }
   }
 
@@ -541,15 +640,23 @@ window.GameEntities = (function () {
     var mesh = _meshMap.get(objData.id);
     if (mesh) {
       mesh.userData._hidden = false;
-      mesh.visible = true;
+      applyMeshVisibility(mesh);
       
-      // For animals, reset position to spawn point on respawn
+      // For animals, sync the visible mesh with the latest respawn location.
       if (objData.type && objData.type.startsWith("animal.")) {
-        if (mesh.userData._spawnX !== undefined && mesh.userData._spawnZ !== undefined) {
-          mesh.position.x = mesh.userData._spawnX;
-          mesh.position.z = mesh.userData._spawnZ;
-          objData.worldX = mesh.userData._spawnX;
-          objData.worldZ = mesh.userData._spawnZ;
+        var spawnX = objData.worldX;
+        var spawnZ = objData.worldZ;
+        if ((spawnX === undefined || spawnZ === undefined) && mesh.userData._spawnX !== undefined && mesh.userData._spawnZ !== undefined) {
+          spawnX = mesh.userData._spawnX;
+          spawnZ = mesh.userData._spawnZ;
+        }
+        if (spawnX !== undefined && spawnZ !== undefined) {
+          mesh.position.x = spawnX;
+          mesh.position.z = spawnZ;
+          objData.worldX = spawnX;
+          objData.worldZ = spawnZ;
+          mesh.userData._spawnX = spawnX;
+          mesh.userData._spawnZ = spawnZ;
         }
         // Reset wander timer to pick new direction
         mesh.userData._wanderTime = performance.now() / 1000;
@@ -593,8 +700,11 @@ window.GameEntities = (function () {
       patrolSpeed: 0.38,
       chaseSpeed: 1.05,
       returnSpeed: 0.72,
-      turnRate: 0.18
+      turnRate: 0.18,
+      disposition: (window.GameRegistry && GameRegistry.getAnimalDisposition) ? GameRegistry.getAnimalDisposition(type) : ((balance && balance.animalDisposition) || 'threat')
     };
+
+    settings.isThreat = settings.disposition !== 'prey';
 
     if (type === 'animal.wolf') {
       settings.patrolSpeed = 0.46;
@@ -630,11 +740,33 @@ window.GameEntities = (function () {
       settings.chaseSpeed = 1.25;
       settings.returnSpeed = 0.88;
       settings.turnRate = 0.26;
+    } else if (type === 'animal.deer') {
+      settings.patrolRadius = 3.8;
+      settings.patrolSpeed = 0.48;
+      settings.returnSpeed = 0.84;
+      settings.turnRate = 0.22;
+    } else if (type === 'animal.rabbit') {
+      settings.patrolRadius = 2.4;
+      settings.patrolSpeed = 0.54;
+      settings.returnSpeed = 0.96;
+      settings.turnRate = 0.28;
     }
 
-    settings.aggroRange = (balance && balance.aggroRange) || 3;
-    settings.attackRange = Math.max(1.05, settings.aggroRange * 0.55);
-    settings.chaseRange = Math.max(settings.attackRange + 1.25, settings.aggroRange * 2.3);
+    if (settings.isThreat) {
+      var aggroRange = Number(balance && balance.aggroRange);
+      settings.aggroRange = aggroRange >= 0 ? aggroRange : 3;
+      settings.attackRange = Math.max(1.05, settings.aggroRange * 0.55);
+      settings.chaseRange = Math.max(settings.attackRange + 1.25, settings.aggroRange * 2.3);
+      settings.fleeRange = 0;
+      settings.fleeSpeed = settings.returnSpeed;
+    } else {
+      settings.aggroRange = 0;
+      settings.attackRange = 0;
+      settings.chaseRange = 0;
+      settings.fleeRange = Number(balance && balance.fleeRange) > 0 ? Number(balance && balance.fleeRange) : 2.4;
+      settings.fleeSpeed = Number(balance && balance.fleeSpeed) > 0 ? Number(balance && balance.fleeSpeed) : Math.max(settings.returnSpeed, settings.patrolSpeed + 0.35);
+    }
+
     return settings;
   }
 
@@ -716,10 +848,45 @@ window.GameEntities = (function () {
     return moved && distance <= moveDistance + 0.08;
   }
 
+  function moveAnimalAwayFromTarget(mesh, objData, dangerX, dangerZ, speed, dt, turnRate, settings) {
+    var awayX = objData.worldX - dangerX;
+    var awayZ = objData.worldZ - dangerZ;
+    var awayDistance = Math.sqrt(awayX * awayX + awayZ * awayZ);
+    if (awayDistance < 0.001) {
+      awayX = objData.worldX - mesh.userData._spawnX;
+      awayZ = objData.worldZ - mesh.userData._spawnZ;
+      awayDistance = Math.sqrt(awayX * awayX + awayZ * awayZ);
+    }
+    if (awayDistance < 0.001) {
+      awayX = 1;
+      awayZ = 0;
+      awayDistance = 1;
+    }
+
+    var desiredDistance = Math.max((settings && settings.fleeRange) || 2.4, 1.6);
+    var targetX = objData.worldX + (awayX / awayDistance) * desiredDistance;
+    var targetZ = objData.worldZ + (awayZ / awayDistance) * desiredDistance;
+    var spawnDx = targetX - mesh.userData._spawnX;
+    var spawnDz = targetZ - mesh.userData._spawnZ;
+    var maxDistanceFromSpawn = ((settings && settings.patrolRadius) || 3) * 1.8;
+    var targetDistanceFromSpawn = Math.sqrt(spawnDx * spawnDx + spawnDz * spawnDz);
+
+    if (targetDistanceFromSpawn > maxDistanceFromSpawn) {
+      targetX = mesh.userData._spawnX + (spawnDx / targetDistanceFromSpawn) * maxDistanceFromSpawn;
+      targetZ = mesh.userData._spawnZ + (spawnDz / targetDistanceFromSpawn) * maxDistanceFromSpawn;
+    }
+
+    return moveAnimal(mesh, objData, targetX, targetZ, speed, dt, turnRate);
+  }
+
+  function getWorkerTargetForAnimal(objData, settings) {
+    return null;
+  }
+
   function updateAnimalAnimation(mesh, time, state) {
     var moveSpeed = mesh.userData._moveSpeed || 0;
     var moving = moveSpeed > 0.01;
-    var chaseState = state === 'chase';
+    var chaseState = state === 'chase' || state === 'flee';
     var cycleSpeed = chaseState ? 12 : 8;
     var amplitude = chaseState ? 0.34 : 0.22;
 
@@ -741,24 +908,55 @@ window.GameEntities = (function () {
     });
   }
 
+  function shouldSimulateAnimal(mesh, objData, playerPos, activeTarget) {
+    if (!mesh || !objData || (mesh.userData && mesh.userData._hidden)) return false;
+    if (activeTarget === objData) return true;
+    if (!mesh.userData || !mesh.userData._chunkCulled) return true;
+    if (!playerPos) return false;
+
+    var dx = objData.worldX - playerPos.x;
+    if (Math.abs(dx) > ACTIVE_CULLED_ANIMAL_DISTANCE) return false;
+    var dz = objData.worldZ - playerPos.z;
+    if (Math.abs(dz) > ACTIVE_CULLED_ANIMAL_DISTANCE) return false;
+    return (dx * dx + dz * dz) <= ACTIVE_CULLED_ANIMAL_DISTANCE_SQ;
+  }
+
   function update(dt) {
-    _meshMap.forEach(function (mesh, id) {
+    if (window.GameDebugSettings && GameDebugSettings.isEnabled && !GameDebugSettings.isEnabled('animals')) {
+      if (typeof GamePerf !== 'undefined' && GamePerf.setValue) {
+        GamePerf.setValue('animal.total', 0);
+        GamePerf.setValue('animal.simulated', 0);
+      }
+      return;
+    }
+
+    var time = performance.now() / 1000;
+    var playerPos = window.GamePlayer ? GamePlayer.getPosition() : null;
+    var combatActive = window.GameCombat && GameCombat.isActive && GameCombat.isActive();
+    var activeTarget = combatActive && GameCombat.getTarget ? GameCombat.getTarget() : null;
+    var totalAnimals = 0;
+    var simulatedAnimals = 0;
+
+    _meshMap.forEach(function (mesh) {
       var objData = _dataMap.get(mesh.id);
       if (!objData) return;
 
       if (objData.type && objData.type.startsWith("animal.") && objData.hp > 0 && !objData._destroyed) {
-        var time = performance.now() / 1000;
+        totalAnimals++;
+        if (!shouldSimulateAnimal(mesh, objData, playerPos, activeTarget)) return;
+
+        simulatedAnimals++;
         ensureAnimalState(mesh, objData, time);
         var balance = GameRegistry.getBalance(objData.type) || {};
         var settings = getAnimalBehaviorSettings(objData.type, balance);
-        var combatActive = window.GameCombat && GameCombat.isActive && GameCombat.isActive();
-        var activeTarget = combatActive && GameCombat.getTarget ? GameCombat.getTarget() : null;
         var isOwnCombat = activeTarget === objData;
-        var playerPos = window.GamePlayer ? GamePlayer.getPosition() : null;
         var distToPlayer = playerPos ? Math.sqrt(
           Math.pow(objData.worldX - playerPos.x, 2) +
           Math.pow(objData.worldZ - playerPos.z, 2)
         ) : Infinity;
+        var workerTarget = getWorkerTargetForAnimal(objData, settings);
+        var distToWorker = workerTarget ? workerTarget.distance : Infinity;
+        var preferWorker = !!workerTarget && (combatActive || !playerPos || distToWorker <= distToPlayer || distToPlayer > settings.chaseRange);
         var distFromSpawn = Math.sqrt(
           Math.pow(objData.worldX - mesh.userData._spawnX, 2) +
           Math.pow(objData.worldZ - mesh.userData._spawnZ, 2)
@@ -771,7 +969,25 @@ window.GameEntities = (function () {
           if (playerPos) {
             turnAnimalTowards(mesh, Math.atan2(playerPos.x - objData.worldX, playerPos.z - objData.worldZ), settings.turnRate * 1.4);
           }
-        } else if (!combatActive && playerPos && distToPlayer <= settings.chaseRange) {
+        } else if (settings.isThreat && workerTarget && preferWorker) {
+          mesh.userData._movementState = 'chase';
+          mesh.userData._patrolTarget = null;
+          mesh.userData._idleUntil = 0;
+
+          if (window.NPCSystem && NPCSystem.reportWorkerThreat) {
+            NPCSystem.reportWorkerThreat(workerTarget.npcUid, objData.type, objData.id, distToWorker, distToWorker <= settings.attackRange);
+          }
+
+          if (distToWorker <= settings.attackRange) {
+            mesh.userData._moveSpeed = 0;
+            turnAnimalTowards(mesh, Math.atan2(workerTarget.x - objData.worldX, workerTarget.z - objData.worldZ), settings.turnRate * 1.4);
+          } else {
+            var reachedWorker = moveAnimal(mesh, objData, workerTarget.x, workerTarget.z, settings.chaseSpeed, dt, settings.turnRate);
+            if (!reachedWorker && mesh.userData._moveSpeed === 0) {
+              mesh.userData._movementState = 'return';
+            }
+          }
+        } else if (settings.isThreat && !combatActive && playerPos && distToPlayer <= settings.chaseRange) {
           mesh.userData._movementState = 'chase';
           mesh.userData._patrolTarget = null;
           mesh.userData._idleUntil = 0;
@@ -784,6 +1000,17 @@ window.GameEntities = (function () {
             if (!reachedPlayer && mesh.userData._moveSpeed === 0) {
               mesh.userData._movementState = 'return';
             }
+          }
+        } else if (!settings.isThreat && playerPos && distToPlayer <= settings.fleeRange) {
+          mesh.userData._movementState = 'flee';
+          mesh.userData._patrolTarget = null;
+          mesh.userData._idleUntil = 0;
+
+          var escaped = moveAnimalAwayFromTarget(mesh, objData, playerPos.x, playerPos.z, settings.fleeSpeed, dt, settings.turnRate, settings);
+          if (distToPlayer > settings.fleeRange * 1.2) {
+            mesh.userData._movementState = 'patrol';
+          } else if (!escaped && mesh.userData._moveSpeed === 0) {
+            mesh.userData._movementState = 'return';
           }
         } else if (distFromSpawn > settings.patrolRadius * 1.25 || mesh.userData._movementState === 'return') {
           mesh.userData._movementState = 'return';
@@ -816,6 +1043,16 @@ window.GameEntities = (function () {
         updateAnimalAnimation(mesh, time, mesh.userData._movementState);
       }
     });
+
+    if (typeof GamePerf !== 'undefined' && GamePerf.setValue) {
+      GamePerf.setValue('animal.total', totalAnimals);
+      GamePerf.setValue('animal.simulated', simulatedAnimals);
+    }
+  }
+
+  function getMeshForObjectId(objectId) {
+    if (!objectId) return null;
+    return _meshMap.get(objectId) || null;
   }
 
   function getAllMeshes() {
@@ -1044,9 +1281,12 @@ window.GameEntities = (function () {
     createNPCMesh: createNPCMesh,
     destroyNode: destroyNode,
     refreshObject: refreshObject,
+    removeChunkObjects: removeChunkObjects,
+    setChunkObjectsVisible: setChunkObjectsVisible,
     hideObject: hideObject,
     showObject: showObject,
     update: update,
+    getMeshForObjectId: getMeshForObjectId,
     getAllMeshes: getAllMeshes,
     getDataFromMesh: getDataFromMesh
   };

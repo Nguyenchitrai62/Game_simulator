@@ -1,6 +1,95 @@
 window.BuildingSystem = (function () {
   var _nextId = 1;
   var _reservedTiles = {};
+  var _instanceMeshMap = {};
+  var _interactiveMeshes = [];
+  var _interactiveMeshesDirty = false;
+
+  function removeInteractiveMesh(mesh) {
+    if (!mesh) return;
+    var index = _interactiveMeshes.indexOf(mesh);
+    if (index !== -1) {
+      _interactiveMeshes.splice(index, 1);
+    }
+  }
+
+  function findSceneMeshByInstanceUid(uid) {
+    var scene = GameScene.getScene ? GameScene.getScene() : null;
+    if (!scene) return null;
+
+    for (var i = scene.children.length - 1; i >= 0; i--) {
+      var child = scene.children[i];
+      if (child && child.userData && child.userData.instanceUid === uid) {
+        return child;
+      }
+    }
+
+    return null;
+  }
+
+  function compactInteractiveMeshes() {
+    if (!_interactiveMeshesDirty) return;
+
+    var next = [];
+    for (var i = 0; i < _interactiveMeshes.length; i++) {
+      var mesh = _interactiveMeshes[i];
+      if (!mesh || !mesh.parent || !mesh.userData || !_instanceMeshMap[mesh.userData.instanceUid] || _instanceMeshMap[mesh.userData.instanceUid] !== mesh) {
+        continue;
+      }
+      next.push(mesh);
+    }
+
+    _interactiveMeshes = next;
+    _interactiveMeshesDirty = false;
+  }
+
+  function registerInstanceMesh(uid, mesh) {
+    if (!uid || !mesh) return null;
+
+    var existing = _instanceMeshMap[uid];
+    if (existing && existing !== mesh) {
+      removeInteractiveMesh(existing);
+    }
+
+    mesh.userData = mesh.userData || {};
+    mesh.userData.instanceUid = uid;
+    _instanceMeshMap[uid] = mesh;
+    if (_interactiveMeshes.indexOf(mesh) === -1) {
+      _interactiveMeshes.push(mesh);
+    }
+    _interactiveMeshesDirty = true;
+    return mesh;
+  }
+
+  function unregisterInstanceMesh(uid) {
+    var existing = _instanceMeshMap[uid] || null;
+    if (!existing) return null;
+
+    delete _instanceMeshMap[uid];
+    removeInteractiveMesh(existing);
+    _interactiveMeshesDirty = true;
+    return existing;
+  }
+
+  function getInstanceMesh(uid) {
+    var mesh = _instanceMeshMap[uid] || null;
+    if (mesh && mesh.parent) return mesh;
+
+    if (mesh && !mesh.parent) {
+      unregisterInstanceMesh(uid);
+    }
+
+    mesh = findSceneMeshByInstanceUid(uid);
+    if (mesh) {
+      registerInstanceMesh(uid, mesh);
+    }
+    return mesh;
+  }
+
+  function getInteractiveMeshes() {
+    compactInteractiveMeshes();
+    return _interactiveMeshes;
+  }
 
   function restoreReservations() {
     _reservedTiles = {};
@@ -140,7 +229,7 @@ window.BuildingSystem = (function () {
     var mesh = createBuildingMeshOrSpecial(entity, 1, false, instanceData);
     if (mesh) {
       mesh.position.set(snapX, 0, snapZ);
-      mesh.userData.instanceUid = uid;
+      registerInstanceMesh(uid, mesh);
       // Construction animation: scale from 0 to 1
       mesh.scale.set(0.01, 0.01, 0.01);
       GameScene.getScene().add(mesh);
@@ -454,6 +543,118 @@ window.BuildingSystem = (function () {
       cfShadowMesh.rotation.x = -Math.PI / 2;
       cfShadowMesh.position.y = 0.02;
       group.add(cfShadowMesh);
+
+      return group;
+    }
+
+    // === WATCHTOWER ===
+    if (shape === 'watchtower') {
+      var towerWoodMat = new THREE.MeshLambertMaterial({ color: color || 0x7B5A3A, transparent: isPreview, opacity: isPreview ? 0.6 : 1.0 });
+      var towerRoofMat = new THREE.MeshLambertMaterial({ color: roofColor || 0x5B2C22, transparent: isPreview, opacity: isPreview ? 0.6 : 1.0 });
+      var towerMetalMat = new THREE.MeshLambertMaterial({ color: 0x8a8f96, transparent: isPreview, opacity: isPreview ? 0.55 : 1.0 });
+      var towerHeight = level >= 2 ? 1.65 : 1.35;
+      var platformY = towerHeight * scale;
+
+      var legGeo = new THREE.BoxGeometry(0.08 * scale, towerHeight * scale, 0.08 * scale);
+      [[-0.34, -0.34], [0.34, -0.34], [-0.34, 0.34], [0.34, 0.34]].forEach(function(pos) {
+        var leg = new THREE.Mesh(legGeo, towerWoodMat);
+        leg.position.set(pos[0] * scale, (towerHeight * 0.5) * scale, pos[1] * scale);
+        leg.castShadow = !isPreview;
+        group.add(leg);
+      });
+
+      var braceGeo = new THREE.BoxGeometry(0.07 * scale, 0.95 * scale, 0.05 * scale);
+      [[0.22, 0], [-0.22, 0]].forEach(function(offsetX) {
+        var braceFront = new THREE.Mesh(braceGeo, towerWoodMat);
+        braceFront.position.set(offsetX * scale, 0.5 * towerHeight * scale, 0.34 * scale);
+        braceFront.rotation.z = offsetX > 0 ? 0.62 : -0.62;
+        group.add(braceFront);
+
+        var braceBack = new THREE.Mesh(braceGeo, towerWoodMat);
+        braceBack.position.set(offsetX * scale, 0.5 * towerHeight * scale, -0.34 * scale);
+        braceBack.rotation.z = offsetX > 0 ? 0.62 : -0.62;
+        group.add(braceBack);
+      });
+
+      var platformGeo = new THREE.BoxGeometry(0.95 * scale, 0.12 * scale, 0.95 * scale);
+      var platform = new THREE.Mesh(platformGeo, towerWoodMat);
+      platform.position.y = platformY;
+      platform.receiveShadow = !isPreview;
+      group.add(platform);
+
+      var railGeoLong = new THREE.BoxGeometry(0.88 * scale, 0.08 * scale, 0.06 * scale);
+      var railGeoShort = new THREE.BoxGeometry(0.06 * scale, 0.08 * scale, 0.88 * scale);
+      [[0, -0.41], [0, 0.41]].forEach(function(pos) {
+        var rail = new THREE.Mesh(railGeoLong, towerWoodMat);
+        rail.position.set(pos[0], platformY + 0.18 * scale, pos[1] * scale);
+        group.add(rail);
+      });
+      [[-0.41, 0], [0.41, 0]].forEach(function(pos) {
+        var railSide = new THREE.Mesh(railGeoShort, towerWoodMat);
+        railSide.position.set(pos[0] * scale, platformY + 0.18 * scale, pos[1]);
+        group.add(railSide);
+      });
+
+      var ladderGeo = new THREE.BoxGeometry(0.05 * scale, 1.05 * scale, 0.02 * scale);
+      var ladderLeft = new THREE.Mesh(ladderGeo, towerWoodMat);
+      ladderLeft.position.set(-0.12 * scale, 0.54 * scale, 0.45 * scale);
+      ladderLeft.rotation.x = -0.12;
+      group.add(ladderLeft);
+      var ladderRight = new THREE.Mesh(ladderGeo, towerWoodMat);
+      ladderRight.position.set(0.02 * scale, 0.54 * scale, 0.45 * scale);
+      ladderRight.rotation.x = -0.12;
+      group.add(ladderRight);
+      for (var rungIndex = 0; rungIndex < 5; rungIndex++) {
+        var rungGeo = new THREE.BoxGeometry(0.18 * scale, 0.02 * scale, 0.03 * scale);
+        var rung = new THREE.Mesh(rungGeo, towerWoodMat);
+        rung.position.set(-0.05 * scale, (0.2 + rungIndex * 0.18) * scale, 0.45 * scale);
+        group.add(rung);
+      }
+
+      var roofGeoTower = new THREE.ConeGeometry(0.62 * scale, 0.34 * scale, 4);
+      var roofTower = new THREE.Mesh(roofGeoTower, towerRoofMat);
+      roofTower.position.y = platformY + 0.46 * scale;
+      roofTower.rotation.y = Math.PI / 4;
+      roofTower.castShadow = !isPreview;
+      group.add(roofTower);
+
+      var bowGeo = new THREE.TorusGeometry(0.12 * scale, 0.012 * scale, 5, 12, Math.PI);
+      var bow = new THREE.Mesh(bowGeo, towerWoodMat);
+      bow.rotation.z = Math.PI / 2;
+      bow.position.set(0.18 * scale, platformY + 0.1 * scale, 0.06 * scale);
+      group.add(bow);
+
+      var arrowRackGeo = new THREE.BoxGeometry(0.18 * scale, 0.05 * scale, 0.08 * scale);
+      var arrowRack = new THREE.Mesh(arrowRackGeo, towerWoodMat);
+      arrowRack.position.set(-0.18 * scale, platformY + 0.08 * scale, -0.12 * scale);
+      group.add(arrowRack);
+      for (var arrowIndex = 0; arrowIndex < 3; arrowIndex++) {
+        var arrowGeo = new THREE.CylinderGeometry(0.006 * scale, 0.006 * scale, 0.2 * scale, 5);
+        var arrow = new THREE.Mesh(arrowGeo, towerMetalMat);
+        arrow.rotation.z = Math.PI / 2;
+        arrow.position.set(-0.18 * scale, platformY + 0.12 * scale, -0.16 * scale + arrowIndex * 0.05 * scale);
+        group.add(arrow);
+      }
+
+      if (level >= 2) {
+        var bannerPoleGeo = new THREE.CylinderGeometry(0.014 * scale, 0.014 * scale, 0.5 * scale, 6);
+        var bannerPole = new THREE.Mesh(bannerPoleGeo, towerWoodMat);
+        bannerPole.position.set(0.3 * scale, platformY + 0.42 * scale, 0.28 * scale);
+        group.add(bannerPole);
+
+        var bannerGeo = new THREE.PlaneGeometry(0.22 * scale, 0.14 * scale);
+        var bannerMat = new THREE.MeshLambertMaterial({ color: 0xC44B32, transparent: isPreview, opacity: isPreview ? 0.5 : 0.95, side: THREE.DoubleSide });
+        var banner = new THREE.Mesh(bannerGeo, bannerMat);
+        banner.position.set(0.4 * scale, platformY + 0.46 * scale, 0.28 * scale);
+        group.add(banner);
+      }
+
+      var towerShadowGeo = new THREE.CircleGeometry(0.72 * scale, 16);
+      var towerShadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: isPreview ? 0.08 : 0.14 });
+      var towerShadow = new THREE.Mesh(towerShadowGeo, towerShadowMat);
+      towerShadow.rotation.x = -Math.PI / 2;
+      towerShadow.position.y = 0.02;
+      group.add(towerShadow);
 
       return group;
     }
@@ -962,14 +1163,7 @@ window.BuildingSystem = (function () {
     if (!entity) return false;
 
     var scene = GameScene.getScene();
-    var existingMesh = null;
-    for (var index = scene.children.length - 1; index >= 0; index--) {
-      var candidate = scene.children[index];
-      if (candidate && candidate.userData && candidate.userData.instanceUid === uid) {
-        existingMesh = candidate;
-        break;
-      }
-    }
+    var existingMesh = getInstanceMesh(uid);
 
     var mesh = createBuildingMeshOrSpecial(entity, instance.level || 1, false, instance);
     if (!mesh) return false;
@@ -978,11 +1172,12 @@ window.BuildingSystem = (function () {
     var currentScale = existingMesh ? existingMesh.scale : { x: 1, y: 1, z: 1 };
     mesh.position.set(position.x, position.y, position.z);
     mesh.scale.set(currentScale.x, currentScale.y, currentScale.z);
-    mesh.userData.instanceUid = uid;
 
     if (existingMesh) {
       scene.remove(existingMesh);
+      unregisterInstanceMesh(uid);
     }
+    registerInstanceMesh(uid, mesh);
     scene.add(mesh);
     return true;
   }
@@ -1028,6 +1223,9 @@ window.BuildingSystem = (function () {
     updatePreviewColor(snapX, snapZ);
 
     GameScene.getScene().add(mesh);
+    if (window.RangeIndicator && RangeIndicator.showPlacementPreview) {
+      RangeIndicator.showPlacementPreview(buildingId, snapX, snapZ);
+    }
     GameHUD.showNotification("Choose a build tile. Click to place, ESC to cancel.");
   }
 
@@ -1052,6 +1250,9 @@ window.BuildingSystem = (function () {
     var snapZ = Math.round(worldZ);
     _buildMode.previewMesh.position.set(snapX, 0, snapZ);
     updatePreviewColor(snapX, snapZ);
+    if (window.RangeIndicator && RangeIndicator.showPlacementPreview) {
+      RangeIndicator.showPlacementPreview(_buildMode.buildingId, snapX, snapZ);
+    }
   }
 
   function confirmBuild() {
@@ -1076,6 +1277,9 @@ window.BuildingSystem = (function () {
     if (_buildMode.previewMesh) {
       GameScene.getScene().remove(_buildMode.previewMesh);
       _buildMode.previewMesh = null;
+    }
+    if (window.RangeIndicator && RangeIndicator.hidePlacementPreview) {
+      RangeIndicator.hidePlacementPreview();
     }
     _buildMode.active = false;
     _buildMode.buildingId = null;
@@ -1132,7 +1336,7 @@ window.BuildingSystem = (function () {
     var mesh = createBuildingMeshOrSpecial(entity, 1, false, instanceData);
     if (mesh) {
       mesh.position.set(worldX, 0, worldZ);
-      mesh.userData.instanceUid = uid;
+      registerInstanceMesh(uid, mesh);
       // Construction animation: scale from 0 to 1
       mesh.scale.set(0.01, 0.01, 0.01);
       GameScene.getScene().add(mesh);
@@ -1202,13 +1406,11 @@ window.BuildingSystem = (function () {
 
     // Remove mesh from scene
     var scene = GameScene.getScene();
-    for (var i = scene.children.length - 1; i >= 0; i--) {
-      var child = scene.children[i];
-      if (child.userData && child.userData.instanceUid === uid) {
-        scene.remove(child);
-        break;
-      }
+    var buildingMesh = getInstanceMesh(uid) || findSceneMeshByInstanceUid(uid);
+    if (buildingMesh) {
+      scene.remove(buildingMesh);
     }
+    unregisterInstanceMesh(uid);
 
     // Release tile reservation
     var tileKey = Math.round(instance.x) + "," + Math.round(instance.z);
@@ -1249,6 +1451,9 @@ window.BuildingSystem = (function () {
     confirmBuild: confirmBuild,
     cancelBuild: cancelBuild,
     destroyBuilding: destroyBuilding,
+    registerInstanceMesh: registerInstanceMesh,
+    getInstanceMesh: getInstanceMesh,
+    getInteractiveMeshes: getInteractiveMeshes,
     restoreReservations: restoreReservations,
     _reservedTiles: _reservedTiles
   };

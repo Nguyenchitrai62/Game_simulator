@@ -23,13 +23,13 @@ Status legend: `todo`, `doing`, `test`, `done`, or `blocked`.
 - [done] F16 Do not add disease, fertilizer, livestock, or food-processing complexity in the priority backlog.
 
 ## Buildings And Simple Production Loop
-- [todo] F17 Workers stop working at night when they are outside active light.
-- [todo] F18 Campfire is critical because it keeps work areas active at night.
-- [todo] F19 Fire radius is clearly visible for placement decisions.
+- [test] F17 Workers stop working at night when they are outside active light.
+- [test] F18 Campfire is critical because it keeps work areas active at night.
+- [test] F19 Fire radius is clearly visible for placement decisions.
 - [done] F20 Warehouse stays simple and does not grow into a supply-chain system.
-- [todo] F21 Watchtower protects workers and attacks nearby beasts.
-- [todo] F22 Barracks becomes the core military building.
-- [todo] F23 Higher-level barracks unlocks larger queue, faster training, or more unit types.
+- [test] F21 Watchtower protects workers and attacks nearby beasts.
+- [test] F22 Barracks becomes the core military building.
+- [test] F23 Higher-level barracks unlocks larger queue, faster training, or more unit types.
 - [done] F24 Do not prioritize district bonuses or adjacency complexity.
 
 ## Player Combat
@@ -42,24 +42,24 @@ Status legend: `todo`, `doing`, `test`, `done`, or `blocked`.
 - [test] F31 Player combat should stay readable and easy to control.
 
 ## Soldiers And Military
-- [todo] F32 Barracks trains swordman with a wood and food recipe and a short timer.
-- [todo] F33 Barracks trains archer with a wood, food, and flint recipe and a longer timer.
+- [test] F32 Barracks trains swordman with a wood and food recipe and a short timer.
+- [test] F33 Barracks trains archer with a wood, food, and flint recipe and a longer timer.
 - [todo] F34 Add spearman later as a third unit type.
-- [todo] F35 Barracks shows a clear training queue and remaining time.
+- [test] F35 Barracks shows a clear training queue and remaining time.
 - [todo] F36 Soldiers can hold position, follow player, or attack a chosen target.
 - [todo] F37 Melee soldiers prioritize intercepting threats near workers.
 - [todo] F38 Archers stay behind melee units or watchtowers.
-- [todo] F39 Watchtower plus soldiers forms the core defense setup.
+- [test] F39 Watchtower plus soldiers forms the core defense setup.
 - [todo] F40 Soldier upgrades stay light at first.
 - [todo] F41 Armory is optional future expansion, not a priority feature.
 
 ## Enemies And Pressure
 - [done] F42 Wild beasts remain the main source of meat and leather.
-- [todo] F43 Beasts can actively attack exposed workers in dangerous areas.
-- [todo] F44 Worker attacks must immediately slow resource accumulation.
-- [todo] F45 Split harmless hunt targets from aggressive threats.
+- [test] F43 Beasts can actively attack exposed workers in dangerous areas.
+- [test] F44 Worker attacks must immediately slow resource accumulation.
+- [test] F45 Split harmless hunt targets from aggressive threats.
 - [done] F46 Stronger beasts appear farther from home or at night.
-- [todo] F47 Beast nests or predator zones create worker danger hotspots.
+- [test] F47 Beast nests or predator zones create worker danger hotspots.
 - [todo] F48 Bosses live in special zones and gate strong rewards.
 - [todo] F49 Boss rewards should be unique and combat-defining.
 - [done] F50 Do not prioritize deep enemy ecosystems or affix systems yet.
@@ -67,18 +67,18 @@ Status legend: `todo`, `doing`, `test`, `done`, or `blocked`.
 ## Exploration And Map
 - [done] F51 Resource hotspots appear on the minimap or world map.
 - [todo] F52 Boss zones get markers after discovery.
-- [todo] F53 Dangerous areas should be clearly visible for worker defense planning.
+- [test] F53 Dangerous areas should be clearly visible for worker defense planning.
 - [todo] F54 Abantodod camps or ruined outposts give immediate useful loot.
 - [test] F55 Keep exploration focused on direct gameplay value.
 
 ## HUD And UX
 - [done] F56 Keep HUD compact and low-noise.
-- [todo] F57 Prioritize resources, worker danger, night-light status, and military status.
-- [todo] F58 Show a clear warning when workers stop at night because they are outside light.
-- [todo] F59 Show a clear warning when workers are under attack.
+- [test] F57 Prioritize resources, worker danger, night-light status, and military status.
+- [test] F58 Show a clear warning when workers stop at night because they are outside light.
+- [test] F59 Show a clear warning when workers are under attack.
 - [test] F60 Campfire inspector shows fire radius and lit coverage clearly.
-- [todo] F61 Barracks inspector shows queue, cost, and remaining time.
-- [todo] F62 Watchtower inspector shows defense radius.
+- [test] F61 Barracks inspector shows queue, cost, and remaining time.
+- [test] F62 Watchtower inspector shows defense radius.
 - [todo] F63 Weapon switching UI should be fast and obvious.
 - [todo] F64 Boss fight should show a clear HP bar and highlight the reward.
 - [done] F65 Objective tracker should focus on direct, short-term goals.

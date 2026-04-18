@@ -43,12 +43,19 @@ window.AnimationSystem = (function () {
   }
 
   function cancelAnimation(id) {
-    _animations = _animations.filter(function (a) { return a.id !== id; });
+    for (var i = _animations.length - 1; i >= 0; i--) {
+      if (_animations[i].id === id) {
+        _animations.splice(i, 1);
+        break;
+      }
+    }
   }
 
   function update(dt) {
+    if (!_animations.length) return;
+
     var dtMs = dt * 1000;
-    var toRemove = [];
+    var writeIndex = 0;
 
     for (var i = 0; i < _animations.length; i++) {
       var anim = _animations[i];
@@ -69,13 +76,15 @@ window.AnimationSystem = (function () {
       }
 
       if (t >= 1) {
-        toRemove.push(anim.id);
         if (anim.onComplete) anim.onComplete();
+        continue;
       }
+
+      _animations[writeIndex++] = anim;
     }
 
-    if (toRemove.length > 0) {
-      _animations = _animations.filter(function (a) { return toRemove.indexOf(a.id) === -1; });
+    if (writeIndex !== _animations.length) {
+      _animations.length = writeIndex;
     }
   }
 
@@ -90,6 +99,10 @@ window.AnimationSystem = (function () {
   }
 
   function flashScreen(color, duration) {
+    if (window.GameDebugSettings && GameDebugSettings.isEnabled && !GameDebugSettings.isEnabled('screenFx')) {
+      return;
+    }
+
     var overlay = document.getElementById('screen-flash');
     if (!overlay) {
       overlay = document.createElement('div');

@@ -3,6 +3,114 @@ window.GameTerrain = (function () {
   var chunks = {};
   var RENDER_DISTANCE = 2;
   var worldSeed = 42;
+  var _lastLoadedPlayerChunk = { x: null, z: null };
+  var _lastNodeStateUpdateAt = 0;
+  var _chunkCullFrustum = null;
+  var _visibleChunkCount = 0;
+  var _visibilityDirty = true;
+  var _lastVisibilityCameraState = {
+    x: Infinity,
+    y: Infinity,
+    z: Infinity,
+    left: Infinity,
+    right: Infinity,
+    top: Infinity,
+    bottom: Infinity
+  };
+  var NODE_STATE_UPDATE_INTERVAL_MS = 250;
+
+  function snapshotVisibilityCameraState(camera) {
+    if (!camera) return;
+
+    _lastVisibilityCameraState.x = camera.position.x;
+    _lastVisibilityCameraState.y = camera.position.y;
+    _lastVisibilityCameraState.z = camera.position.z;
+    _lastVisibilityCameraState.left = camera.left;
+    _lastVisibilityCameraState.right = camera.right;
+    _lastVisibilityCameraState.top = camera.top;
+    _lastVisibilityCameraState.bottom = camera.bottom;
+  }
+
+  function hasVisibilityCameraChanged(camera) {
+    if (!camera) return false;
+
+    var positionThreshold = 0.12;
+    var projectionThreshold = 0.04;
+    return Math.abs(camera.position.x - _lastVisibilityCameraState.x) > positionThreshold ||
+      Math.abs(camera.position.y - _lastVisibilityCameraState.y) > positionThreshold ||
+      Math.abs(camera.position.z - _lastVisibilityCameraState.z) > positionThreshold ||
+      Math.abs(camera.left - _lastVisibilityCameraState.left) > projectionThreshold ||
+      Math.abs(camera.right - _lastVisibilityCameraState.right) > projectionThreshold ||
+      Math.abs(camera.top - _lastVisibilityCameraState.top) > projectionThreshold ||
+      Math.abs(camera.bottom - _lastVisibilityCameraState.bottom) > projectionThreshold;
+  }
+
+  function getChunkCullFrustum() {
+    if (!_chunkCullFrustum && typeof THREE !== 'undefined') {
+      _chunkCullFrustum = new THREE.Frustum();
+    }
+    return _chunkCullFrustum;
+  }
+
+  function createChunkBounds(cx, cz) {
+    if (typeof THREE === 'undefined') return null;
+
+    var padding = 2.5;
+    return new THREE.Box3(
+      new THREE.Vector3(cx * CHUNK_SIZE - padding, -2, cz * CHUNK_SIZE - padding),
+      new THREE.Vector3((cx + 1) * CHUNK_SIZE + padding, 8, (cz + 1) * CHUNK_SIZE + padding)
+    );
+  }
+
+  function setChunkRenderVisibility(chunkData, visible) {
+    if (!chunkData) return false;
+
+    var nextVisible = visible !== false;
+    if (chunkData.isVisible === nextVisible) return false;
+
+    chunkData.isVisible = nextVisible;
+    if (chunkData.mesh) {
+      chunkData.mesh.visible = nextVisible;
+    }
+    if (typeof GameEntities !== 'undefined' && GameEntities.setChunkObjectsVisible) {
+      GameEntities.setChunkObjectsVisible(chunkData, nextVisible);
+    }
+    return true;
+  }
+
+  function refreshVisibility(force) {
+    if (typeof GameScene === 'undefined' || !GameScene.getCameraFrustum) return false;
+
+    var camera = GameScene.getCamera ? GameScene.getCamera() : null;
+    if (!camera) return false;
+    if (!force && !_visibilityDirty && !hasVisibilityCameraChanged(camera)) return false;
+
+    var frustum = getChunkCullFrustum();
+    if (!frustum || !GameScene.getCameraFrustum(frustum)) return false;
+
+    snapshotVisibilityCameraState(camera);
+
+    var visibleCount = 0;
+    var totalCount = 0;
+
+    for (var key in chunks) {
+      var chunkData = chunks[key];
+      if (!chunkData) continue;
+
+      totalCount++;
+      var isVisible = !chunkData.bounds || frustum.intersectsBox(chunkData.bounds);
+      setChunkRenderVisibility(chunkData, isVisible);
+      if (isVisible) visibleCount++;
+    }
+
+    _visibleChunkCount = visibleCount;
+    _visibilityDirty = false;
+    if (typeof GamePerf !== 'undefined' && GamePerf.setValue) {
+      GamePerf.setValue('terrain.loadedChunks', totalCount);
+      GamePerf.setValue('terrain.visibleChunks', visibleCount);
+    }
+    return true;
+  }
 
   function seededRandom(seed) {
     var x = Math.sin(seed) * 43758.5453123;
@@ -80,6 +188,13 @@ window.GameTerrain = (function () {
     return WaterSystem.isDeepWater(worldX, worldZ) || WaterSystem.isShallowWater(worldX, worldZ);
   }
 
+  function getPlacedInstancesForLookup() {
+    if (typeof GameState === 'undefined') return null;
+    if (GameState.getAllInstancesLive) return GameState.getAllInstancesLive();
+    if (GameState.getAllInstances) return GameState.getAllInstances();
+    return null;
+  }
+
   function findChunkSpawnPosition(chunkData, playerPos, seedX, seedZ, index, options) {
     options = options || {};
 
@@ -128,6 +243,86 @@ window.GameTerrain = (function () {
   function init(seed) {
     worldSeed = seed || 42;
     chunks = {};
+    _visibleChunkCount = 0;
+    _visibilityDirty = true;
+    _lastVisibilityCameraState.x = Infinity;
+    _lastVisibilityCameraState.y = Infinity;
+    _lastVisibilityCameraState.z = Infinity;
+    _lastVisibilityCameraState.left = Infinity;
+    _lastVisibilityCameraState.right = Infinity;
+    _lastVisibilityCameraState.top = Infinity;
+    _lastVisibilityCameraState.bottom = Infinity;
+  }
+
+  function getPredatorZoneProfile(seed, distFromHome, currentAge) {
+    if (distFromHome < 3) return null;
+
+    var zoneRoll = seededRandom(seed + 9700);
+    var threshold = distFromHome >= 8 ? 0.72 : (distFromHome >= 6 ? 0.78 : (distFromHome >= 4 ? 0.85 : 0.92));
+    if (currentAge === 'age.iron' && distFromHome >= 6) {
+      threshold -= 0.04;
+    }
+
+    if (zoneRoll <= threshold) return null;
+
+    var zoneLevel = (distFromHome >= 7 || zoneRoll > 0.93) ? 'high' : 'medium';
+    return {
+      level: zoneLevel,
+      label: zoneLevel === 'high' ? 'Predator Nest' : 'Predator Zone',
+      animalBonus: zoneLevel === 'high' ? 2 : 1,
+      dangerBonus: zoneLevel === 'high' ? 6.5 : 3.75
+    };
+  }
+
+  function chooseAnimalType(currentAge, distFromHome, animalRoll, predatorZone) {
+    if (predatorZone && predatorZone.level === 'high') {
+      if (currentAge === 'age.iron' && distFromHome >= 6) {
+        return animalRoll > 0.45 ? 'animal.sabertooth' : 'animal.bandit';
+      }
+      if (distFromHome >= 5) {
+        return animalRoll > 0.45 ? 'animal.lion' : 'animal.bear';
+      }
+      if (distFromHome >= 3) {
+        return animalRoll > 0.5 ? 'animal.bear' : 'animal.boar';
+      }
+      return animalRoll > 0.45 ? 'animal.boar' : 'animal.wolf';
+    }
+
+    if (predatorZone && predatorZone.level === 'medium') {
+      if (currentAge === 'age.iron' && distFromHome >= 6) {
+        return animalRoll > 0.5 ? 'animal.bandit' : 'animal.lion';
+      }
+      if (distFromHome >= 6) {
+        return animalRoll > 0.5 ? 'animal.lion' : 'animal.bear';
+      }
+      if (distFromHome >= 4) {
+        return animalRoll > 0.55 ? 'animal.bear' : 'animal.boar';
+      }
+      if (distFromHome >= 3) {
+        return animalRoll > 0.5 ? 'animal.boar' : 'animal.wolf';
+      }
+      return animalRoll > 0.5 ? 'animal.wolf' : 'animal.deer';
+    }
+
+    if (currentAge === 'age.iron' && distFromHome >= 8) {
+      return animalRoll > 0.5 ? 'animal.sabertooth' : 'animal.bandit';
+    }
+    if (currentAge === 'age.iron' && distFromHome >= 6) {
+      return animalRoll > 0.5 ? 'animal.bandit' : 'animal.lion';
+    }
+    if (distFromHome >= 6) {
+      return 'animal.lion';
+    }
+    if (distFromHome >= 4) {
+      return 'animal.bear';
+    }
+    if (distFromHome >= 3) {
+      return animalRoll > 0.45 ? 'animal.boar' : 'animal.wolf';
+    }
+    if (distFromHome >= 2) {
+      return 'animal.wolf';
+    }
+    return animalRoll > 0.55 ? 'animal.rabbit' : 'animal.deer';
   }
 
   function getChunkSize() { return CHUNK_SIZE; }
@@ -650,7 +845,7 @@ window.GameTerrain = (function () {
     if (!chunk) return false;
 
     var playerPos = (typeof GamePlayer !== 'undefined' && GamePlayer.getPosition) ? GamePlayer.getPosition() : { x: 8, z: 8 };
-    var placedInstances = (typeof GameState !== 'undefined' && GameState.getAllInstances) ? GameState.getAllInstances() : null;
+    var placedInstances = getPlacedInstancesForLookup();
     var activeNPCs = (typeof NPCSystem !== 'undefined' && NPCSystem.getAllNPCs) ? NPCSystem.getAllNPCs() : null;
     var seedHash = hashString(objData.id || objData.type || "node");
     var clearance = objData.type === "node.tree" ? 1.35 : 1.25;
@@ -683,6 +878,52 @@ window.GameTerrain = (function () {
     if (!position) return false;
 
     applyNodePosition(objData, position);
+    return true;
+  }
+
+  function relocateRespawnedAnimal(objData) {
+    if (!objData || !objData.type || objData.type.indexOf('animal.') !== 0) return false;
+
+    var chunk = getChunkAt(objData.worldX, objData.worldZ);
+    if (!chunk) return false;
+
+    objData.respawnCycle = (objData.respawnCycle || 0) + 1;
+
+    var playerPos = (typeof GamePlayer !== 'undefined' && GamePlayer.getPosition) ? GamePlayer.getPosition() : { x: 8, z: 8 };
+    var placedInstances = getPlacedInstancesForLookup();
+    var activeNPCs = (typeof NPCSystem !== 'undefined' && NPCSystem.getAllNPCs) ? NPCSystem.getAllNPCs() : null;
+    var seedHash = hashString((objData.id || objData.type || 'animal') + '|' + objData.respawnCycle + '|' + Date.now());
+    var position = findChunkSpawnPosition(chunk, playerPos, 2100 + (seedHash % 173), 2300 + (seedHash % 191), objData.respawnCycle, {
+      clearance: 1.6,
+      buildingClearance: 1.3,
+      playerClearance: 2.6,
+      npcPositions: activeNPCs,
+      npcClearance: 1.2,
+      maxAttempts: 48,
+      instances: placedInstances,
+      skipObjectId: objData.id,
+      currentWorldX: objData.worldX,
+      currentWorldZ: objData.worldZ,
+      minDistanceFromCurrent: 4.5
+    });
+
+    if (!position) {
+      position = findChunkSpawnPosition(chunk, playerPos, 2500 + (seedHash % 131), 2700 + (seedHash % 149), objData.respawnCycle + 11, {
+        clearance: 1.5,
+        buildingClearance: 1.2,
+        playerClearance: 2.4,
+        maxAttempts: 24,
+        instances: placedInstances,
+        skipObjectId: objData.id
+      });
+    }
+
+    if (!position) return false;
+
+    objData.x = position.x;
+    objData.z = position.z;
+    objData.worldX = position.worldX;
+    objData.worldZ = position.worldZ;
     return true;
   }
 
@@ -792,30 +1033,46 @@ window.GameTerrain = (function () {
     return { rewards: rewards, info: info, persistent: false };
   }
 
+  function forEachLoadedChunkNear(worldX, worldZ, radius, callback) {
+    var minCx = Math.floor((worldX - radius) / CHUNK_SIZE);
+    var maxCx = Math.floor((worldX + radius) / CHUNK_SIZE);
+    var minCz = Math.floor((worldZ - radius) / CHUNK_SIZE);
+    var maxCz = Math.floor((worldZ + radius) / CHUNK_SIZE);
+
+    for (var cx = minCx; cx <= maxCx; cx++) {
+      for (var cz = minCz; cz <= maxCz; cz++) {
+        var chunk = chunks[cx + ',' + cz];
+        if (chunk && chunk.objects) {
+          callback(chunk);
+        }
+      }
+    }
+  }
+
   function getNearbyObjects(worldX, worldZ, maxDist, limit) {
     var results = [];
     var maxDistance = maxDist || 4;
+    var maxDistanceSq = maxDistance * maxDistance;
     var maxCount = limit || 6;
 
-    for (var key in chunks) {
-      var chunk = chunks[key];
-      if (!chunk || !chunk.objects) continue;
-
+    forEachLoadedChunkNear(worldX, worldZ, maxDistance, function (chunk) {
       for (var i = 0; i < chunk.objects.length; i++) {
         var obj = chunk.objects[i];
         if (!isResourceNode(obj) || obj._destroyed || obj.hp <= 0) continue;
 
         var dx = obj.worldX - worldX;
+        if (Math.abs(dx) > maxDistance) continue;
         var dz = obj.worldZ - worldZ;
-        var dist = Math.sqrt(dx * dx + dz * dz);
-        if (dist <= maxDistance) {
-          results.push({ object: obj, distance: dist });
+        if (Math.abs(dz) > maxDistance) continue;
+        var distSq = dx * dx + dz * dz;
+        if (distSq <= maxDistanceSq) {
+          results.push({ object: obj, distanceSq: distSq });
         }
       }
-    }
+    });
 
     results.sort(function (a, b) {
-      return a.distance - b.distance;
+      return a.distanceSq - b.distanceSq;
     });
 
     return results.slice(0, maxCount).map(function (entry) {
@@ -827,99 +1084,158 @@ window.GameTerrain = (function () {
     var now = Date.now();
     var pcx = Math.floor(playerX / CHUNK_SIZE);
     var pcz = Math.floor(playerZ / CHUNK_SIZE);
+    var chunkChanged = (_lastLoadedPlayerChunk.x !== pcx) || (_lastLoadedPlayerChunk.z !== pcz);
 
-    for (var dx = -RENDER_DISTANCE; dx <= RENDER_DISTANCE; dx++) {
-      for (var dz = -RENDER_DISTANCE; dz <= RENDER_DISTANCE; dz++) {
-        var cx = pcx + dx;
-        var cz = pcz + dz;
-        var key = cx + "," + cz;
-        if (!chunks[key]) {
-          var savedData = GameState.getChunkData(key);
-          generateChunk(cx, cz, savedData);
+    if (chunkChanged) {
+      _lastLoadedPlayerChunk.x = pcx;
+      _lastLoadedPlayerChunk.z = pcz;
 
-          // Mark chunk as explored
-          if (GameState.markChunkExplored) {
-            GameState.markChunkExplored(cx, cz);
-          }
+      for (var dx = -RENDER_DISTANCE; dx <= RENDER_DISTANCE; dx++) {
+        for (var dz = -RENDER_DISTANCE; dz <= RENDER_DISTANCE; dz++) {
+          var cx = pcx + dx;
+          var cz = pcz + dz;
+          var key = cx + "," + cz;
+          if (!chunks[key]) {
+            var savedData = GameState.getChunkData(key);
+            generateChunk(cx, cz, savedData);
 
-          // Restore saved object states from previous visit
-          if (savedData && savedData.objects) {
-            var savedMap = {};
-            savedData.objects.forEach(function (obj) {
-              var savedId = getSavedNodeId(obj);
-              if (savedId) savedMap[savedId] = obj;
-            });
-            if (chunks[key] && chunks[key].objects) {
-              chunks[key].objects.forEach(function (obj) {
-                if (savedMap[obj.id]) {
-                  restoreSavedNodeState(obj, savedMap[obj.id], now);
-                  // If destroyed, hide the 3D mesh
-                  if (obj._destroyed || obj.hp <= 0) {
-                    GameEntities.hideObject(obj);
-                  }
-                }
+            // Mark chunk as explored
+            if (GameState.markChunkExplored) {
+              GameState.markChunkExplored(cx, cz);
+            }
+
+            // Restore saved object states from previous visit
+            if (savedData && savedData.objects) {
+              var savedMap = {};
+              savedData.objects.forEach(function (obj) {
+                var savedId = getSavedNodeId(obj);
+                if (savedId) savedMap[savedId] = obj;
               });
+              if (chunks[key] && chunks[key].objects) {
+                chunks[key].objects.forEach(function (obj) {
+                  if (savedMap[obj.id]) {
+                    restoreSavedNodeState(obj, savedMap[obj.id], now);
+                    // If destroyed, hide the 3D mesh
+                    if (obj._destroyed || obj.hp <= 0) {
+                      GameEntities.hideObject(obj);
+                    }
+                  }
+                });
+              }
             }
           }
         }
       }
-    }
 
-    // Unload far chunks
-    for (var key in chunks) {
-      var parts = key.split(",");
-      var cx = parseInt(parts[0]);
-      var cz = parseInt(parts[1]);
-      if (Math.abs(cx - pcx) > RENDER_DISTANCE + 1 || Math.abs(cz - pcz) > RENDER_DISTANCE + 1) {
-        // Save object HP states before unloading
-        var chunkToUnload = chunks[key];
-        if (chunkToUnload.objects) {
-          var savedObjects = [];
-          chunkToUnload.objects.forEach(function (obj) {
-            var savedNode = buildSavedNodeState(obj);
-            if (savedNode) savedObjects.push(savedNode);
-          });
-          GameState.saveChunkData(key, savedObjects.length ? {
-            cx: cx,
-            cz: cz,
-            objects: savedObjects
-          } : null);
+      // Unload far chunks
+      for (var key in chunks) {
+        var parts = key.split(",");
+        var cx = parseInt(parts[0]);
+        var cz = parseInt(parts[1]);
+        if (Math.abs(cx - pcx) > RENDER_DISTANCE + 1 || Math.abs(cz - pcz) > RENDER_DISTANCE + 1) {
+          // Save object HP states before unloading
+          var chunkToUnload = chunks[key];
+          if (chunkToUnload.objects) {
+            var savedObjects = [];
+            chunkToUnload.objects.forEach(function (obj) {
+              var savedNode = buildSavedNodeState(obj);
+              if (savedNode) savedObjects.push(savedNode);
+            });
+            GameState.saveChunkData(key, savedObjects.length ? {
+              cx: cx,
+              cz: cz,
+              objects: savedObjects
+            } : null);
+          }
+
+          if (typeof GameEntities !== 'undefined' && GameEntities.removeChunkObjects) {
+            GameEntities.removeChunkObjects(chunkToUnload);
+          }
+
+          if (typeof AtmosphereSystem !== 'undefined' && AtmosphereSystem.unregisterWindTarget && chunkToUnload.mesh && chunkToUnload.mesh.traverse) {
+            chunkToUnload.mesh.traverse(function(child) {
+              AtmosphereSystem.unregisterWindTarget(child);
+            });
+          }
+
+          if (chunkToUnload.mesh) {
+            GameScene.getScene().remove(chunkToUnload.mesh);
+            disposeChunkMesh(chunkToUnload.mesh);
+          }
+
+          // Clear water tiles for unloaded chunk
+          if (typeof WaterSystem !== 'undefined') {
+            WaterSystem.clearWaterForChunk(cx, cz);
+          }
+
+          delete chunks[key];
+          _visibilityDirty = true;
         }
-
-        if (chunkToUnload.mesh) {
-          GameScene.getScene().remove(chunkToUnload.mesh);
-        }
-
-        // Clear water tiles for unloaded chunk
-        if (typeof WaterSystem !== 'undefined') {
-          WaterSystem.clearWaterForChunk(cx, cz);
-        }
-
-        delete chunks[key];
       }
     }
 
-    updateLoadedChunkNodeStates(now, playerX, playerZ);
+    if (chunkChanged || (now - _lastNodeStateUpdateAt) >= NODE_STATE_UPDATE_INTERVAL_MS) {
+      _lastNodeStateUpdateAt = now;
+      updateLoadedChunkNodeStates(now, playerX, playerZ);
+    }
+  }
+
+  function disposeChunkMesh(mesh) {
+    if (!mesh || !mesh.traverse) return;
+
+    var disposedMaterials = [];
+    mesh.traverse(function(child) {
+      if (!child) return;
+      if (child.userData && child.userData.isWater) {
+        return;
+      }
+      if (child.geometry && child.geometry.dispose) {
+        child.geometry.dispose();
+      }
+      if (child.material) {
+        if (Array.isArray(child.material)) {
+          for (var i = 0; i < child.material.length; i++) {
+            if (disposedMaterials.indexOf(child.material[i]) !== -1) continue;
+            disposedMaterials.push(child.material[i]);
+            if (child.material[i] && child.material[i].dispose) child.material[i].dispose();
+          }
+        } else if (disposedMaterials.indexOf(child.material) === -1) {
+          disposedMaterials.push(child.material);
+          if (child.material.dispose) child.material.dispose();
+        }
+      }
+    });
   }
 
   function generateChunk(cx, cz, savedChunkData) {
     var key = cx + "," + cz;
     var seed = chunkSeed(cx, cz) + worldSeed;
     var distFromHome = Math.sqrt(cx * cx + cz * cz);
+    var currentAge = (typeof GameState !== 'undefined' && GameState.getAge) ? GameState.getAge() : 'age.stone';
+    var predatorZone = (savedChunkData && savedChunkData.predatorZone) ? savedChunkData.predatorZone : getPredatorZoneProfile(seed, distFromHome, currentAge);
 
     var chunkData = {
       cx: cx, cz: cz,
       seed: seed,
       objects: [],
       buildings: [],
+      predatorZone: predatorZone ? {
+        level: predatorZone.level,
+        label: predatorZone.label,
+        animalBonus: predatorZone.animalBonus,
+        dangerBonus: predatorZone.dangerBonus
+      } : null,
       generated: true,
       generatedAt: (savedChunkData && typeof savedChunkData.generatedAt === "number") ? savedChunkData.generatedAt : Date.now(),
+      bounds: createChunkBounds(cx, cz),
+      isVisible: true,
       mesh: null
     };
 
     // Create terrain mesh
     var group = new THREE.Group();
     group.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
+    group.userData.chunkKey = key;
 
     // Ground plane with biome color
     var groundGeo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE);
@@ -1092,6 +1408,10 @@ window.GameTerrain = (function () {
     // Animals (further from home = more/dangerous)
     if (distFromHome >= 1) {
       var animalCount = Math.min(Math.floor(distFromHome), 3);
+      if (predatorZone) {
+        animalCount = Math.min(animalCount + (predatorZone.animalBonus || 0), predatorZone.level === 'high' ? 5 : 4);
+      }
+
       for (var i = 0; i < animalCount; i++) {
         var animalPos = findChunkSpawnPosition(chunkData, playerPos, 400, 401, i, {
           clearance: 1.6,
@@ -1102,25 +1422,8 @@ window.GameTerrain = (function () {
         });
         if (!animalPos) continue;
 
-        // Animal types based on distance (Iron Age adds bandit, sabertooth)
-        var currentAge = GameState.getAge();
-        var animalType;
-        
-        if (currentAge === "age.iron" && distFromHome >= 8) {
-          // Iron Age: Very far = Sabertooth (apex predator)
-          animalType = rng(410 + i) > 0.5 ? "animal.sabertooth" : "animal.bandit";
-        } else if (currentAge === "age.iron" && distFromHome >= 6) {
-          // Iron Age: Far = Bandits or Lions
-          animalType = rng(410 + i) > 0.5 ? "animal.bandit" : "animal.lion";
-        } else if (distFromHome >= 6) {
-          animalType = "animal.lion";
-        } else if (distFromHome >= 4) {
-          animalType = "animal.bear";
-        } else if (distFromHome >= 2) {
-          animalType = "animal.boar";
-        } else {
-          animalType = "animal.wolf";
-        }
+        var animalRoll = rng(410 + i);
+        var animalType = chooseAnimalType(currentAge, distFromHome, animalRoll, predatorZone);
         
         var animalBalance = window.GAME_BALANCE[animalType] || {};
         var animalHp = animalBalance.hp || 15;
@@ -1211,6 +1514,7 @@ window.GameTerrain = (function () {
 
     chunkData.mesh = group;
     chunks[key] = chunkData;
+  _visibilityDirty = true;
     GameScene.getScene().add(group);
 
     // Create 3D meshes for objects in this chunk
@@ -1235,10 +1539,14 @@ window.GameTerrain = (function () {
     return chunks;
   }
 
+  function getVisibleChunkCount() {
+    return _visibleChunkCount;
+  }
+
   function reapplyBridgeTilesForChunk(cx, cz) {
     if (typeof GameState === 'undefined' || typeof WaterSystem === 'undefined') return;
 
-    var instances = GameState.getAllInstances();
+    var instances = getPlacedInstancesForLookup();
     for (var uid in instances) {
       var inst = instances[uid];
       var balance = (typeof GameRegistry !== 'undefined') ? GameRegistry.getBalance(inst.entityId) : null;
@@ -1273,7 +1581,7 @@ window.GameTerrain = (function () {
 
     // Check player-placed buildings
     if (typeof GameState !== 'undefined') {
-      var instances = GameState.getAllInstances();
+      var instances = getPlacedInstancesForLookup();
       for (var uid in instances) {
         var inst = instances[uid];
         var instBalance = (typeof GameRegistry !== 'undefined') ? GameRegistry.getBalance(inst.entityId) : null;
@@ -1300,21 +1608,24 @@ window.GameTerrain = (function () {
   function findNearestObject(worldX, worldZ, maxDist) {
     var nearest = null;
     var nearestDist = maxDist || 3;
+    var nearestDistSq = nearestDist * nearestDist;
 
-    for (var key in chunks) {
-      var chunk = chunks[key];
+    forEachLoadedChunkNear(worldX, worldZ, nearestDist, function (chunk) {
       for (var i = 0; i < chunk.objects.length; i++) {
         var obj = chunk.objects[i];
         if (obj.hp <= 0 || obj._destroyed) continue;
         var dx = obj.worldX - worldX;
+        if (Math.abs(dx) > nearestDist) continue;
         var dz = obj.worldZ - worldZ;
-        var dist = Math.sqrt(dx * dx + dz * dz);
-        if (dist < nearestDist) {
-          nearestDist = dist;
+        if (Math.abs(dz) > nearestDist) continue;
+        var distSq = dx * dx + dz * dz;
+        if (distSq < nearestDistSq) {
+          nearestDistSq = distSq;
+          nearestDist = Math.sqrt(distSq);
           nearest = obj;
         }
       }
-    }
+    });
 
     return nearest;
   }
@@ -1429,6 +1740,8 @@ window.GameTerrain = (function () {
     getChunk: getChunk,
     getChunkAt: getChunkAt,
     getAllChunks: getAllChunks,
+    getVisibleChunkCount: getVisibleChunkCount,
+    refreshVisibility: refreshVisibility,
     getChunkSize: getChunkSize,
     isWalkable: isWalkable,
     isShallowWater: isShallowWater,
@@ -1440,6 +1753,7 @@ window.GameTerrain = (function () {
     applyGrowthWaterBoost: applyGrowthWaterBoost,
     canHarvestNode: canHarvestNode,
     completeNodeHarvest: completeNodeHarvest,
+    relocateRespawnedAnimal: relocateRespawnedAnimal,
     restoreChunk: restoreChunk,
     seededRandom: seededRandom,
     reserveTile: reserveTile,
