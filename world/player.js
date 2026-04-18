@@ -5,6 +5,7 @@ window.GamePlayer = (function () {
   var _direction = { x: 0, z: 1 };
   var _keys = {};
   var _animTime = 0;
+  var _visualAnimTime = 0;
   var _lastCombatTime = 0;
   var _regenAccumulator = 0;
 
@@ -42,6 +43,15 @@ window.GamePlayer = (function () {
     );
     _clickRaycaster.setFromCamera(_clickMouseNdc, GameScene.getCamera());
     return _clickRaycaster;
+  }
+
+  function getSmoothingFactor(dt, strength) {
+    if (!(dt > 0) || !isFinite(dt)) return 1;
+    return 1 - Math.exp(-strength * dt);
+  }
+
+  function dampValue(current, target, alpha) {
+    return current + (target - current) * alpha;
   }
 
   function init(startX, startZ) {
@@ -218,6 +228,7 @@ window.GamePlayer = (function () {
 
   function update(dt) {
     _animTime += dt;
+    _visualAnimTime += Math.min(dt, 1 / 30);
     var moved = false;
 
     var _speed = GameState.getPlayerSpeed ? GameState.getPlayerSpeed() : 3;
@@ -300,30 +311,38 @@ window.GamePlayer = (function () {
     }
 
     if (mesh) {
-      mesh.position.x += (_x - mesh.position.x) * 0.85;
-      mesh.position.z += (_z - mesh.position.z) * 0.85;
+      var visualDt = Math.min(dt, 1 / 30);
+      var positionAlpha = getSmoothingFactor(visualDt, 48);
+      var rotationAlpha = getSmoothingFactor(visualDt, 34);
+      var limbAlpha = getSmoothingFactor(visualDt, 28);
+
+      mesh.position.x = dampValue(mesh.position.x, _x, positionAlpha);
+      mesh.position.z = dampValue(mesh.position.z, _z, positionAlpha);
 
       if (moved) {
         var targetAngle = Math.atan2(_direction.x, _direction.z) + Math.PI;
         var angleDiff = targetAngle - mesh.rotation.y;
         while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
         while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-        mesh.rotation.y += angleDiff * 0.4;
+        mesh.rotation.y += angleDiff * rotationAlpha;
       }
 
       // Walking animation
       if (moved) {
-        var swing = Math.sin(_animTime * 10) * 0.4;
+        var swing = Math.sin(_visualAnimTime * 10) * 0.4;
         mesh.children.forEach(function (child) {
-          if (child.name === "leftArm") child.rotation.x = swing;
-          if (child.name === "rightArm") child.rotation.x = _torchActive ? 0 : -swing; // Hold torch up
-          if (child.name === "leftLeg") child.rotation.x = -swing * 0.6;
-          if (child.name === "rightLeg") child.rotation.x = swing * 0.6;
+          if (child.name === "leftArm") child.rotation.x = dampValue(child.rotation.x, swing, limbAlpha);
+          if (child.name === "rightArm") child.rotation.x = dampValue(child.rotation.x, _torchActive ? 0 : -swing, limbAlpha);
+          if (child.name === "leftLeg") child.rotation.x = dampValue(child.rotation.x, -swing * 0.6, limbAlpha);
+          if (child.name === "rightLeg") child.rotation.x = dampValue(child.rotation.x, swing * 0.6, limbAlpha);
         });
       } else {
         mesh.children.forEach(function (child) {
-          if (child.name === "rightArm" && _torchActive) return; // Keep arm up with torch
-          if (child.name) child.rotation.x *= 0.85;
+          if (child.name === "rightArm" && _torchActive) {
+            child.rotation.x = dampValue(child.rotation.x, 0, limbAlpha);
+            return;
+          }
+          if (child.name) child.rotation.x = dampValue(child.rotation.x, 0, limbAlpha);
         });
       }
 

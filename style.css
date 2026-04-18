@@ -464,10 +464,14 @@ body.debug-screen-fx-hidden #screen-flash {
 
 #object-hp-bar {
   position: fixed;
+  left: 0;
+  top: 0;
   width: 104px;
   z-index: 20;
   pointer-events: none;
   text-align: center;
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
 }
 
 .object-hp-title {
@@ -498,6 +502,39 @@ body.debug-screen-fx-hidden #screen-flash {
   transition: width 0.2s ease, background 0.2s ease;
 }
 
+.node-hp-bar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 60px;
+  text-align: center;
+  pointer-events: none;
+  z-index: 15;
+  will-change: transform;
+}
+
+.node-hp-bar-title {
+  font-size: 8px;
+  color: #fff;
+  text-shadow: 1px 1px 2px #000;
+  margin-bottom: 1px;
+}
+
+.node-hp-bar-value {
+  font-size: 9px;
+  color: #fff;
+  text-shadow: 1px 1px 2px #000;
+  margin-bottom: 2px;
+}
+
+.node-hp-bar-track {
+  height: 4px;
+  background: #0f3460;
+  border-radius: 2px;
+  overflow: hidden;
+  border: 1px solid rgba(0,0,0,0.3);
+}
+
 #node-world-labels {
   position: fixed;
   inset: 0;
@@ -507,6 +544,8 @@ body.debug-screen-fx-hidden #screen-flash {
 
 .node-world-label {
   position: fixed;
+  left: 0;
+  top: 0;
   transform: translate(-50%, -100%);
   min-width: 92px;
   max-width: 170px;
@@ -516,6 +555,7 @@ body.debug-screen-fx-hidden #screen-flash {
   background: rgba(15,52,96,0.92);
   box-shadow: 0 8px 18px rgba(0,0,0,0.22);
   text-align: center;
+  will-change: transform;
 }
 
 .node-world-label.rare {
@@ -830,11 +870,14 @@ body.debug-screen-fx-hidden #screen-flash {
 .hp-bar-container.show { display: block; }
 
 .node-hp-bar {
-  width: 180px;
-  background: rgba(15, 52, 96, 0.9);
-  border: 1px solid #0f3460;
-  border-radius: 4px;
-  padding: 6px 8px;
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 60px;
+  text-align: center;
+  pointer-events: none;
+  z-index: 15;
+  will-change: transform;
 }
 
 .hp-bar-label { font-size: 11px; text-align: center; margin-bottom: 2px; color: #aaa; }

@@ -253,6 +253,10 @@ window.GameScene = (function () {
         GameTerrain.refreshVisibility();
       }
 
+      if (typeof GameHUD !== 'undefined' && GameHUD.updateTrackedObjectHpBar) {
+        GameHUD.updateTrackedObjectHpBar(dt);
+      }
+
       // Keep overlays smooth while moving, but throttle them lightly when the camera is idle.
       if (isRuntimeSettingEnabled('hud') && isRuntimeSettingEnabled('worldLabels') && shouldRefreshWorldOverlays(dt, playerPos)) {
         var overlayMark = beginPerfMark('overlays.update');

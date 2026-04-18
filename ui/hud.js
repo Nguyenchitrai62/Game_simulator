@@ -154,6 +154,10 @@ try {
     var _quickbarSelected = { build: null, craft: null };
     var _buildingLabelNodes = {};
     var _buildingLabelContainer = null;
+    var _nodeHpBarPool = [];
+    var _nodeHpBarContainer = null;
+    var _nodeWorldLabelPool = [];
+    var _nodeWorldLabelContainer = null;
     var _buildingLabelVector = null;
     var _hudScratchVectors = [];
     var _fpsPanel = null;
@@ -165,7 +169,18 @@ try {
     var _renderHandleIsFrame = false;
     var _pendingRenderReason = 'scheduled';
     var _screenPointScratch = { x: 0, y: 0, z: 0 };
+    var _trackedObjectHpBar = {
+      element: null,
+      object: null,
+      objectId: null,
+      currentX: 0,
+      currentY: 0,
+      initialized: false
+    };
     var BUILDING_LABEL_STORAGE_WARNING_PCT = 70;
+    var OBJECT_HP_BAR_OFFSET_X = 52;
+    var OBJECT_HP_BAR_OFFSET_Y = 4;
+    var OVERLAY_POSITION_SMOOTHING = 22;
     var _debugSettingsPanelOpen = false;
     var _debugSettingsUnsubscribe = null;
     var DEBUG_SETTINGS_GROUPS = [
@@ -235,12 +250,8 @@ try {
     }
 
     function clearWorldOverlayElements() {
-      var nodeHpContainer = document.getElementById('node-hp-bars-container');
-      if (nodeHpContainer) setInnerHtmlIfChanged(nodeHpContainer, '');
-
-      var nodeLabelContainer = document.getElementById('node-world-labels');
-      if (nodeLabelContainer) setInnerHtmlIfChanged(nodeLabelContainer, '');
-
+      hideUnusedNodeHpBars(0);
+      hideUnusedNodeWorldLabels(0);
       hideUnusedBuildingLabels({}, {});
       hideObjectHpBar();
     }
@@ -468,6 +479,20 @@ try {
     return _buildingLabelContainer;
   }
 
+  function getNodeHpBarContainer() {
+    if (!_nodeHpBarContainer) {
+      _nodeHpBarContainer = document.getElementById('node-hp-bars-container');
+    }
+    return _nodeHpBarContainer;
+  }
+
+  function getNodeWorldLabelContainer() {
+    if (!_nodeWorldLabelContainer) {
+      _nodeWorldLabelContainer = document.getElementById('node-world-labels');
+    }
+    return _nodeWorldLabelContainer;
+  }
+
   function getFpsPanel() {
     if (!_fpsPanel) {
       _fpsPanel = document.getElementById('fps-panel');
@@ -548,6 +573,215 @@ try {
     if (!node) return;
     if (enabled) node.classList.add(className);
     else node.classList.remove(className);
+  }
+
+  function setNodeBorderColor(node, color) {
+    if (node && node.style.borderColor !== color) {
+      node.style.borderColor = color;
+    }
+  }
+
+  function setNodeClassName(node, className) {
+    if (node && node.className !== className) {
+      node.className = className;
+    }
+  }
+
+  function getSmoothingFactor(dt, strength) {
+    if (!(dt > 0) || !isFinite(dt)) return 1;
+    return 1 - Math.exp(-strength * dt);
+  }
+
+  function setNodeTransform(node, x, y, anchorTransform) {
+    if (!node) return;
+
+    var transformValue = 'translate3d(' + x.toFixed(1) + 'px, ' + y.toFixed(1) + 'px, 0)';
+    if (anchorTransform) transformValue += ' ' + anchorTransform;
+
+    if (node._lastTransformValue !== transformValue) {
+      node.style.transform = transformValue;
+      node._lastTransformValue = transformValue;
+    }
+  }
+
+  function getObjectHpBarElement() {
+    var el = _trackedObjectHpBar.element;
+    if (el && el.parentNode) return el;
+
+    el = document.getElementById('object-hp-bar');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'object-hp-bar';
+      el.innerHTML = '<div class="object-hp-title"></div><div class="object-hp-meta"></div><div class="object-hp-track"><div class="object-hp-fill"></div></div>';
+      document.body.appendChild(el);
+    }
+
+    _trackedObjectHpBar.element = el;
+    return el;
+  }
+
+  function updateTrackedObjectHpBarContent(objData, el) {
+    if (!objData || !el) return;
+
+    var nodeInfo = (objData.type && objData.type.indexOf('node.') === 0 && typeof GameTerrain !== 'undefined' && GameTerrain.getNodeInfo) ? GameTerrain.getNodeInfo(objData) : null;
+    var entity = GameRegistry.getEntity(objData.type);
+    var titleText = nodeInfo ? getWorldNodeTitle(objData, nodeInfo, entity) : (entity ? entity.name : objData.type);
+    var metaText = getInspectNodeMeta(objData, nodeInfo);
+    var accentColor = nodeInfo ? getNodeAccentColor(nodeInfo) : 'rgba(255,255,255,0.12)';
+    var pct = Math.max(0, (objData.hp / Math.max(1, objData.maxHp)) * 100);
+    var fillColor = pct > 60 ? '#4ecca3' : pct > 30 ? '#f0a500' : '#e94560';
+
+    var title = el.querySelector('.object-hp-title');
+    if (title) setNodeText(title, titleText);
+
+    var meta = el.querySelector('.object-hp-meta');
+    if (meta) setNodeText(meta, metaText);
+
+    var track = el.querySelector('.object-hp-track');
+    if (track) setNodeBorderColor(track, accentColor);
+
+    var fill = el.querySelector('.object-hp-fill');
+    if (fill) {
+      setNodeWidth(fill, pct);
+      setNodeColor(fill, fillColor);
+    }
+  }
+
+  function updateTrackedObjectHpBar(dt, snap) {
+    if (!areWorldLabelsVisible()) {
+      hideObjectHpBar();
+      return;
+    }
+
+    var objData = _trackedObjectHpBar.object;
+    if (!objData) return;
+
+    var el = getObjectHpBarElement();
+    if (!el) return;
+
+    if (!(objData.hp > 0)) {
+      hideObjectHpBar();
+      return;
+    }
+
+    var pos = projectHudWorldPoint(objData.worldX, 1.5, objData.worldZ);
+    if (!pos || pos.z > 1 || pos.z < -1 || pos.x < -160 || pos.x > window.innerWidth + 160 || pos.y < -120 || pos.y > window.innerHeight + 120) {
+      setNodeDisplay(el, false);
+      return;
+    }
+
+    updateTrackedObjectHpBarContent(objData, el);
+
+    var targetX = pos.x - OBJECT_HP_BAR_OFFSET_X;
+    var targetY = pos.y - OBJECT_HP_BAR_OFFSET_Y;
+    if (snap || !_trackedObjectHpBar.initialized) {
+      _trackedObjectHpBar.currentX = targetX;
+      _trackedObjectHpBar.currentY = targetY;
+      _trackedObjectHpBar.initialized = true;
+    } else {
+      var smoothing = getSmoothingFactor(Math.min(dt || 0.016, 1 / 30), OVERLAY_POSITION_SMOOTHING);
+      _trackedObjectHpBar.currentX += (targetX - _trackedObjectHpBar.currentX) * smoothing;
+      _trackedObjectHpBar.currentY += (targetY - _trackedObjectHpBar.currentY) * smoothing;
+    }
+
+    setNodeTransform(el, _trackedObjectHpBar.currentX, _trackedObjectHpBar.currentY, '');
+    setNodeDisplay(el, true);
+  }
+
+  function createNodeHpBarEntry(container) {
+    if (!container) return null;
+
+    var root = document.createElement('div');
+    root.className = 'node-hp-bar';
+
+    var title = document.createElement('div');
+    title.className = 'node-hp-bar-title';
+
+    var value = document.createElement('div');
+    value.className = 'node-hp-bar-value';
+
+    var track = document.createElement('div');
+    track.className = 'node-hp-bar-track';
+
+    var fill = document.createElement('div');
+    fill.className = 'hp-bar-fill healthy';
+    track.appendChild(fill);
+
+    root.appendChild(title);
+    root.appendChild(value);
+    root.appendChild(track);
+    container.appendChild(root);
+
+    return {
+      root: root,
+      title: title,
+      value: value,
+      fill: fill,
+      lastHealthClass: 'healthy'
+    };
+  }
+
+  function ensureNodeHpBarEntry(index, container) {
+    var entry = _nodeHpBarPool[index];
+    if (entry) {
+      if (entry.root.parentNode !== container) {
+        container.appendChild(entry.root);
+      }
+      return entry;
+    }
+
+    entry = createNodeHpBarEntry(container);
+    _nodeHpBarPool[index] = entry;
+    return entry;
+  }
+
+  function hideUnusedNodeHpBars(activeCount) {
+    for (var i = activeCount; i < _nodeHpBarPool.length; i++) {
+      setNodeDisplay(_nodeHpBarPool[i].root, false);
+    }
+  }
+
+  function createNodeWorldLabelEntry(container) {
+    if (!container) return null;
+
+    var root = document.createElement('div');
+    root.className = 'node-world-label';
+
+    var title = document.createElement('div');
+    title.className = 'node-world-title';
+
+    var meta = document.createElement('div');
+    meta.className = 'node-world-meta';
+
+    root.appendChild(title);
+    root.appendChild(meta);
+    container.appendChild(root);
+
+    return {
+      root: root,
+      title: title,
+      meta: meta
+    };
+  }
+
+  function ensureNodeWorldLabelEntry(index, container) {
+    var entry = _nodeWorldLabelPool[index];
+    if (entry) {
+      if (entry.root.parentNode !== container) {
+        container.appendChild(entry.root);
+      }
+      return entry;
+    }
+
+    entry = createNodeWorldLabelEntry(container);
+    _nodeWorldLabelPool[index] = entry;
+    return entry;
+  }
+
+  function hideUnusedNodeWorldLabels(activeCount) {
+    for (var i = activeCount; i < _nodeWorldLabelPool.length; i++) {
+      setNodeDisplay(_nodeWorldLabelPool[i].root, false);
+    }
   }
 
   function ensureBuildingLabelNode(uid, container) {
@@ -2145,55 +2379,23 @@ try {
       showObjectHpBar._hideTimer = null;
     }
 
-    var el = document.getElementById("object-hp-bar");
-    if (!el) {
-      el = document.createElement("div");
-      el.id = "object-hp-bar";
-      el.innerHTML = '<div class="object-hp-title"></div><div class="object-hp-meta"></div><div class="object-hp-track"><div class="object-hp-fill"></div></div>';
-      document.body.appendChild(el);
+    var nextObjectId = objData && objData.id ? objData.id : null;
+    if (_trackedObjectHpBar.objectId !== nextObjectId) {
+      _trackedObjectHpBar.initialized = false;
     }
 
-    var pos = projectHudWorldPoint(objData.worldX, 1.5, objData.worldZ);
-    if (!pos) { el.style.display = "none"; return; }
-
-    var nodeInfo = (objData.type && objData.type.indexOf('node.') === 0 && typeof GameTerrain !== 'undefined' && GameTerrain.getNodeInfo) ? GameTerrain.getNodeInfo(objData) : null;
-    var entity = GameRegistry.getEntity(objData.type);
-    var titleText = nodeInfo ? getWorldNodeTitle(objData, nodeInfo, entity) : (entity ? entity.name : objData.type);
-    var metaText = getInspectNodeMeta(objData, nodeInfo);
-    var accentColor = nodeInfo ? getNodeAccentColor(nodeInfo) : 'rgba(255,255,255,0.12)';
-
-    var pct = Math.max(0, (objData.hp / objData.maxHp) * 100);
-    el.style.left = (pos.x - 52) + "px";
-    el.style.top = (pos.y - 4) + "px";
-    el.style.display = "block";
-
-    var title = el.querySelector('.object-hp-title');
-    if (title) title.textContent = titleText;
-
-    var meta = el.querySelector('.object-hp-meta');
-    if (meta) meta.textContent = metaText;
-
-    var track = el.querySelector('.object-hp-track');
-    if (track) track.style.borderColor = accentColor;
-
-    var fill = el.querySelector('.object-hp-fill');
-    if (fill) {
-      fill.style.width = pct + "%";
-      fill.style.background = pct > 60 ? "#4ecca3" : pct > 30 ? "#f0a500" : "#e94560";
-    }
+    _trackedObjectHpBar.object = objData;
+    _trackedObjectHpBar.objectId = nextObjectId;
+    showObjectHpBar._activeObjectId = nextObjectId;
+    updateTrackedObjectHpBar(0, true);
 
     if (holdMs && holdMs > 0) {
-      var activeObjectId = objData && objData.id ? objData.id : null;
-      showObjectHpBar._activeObjectId = activeObjectId;
       showObjectHpBar._hideTimer = setTimeout(function() {
-        var activeEl = document.getElementById("object-hp-bar");
-        if (activeEl && showObjectHpBar._activeObjectId === activeObjectId) {
-          activeEl.style.display = "none";
+        if (showObjectHpBar._activeObjectId === nextObjectId) {
+          hideObjectHpBar();
         }
         showObjectHpBar._hideTimer = null;
       }, holdMs);
-    } else {
-      showObjectHpBar._activeObjectId = objData && objData.id ? objData.id : null;
     }
   }
 
@@ -2202,106 +2404,99 @@ try {
       clearTimeout(showObjectHpBar._hideTimer);
       showObjectHpBar._hideTimer = null;
     }
-    var el = document.getElementById("object-hp-bar");
-    if (el) el.style.display = "none";
+    showObjectHpBar._activeObjectId = null;
+    _trackedObjectHpBar.object = null;
+    _trackedObjectHpBar.objectId = null;
+    _trackedObjectHpBar.initialized = false;
+    var el = _trackedObjectHpBar.element || document.getElementById('object-hp-bar');
+    if (el) setNodeDisplay(el, false);
   }
 
   function updateNodeHpBars() {
     if (!areWorldLabelsVisible()) {
-      var emptyNodeHpContainer = document.getElementById('node-hp-bars-container');
-      if (emptyNodeHpContainer) setInnerHtmlIfChanged(emptyNodeHpContainer, '');
+      hideUnusedNodeHpBars(0);
       return;
     }
 
     if (!window.NPCSystem || !NPCSystem.getActiveHarvestNodes) return;
-    
-    var container = document.getElementById('node-hp-bars-container');
+
+    var container = getNodeHpBarContainer();
     if (!container) return;
-    
+
     var activeNodes = NPCSystem.getActiveHarvestNodes();
-    
+
     if (activeNodes.length === 0) {
-      setInnerHtmlIfChanged(container, '');
+      hideUnusedNodeHpBars(0);
       return;
     }
-    
-    // Get camera and canvas for world-to-screen conversion
-    var camera = GameScene.getCamera();
-    var canvas = document.getElementById('game-canvas');
-    if (!camera || !canvas) {
-      setInnerHtmlIfChanged(container, '');
-      return;
-    }
-    
-    var canvasRect = canvas.getBoundingClientRect();
-    var worldPos = getHudScratchVector(0);
-    if (!worldPos) return;
-    
-    // Create/update HP bars positioned on each node
-    var html = '';
-    activeNodes.forEach(function(nodeData, index) {
-      // Convert world position to screen position
-      worldPos.set(nodeData.worldX, 1.2, nodeData.worldZ);
-      worldPos.project(camera);
-      
-      // Check if in front of camera
-      if (worldPos.z > 1 || worldPos.z < -1) return;
-      
-      // Convert to screen coordinates
-      var x = Math.round((worldPos.x * 0.5 + 0.5) * canvasRect.width + canvasRect.left);
-      var y = Math.round((-worldPos.y * 0.5 + 0.5) * canvasRect.height + canvasRect.top);
-      
+
+    var screenWidth = window.innerWidth;
+    var screenHeight = window.innerHeight;
+    var visibleCount = 0;
+    activeNodes.forEach(function(nodeData) {
+      var pos = projectHudWorldPoint(nodeData.worldX, 1.2, nodeData.worldZ);
+      if (!pos || pos.z > 1 || pos.z < -1) return;
+
+      var x = pos.x;
+      var y = pos.y;
+      if (x < -80 || x > screenWidth + 80 || y < -80 || y > screenHeight + 80) return;
+
       var percent = (nodeData.currentHp / nodeData.maxHp) * 100;
       var healthClass = percent > 60 ? 'healthy' : percent > 30 ? 'damaged' : 'critical';
-      
+
       var nodeInfo = (window.GameTerrain && GameTerrain.getNodeInfo) ? GameTerrain.getNodeInfo(nodeData.node) : null;
       var nodeType = nodeData.node.type || 'Unknown';
       var nodeName = nodeInfo ? getWorldNodeTitle(nodeData.node, nodeInfo, null) : nodeType.replace('node.', '').replace('_', ' ');
       nodeName = nodeName.charAt(0).toUpperCase() + nodeName.slice(1);
-      
-      // HP bar positioned directly on the node
-      html += '<div class="node-hp-bar" style="position:fixed; left:' + (x - 30) + 'px; top:' + (y - 10) + 'px; width:60px; text-align:center; pointer-events:none; z-index:15;">';
-      html += '<div style="font-size:8px; color:#fff; text-shadow: 1px 1px 2px #000; margin-bottom:1px;">' + escapeHtml(nodeName) + '</div>';
-      html += '<div style="font-size:9px; color:#fff; text-shadow: 1px 1px 2px #000; margin-bottom:2px;">' + Math.ceil(nodeData.currentHp) + '/' + nodeData.maxHp + '</div>';
-      html += '<div style="height:4px; background:#0f3460; border-radius:2px; overflow:hidden; border:1px solid rgba(0,0,0,0.3);"><div class="hp-bar-fill ' + healthClass + '" style="width:' + percent + '%; height:100%; transition:width 0.2s;"></div></div>';
-      html += '</div>';
+
+      var entry = ensureNodeHpBarEntry(visibleCount, container);
+      visibleCount++;
+      if (!entry) return;
+
+      setNodeTransform(entry.root, x - 30, y - 10, '');
+      setNodeDisplay(entry.root, true);
+      setNodeText(entry.title, nodeName);
+      setNodeText(entry.value, Math.ceil(nodeData.currentHp) + '/' + nodeData.maxHp);
+      setNodeWidth(entry.fill, percent);
+
+      if (entry.lastHealthClass !== healthClass) {
+        setNodeClassName(entry.fill, 'hp-bar-fill ' + healthClass);
+        entry.lastHealthClass = healthClass;
+      }
     });
-    
-    setInnerHtmlIfChanged(container, html);
+
+    hideUnusedNodeHpBars(visibleCount);
   }
 
   function updateNodeWorldLabels() {
-    var container = document.getElementById('node-world-labels');
+    var container = getNodeWorldLabelContainer();
     if (!container) return;
 
     if (!areWorldLabelsVisible()) {
-      setInnerHtmlIfChanged(container, '');
+      hideUnusedNodeWorldLabels(0);
       return;
     }
 
     if (_modalActive || !window.GameTerrain || !GameTerrain.getNearbyObjects || !window.GamePlayer || !window.GameScene) {
-      setInnerHtmlIfChanged(container, '');
+      hideUnusedNodeWorldLabels(0);
       return;
     }
 
     var playerPos = GamePlayer.getPosition ? GamePlayer.getPosition() : null;
-    var camera = GameScene.getCamera();
-    var canvas = document.getElementById('game-canvas');
-    if (!playerPos || !camera || !canvas) {
-      setInnerHtmlIfChanged(container, '');
+    if (!playerPos) {
+      hideUnusedNodeWorldLabels(0);
       return;
     }
 
     var nearby = GameTerrain.getNearbyObjects(playerPos.x, playerPos.z, 6.5, 6);
     if (!nearby.length) {
-      setInnerHtmlIfChanged(container, '');
+      hideUnusedNodeWorldLabels(0);
       return;
     }
 
-    var canvasRect = canvas.getBoundingClientRect();
-    var html = '';
-    var worldPos = getHudScratchVector(1);
-    if (!worldPos) return;
+    var screenWidth = window.innerWidth;
+    var screenHeight = window.innerHeight;
+    var visibleCount = 0;
 
     nearby.forEach(function(objData) {
       if (!shouldShowWorldNodeLabel(objData)) return;
@@ -2310,14 +2505,13 @@ try {
       if (!nodeInfo) return;
 
       var worldHeight = nodeInfo.isGiant ? 2.3 : 1.35;
-      worldPos.set(objData.worldX, worldHeight, objData.worldZ);
-      worldPos.project(camera);
-      if (worldPos.z > 1 || worldPos.z < -1) return;
+      var pos = projectHudWorldPoint(objData.worldX, worldHeight, objData.worldZ);
+      if (!pos || pos.z > 1 || pos.z < -1) return;
 
-      var x = Math.round((worldPos.x * 0.5 + 0.5) * canvasRect.width + canvasRect.left);
-      var y = Math.round((-worldPos.y * 0.5 + 0.5) * canvasRect.height + canvasRect.top);
+      var x = pos.x;
+      var y = pos.y;
 
-      if (x < canvasRect.left - 100 || x > canvasRect.right + 100 || y < canvasRect.top - 80 || y > canvasRect.bottom + 80) {
+      if (x < -100 || x > screenWidth + 100 || y < -80 || y > screenHeight + 80) {
         return;
       }
 
@@ -2325,13 +2519,19 @@ try {
       var detailText = getWorldNodeMeta(objData, nodeInfo);
       var titleText = getWorldNodeTitle(objData, nodeInfo, null);
 
-      html += '<div class="node-world-label' + (nodeInfo.isGiant ? ' rare' : '') + '" style="left:' + x + 'px; top:' + y + 'px; border-color:' + accentColor + ';">';
-      html += '<div class="node-world-title">' + escapeHtml(titleText) + '</div>';
-      html += '<div class="node-world-meta">' + escapeHtml(detailText) + '</div>';
-      html += '</div>';
+      var entry = ensureNodeWorldLabelEntry(visibleCount, container);
+      visibleCount++;
+      if (!entry) return;
+
+      setNodeTransform(entry.root, x, y, 'translate(-50%, -100%)');
+      setNodeDisplay(entry.root, true);
+      setNodeClassState(entry.root, 'rare', !!nodeInfo.isGiant);
+      setNodeBorderColor(entry.root, accentColor);
+      setNodeText(entry.title, titleText);
+      setNodeText(entry.meta, detailText);
     });
 
-    setInnerHtmlIfChanged(container, html);
+    hideUnusedNodeWorldLabels(visibleCount);
   }
 
   function updateBuildingStorageLabels() {
@@ -2352,18 +2552,14 @@ try {
     }
 
     var camera = GameScene.getCamera();
-    var canvas = document.getElementById('game-canvas');
-    if (!camera || !canvas) {
+    if (!camera) {
       hideUnusedBuildingLabels({}, {});
       return;
     }
 
     var visibleMap = {};
-    var canvasRect = canvas.getBoundingClientRect();
-    var worldPos = getBuildingLabelVector();
     var playerPos = (window.GamePlayer && GamePlayer.getPosition) ? GamePlayer.getPosition() : null;
     var worldCullRadius = camera ? ((Math.abs(camera.right) + Math.abs(camera.top)) * 1.2 + 6) : 42;
-    if (!worldPos) return;
 
     for (var uid in instances) {
       var inst = instances[uid];
@@ -2384,16 +2580,13 @@ try {
       var pct = storageCapacity > 0 ? Math.floor((storageUsed / storageCapacity) * 100) : 0;
       var barColor = pct >= 90 ? '#e94560' : pct >= 70 ? '#f0a500' : '#4ecca3';
 
-      // Calculate screen position
-      worldPos.set(inst.x, 1.3, inst.z);
-      worldPos.project(camera);
+      var pos = projectHudWorldPoint(inst.x, 1.3, inst.z);
+      if (!pos || pos.z > 1 || pos.z < -1) continue;
 
-      if (worldPos.z > 1 || worldPos.z < -1) continue;
+      var x = pos.x;
+      var y = pos.y;
 
-      var x = (worldPos.x * 0.5 + 0.5) * canvasRect.width + canvasRect.left;
-      var y = (-worldPos.y * 0.5 + 0.5) * canvasRect.height + canvasRect.top;
-
-      if (x < canvasRect.left - 100 || x > canvasRect.right + 100 || y < canvasRect.top - 100 || y > canvasRect.bottom + 100) {
+      if (x < -100 || x > window.innerWidth + 100 || y < -100 || y > window.innerHeight + 100) {
         continue;
       }
 
@@ -3702,6 +3895,7 @@ try {
     closeInspector: closeInspector,
     showObjectHpBar: showObjectHpBar,
     hideObjectHpBar: hideObjectHpBar,
+    updateTrackedObjectHpBar: updateTrackedObjectHpBar,
     updateNodeHpBars: updateNodeHpBars,
     updateNodeWorldLabels: updateNodeWorldLabels,
     updateBuildingStorageLabels: updateBuildingStorageLabels,

@@ -1,5 +1,5 @@
 window.GAME_MANIFEST = {
-  version: "3.3.0",
+  version: "3.3.1",
   packs: [
     "base_stone_age",
     "expansion_tree_farming",

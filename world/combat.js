@@ -43,6 +43,10 @@ window.GameCombat = (function () {
     var playerHpWrapper = document.getElementById("player-hp-wrapper");
     if (playerHpWrapper) playerHpWrapper.classList.add("in-combat");
 
+    if (window.GameHUD && GameHUD.showObjectHpBar) {
+      GameHUD.showObjectHpBar(objData);
+    }
+
     updateCombatUI();
   }
 
@@ -256,7 +260,7 @@ window.GameCombat = (function () {
       GameHUD.showNotification("Victory! Loot collected.");
     }
 
-    if (playerWon && target.hp <= 0 && GameHUD.hideObjectHpBar) {
+    if (GameHUD.hideObjectHpBar) {
       GameHUD.hideObjectHpBar();
     }
 

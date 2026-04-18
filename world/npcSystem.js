@@ -2153,11 +2153,15 @@ window.NPCSystem = (function() {
     npcs.forEach(npc => {
       if (npc.state === STATE.HARVEST && npc.targetNode && npc.targetNode.object) {
         const node = npc.targetNode.object;
-        const nodeInfo = (window.GameTerrain && GameTerrain.getNodeInfo) ? GameTerrain.getNodeInfo(node) : null;
         if (node) {
+          let maxHp = node.maxHp;
+          if (!(maxHp > 0) && window.GameTerrain && GameTerrain.getNodeInfo) {
+            const nodeInfo = GameTerrain.getNodeInfo(node);
+            maxHp = nodeInfo ? nodeInfo.hp : 1;
+          }
           activeNodes.push({
             node: node,
-            maxHp: node.maxHp || (nodeInfo ? nodeInfo.hp : 1),
+            maxHp: maxHp || 1,
             currentHp: node.hp,
             worldX: node.worldX,
             worldZ: node.worldZ

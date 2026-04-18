@@ -1055,6 +1055,26 @@ window.GameTerrain = (function () {
     var maxDistanceSq = maxDistance * maxDistance;
     var maxCount = limit || 6;
 
+    function insertNearbyObject(obj, distSq) {
+      if (results.length >= maxCount && distSq >= results[results.length - 1].distanceSq) {
+        return;
+      }
+
+      var insertIndex = results.length;
+      while (insertIndex > 0 && distSq < results[insertIndex - 1].distanceSq) {
+        insertIndex--;
+      }
+
+      if (insertIndex >= maxCount) {
+        return;
+      }
+
+      results.splice(insertIndex, 0, { object: obj, distanceSq: distSq });
+      if (results.length > maxCount) {
+        results.length = maxCount;
+      }
+    }
+
     forEachLoadedChunkNear(worldX, worldZ, maxDistance, function (chunk) {
       for (var i = 0; i < chunk.objects.length; i++) {
         var obj = chunk.objects[i];
@@ -1066,16 +1086,12 @@ window.GameTerrain = (function () {
         if (Math.abs(dz) > maxDistance) continue;
         var distSq = dx * dx + dz * dz;
         if (distSq <= maxDistanceSq) {
-          results.push({ object: obj, distanceSq: distSq });
+          insertNearbyObject(obj, distSq);
         }
       }
     });
 
-    results.sort(function (a, b) {
-      return a.distanceSq - b.distanceSq;
-    });
-
-    return results.slice(0, maxCount).map(function (entry) {
+    return results.map(function (entry) {
       return entry.object;
     });
   }
