@@ -20,7 +20,7 @@ window.GameDebugSettings = window.GameDebugSettings || (function () {
     worldLabels: true,
     notifications: true,
     particles: false,
-    weather: false,
+    weather: true,
     atmosphere: false,
     animals: true,
     npcs: true,
@@ -672,7 +672,7 @@ try {
     function applyQualityPreset(presetId, source) {
       if (!window.GameQualitySettings || !GameQualitySettings.applyPreset) return null;
 
-      var nextPreset = GameQualitySettings.applyPreset(presetId, source || 'panel', { syncDebug: false });
+      var nextPreset = GameQualitySettings.applyPreset(presetId, source || 'panel', { syncDebug: true });
       _qualityPromptState.visible = false;
       _qualityPromptState.lowFpsSeconds = 0;
       renderQualityPrompt();
@@ -799,7 +799,7 @@ try {
       _fpsPanel.classList.remove('warn', 'low');
     }
     if (window.GameQualitySettings && GameQualitySettings.syncRuntime) {
-      GameQualitySettings.syncRuntime('hud-init');
+      GameQualitySettings.syncRuntime('hud-init', { syncDebug: true });
     }
     bindQualitySettingsUi();
     renderQualitySettingsPanel();
