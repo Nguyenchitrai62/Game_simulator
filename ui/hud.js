@@ -14,6 +14,18 @@ window.GameDebugSettings = window.GameDebugSettings || (function () {
     npcs: true,
     barracksTroops: true
   };
+  var _legacyLowPresetSnapshot = {
+    hud: true,
+    minimap: true,
+    worldLabels: true,
+    notifications: true,
+    particles: false,
+    weather: false,
+    atmosphere: false,
+    animals: true,
+    npcs: true,
+    barracksTroops: true
+  };
   var _state = loadState();
   var _listeners = [];
 
@@ -23,6 +35,21 @@ window.GameDebugSettings = window.GameDebugSettings || (function () {
       copy[key] = _defaults[key];
     }
     return copy;
+  }
+
+  function matchesSnapshot(snapshot, expected) {
+    for (var key in _defaults) {
+      if ((snapshot[key] !== false) !== (expected[key] !== false)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function shouldResetLegacyLowPresetSnapshot(snapshot) {
+    if (!window.GameQualitySettings || !GameQualitySettings.getPresetId) return false;
+    if (GameQualitySettings.getPresetId() !== 'low') return false;
+    return matchesSnapshot(snapshot, _legacyLowPresetSnapshot);
   }
 
   function loadState() {
@@ -36,6 +63,11 @@ window.GameDebugSettings = window.GameDebugSettings || (function () {
         if (parsed && typeof parsed[key] === 'boolean') {
           nextState[key] = parsed[key];
         }
+      }
+
+      if (shouldResetLegacyLowPresetSnapshot(nextState)) {
+        nextState = cloneDefaults();
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
       }
     } catch (error) {
       console.warn('[DebugSettings] Failed to load saved state:', error);

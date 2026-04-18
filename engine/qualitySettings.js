@@ -1,6 +1,6 @@
 window.GameQualitySettings = window.GameQualitySettings || (function () {
   var STORAGE_KEY = 'evolution_quality_settings_v1';
-  var DEFAULT_PRESET = 'low';
+  var DEFAULT_PRESET = 'medium';
   var _listeners = [];
   var PRESETS = {
     high: {
@@ -61,8 +61,8 @@ window.GameQualitySettings = window.GameQualitySettings || (function () {
     medium: {
       id: 'medium',
       label: 'Medium',
-      description: 'Balanced visuals with reduced CPU and fill-rate pressure.',
-      summary: 'Keeps core readability while lowering shadow, rain, and overlay cost.',
+      description: 'Balanced visuals without shadows. Good for most laptops.',
+      summary: 'Full effects and rain, overlays on, shadows off.',
       settings: {
         debug: {
           hud: true,
@@ -82,8 +82,8 @@ window.GameQualitySettings = window.GameQualitySettings || (function () {
           adaptiveStep: 0.1,
           downscaleFrameMs: 23.5,
           upscaleFrameMs: 16.5,
-          shadowMapSize: 1024,
-          shadows: true,
+          shadowMapSize: 0,
+          shadows: false,
           overlayIdleScale: 1.25,
           overlayPlayerThresholdScale: 1.15,
           overlayCameraThresholdScale: 1.15,
@@ -116,8 +116,8 @@ window.GameQualitySettings = window.GameQualitySettings || (function () {
     low: {
       id: 'low',
       label: 'Low',
-      description: 'Cuts visual extras to prioritize smooth gameplay on weaker laptops.',
-      summary: 'Keeps gameplay overlays visible while disabling heavy effects and lowering render cost.',
+      description: 'Cuts heavy effects to prioritize smooth gameplay on weaker hardware.',
+      summary: 'No shadows, no particles, no atmosphere. Minimal rain still visible.',
       settings: {
         debug: {
           hud: true,
@@ -125,7 +125,7 @@ window.GameQualitySettings = window.GameQualitySettings || (function () {
           worldLabels: true,
           notifications: true,
           particles: false,
-          weather: false,
+          weather: true,
           atmosphere: false,
           animals: true,
           npcs: true,
@@ -157,7 +157,7 @@ window.GameQualitySettings = window.GameQualitySettings || (function () {
           openDangerPaddingChunks: 1
         },
         weather: {
-          rainDropCount: 0
+          rainDropCount: 120
         },
         simulation: {
           pathCacheSize: 96
@@ -268,7 +268,7 @@ window.GameQualitySettings = window.GameQualitySettings || (function () {
     _state.preset = resolvedPreset;
     saveState();
 
-    if (options.syncDebug !== false) {
+    if (options.syncDebug === true) {
       syncDebugSettings('quality:' + (source || 'apply'));
     }
 
@@ -318,8 +318,11 @@ window.GameQualitySettings = window.GameQualitySettings || (function () {
     };
   }
 
-  function syncRuntime(source) {
-    syncDebugSettings(source || 'quality-runtime');
+  function syncRuntime(source, options) {
+    options = options || {};
+    if (options.syncDebug === true) {
+      syncDebugSettings(source || 'quality-runtime');
+    }
     emit({
       type: 'sync',
       preset: getPresetId(),
