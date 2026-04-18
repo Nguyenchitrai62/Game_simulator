@@ -296,6 +296,9 @@ window.BuildingSystem = (function () {
     GameHUD.renderAll();
     GameStorage.save();
     GameHUD.showSuccess("Built: " + (entity ? entity.name : buildingId));
+    if (buildingId === 'building.campfire' && typeof GamePlayer !== 'undefined' && GamePlayer.triggerSpeechCue) {
+      GamePlayer.triggerSpeechCue('fireAction');
+    }
     return true;
   }
 
@@ -1398,6 +1401,9 @@ window.BuildingSystem = (function () {
     GameHUD.renderAll();
     GameStorage.save();
     GameHUD.showSuccess("Built: " + (entity ? entity.name : buildingId));
+    if (buildingId === 'building.campfire' && typeof GamePlayer !== 'undefined' && GamePlayer.triggerSpeechCue) {
+      GamePlayer.triggerSpeechCue('fireAction');
+    }
     return true;
   }
 

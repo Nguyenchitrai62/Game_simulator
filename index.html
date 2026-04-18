@@ -5,9 +5,120 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Evolution Simulator 3D</title>
   <link rel="icon" type="image/png" href="asset/LOGO.png">
+  <link rel="preload" as="audio" href="asset/Chibi.mp3" type="audio/mpeg">
+  <link rel="preload" as="audio" href="asset/lag.ogg" type="audio/ogg">
+  <link rel="preload" as="audio" href="asset/fire.ogg" type="audio/ogg">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <audio id="bg-music" src="asset/Chibi.mp3" loop preload="auto"></audio>
+  <audio id="lag-audio" src="asset/lag.ogg" loop preload="auto"></audio>
+  <audio id="fire-sfx" src="asset/fire.ogg" preload="auto"></audio>
+  <script>
+    (function () {
+      var music = document.getElementById('bg-music');
+      var lagAudio = document.getElementById('lag-audio');
+      var fireSfx = document.getElementById('fire-sfx');
+      var audioUnlocked = false;
+      var lagOverride = false;
+
+      if (!music || !lagAudio || !fireSfx) return;
+
+      music.volume = 0.4;
+      lagAudio.volume = 0.75;
+      fireSfx.volume = 0.82;
+
+      function normalizeAudioPath(path) {
+        return String(path || '').replace(/^\.?\//, '').replace(/^https?:\/\/[^/]+\//i, '');
+      }
+
+      function pauseAudio(audio, resetTime) {
+        if (!audio) return;
+        audio.pause();
+        if (resetTime) {
+          try {
+            audio.currentTime = 0;
+          } catch (error) {}
+        }
+      }
+
+      function ensureAudioPath(audio, path) {
+        if (!audio || !path) return audio;
+        var targetPath = normalizeAudioPath(path);
+        var currentPath = normalizeAudioPath(audio.getAttribute('src') || audio.currentSrc || '');
+        if (currentPath === targetPath) return audio;
+        audio.setAttribute('src', path);
+        audio.load();
+        return audio;
+      }
+
+      function syncAudioPlayback() {
+        if (!audioUnlocked) return;
+
+        if (lagOverride) {
+          pauseAudio(music, false);
+          if (lagAudio.paused) {
+            lagAudio.play().catch(function () {});
+          }
+          return;
+        }
+
+        pauseAudio(lagAudio, true);
+        if (music.paused) {
+          music.play().catch(function () {});
+        }
+      }
+
+      function unlockAudio() {
+        if (audioUnlocked) return;
+        audioUnlocked = true;
+        syncAudioPlayback();
+      }
+
+      function playCue(path) {
+        if (!audioUnlocked || !path) return false;
+
+        var normalizedPath = normalizeAudioPath(path);
+        var audio = null;
+
+        if (normalizedPath.indexOf('fire.ogg') !== -1) {
+          audio = ensureAudioPath(fireSfx, path);
+        } else if (normalizedPath.indexOf('lag.ogg') !== -1) {
+          audio = ensureAudioPath(lagAudio, path);
+        } else if (normalizedPath.indexOf('Chibi.mp3') !== -1) {
+          audio = ensureAudioPath(music, path);
+        }
+
+        if (!audio) {
+          audio = ensureAudioPath(fireSfx, path);
+        }
+
+        pauseAudio(audio, true);
+        audio.play().catch(function () {});
+        return true;
+      }
+
+      window.GameAudioController = {
+        setLagOverride: function (active, audioPath) {
+          lagAudio = ensureAudioPath(lagAudio, audioPath || lagAudio.getAttribute('src') || lagAudio.currentSrc || 'asset/lag.ogg');
+          lagOverride = !!active;
+          syncAudioPlayback();
+          return lagOverride;
+        },
+        playCue: playCue,
+        isLagOverrideActive: function () {
+          return lagOverride;
+        },
+        isUnlocked: function () {
+          return audioUnlocked;
+        }
+      };
+
+      document.addEventListener('click', unlockAudio, { once: true });
+      document.addEventListener('keydown', unlockAudio, { once: true });
+    })();
+  </script>
+
   <div id="loading-screen" style="position:fixed;top:0;left:0;width:100%;height:100%;background:#111;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity 0.8s;">
     <div style="font-family:monospace;font-size:28px;color:#e8d8a0;margin-bottom:16px;text-shadow:0 0 20px rgba(255,200,80,0.4);">Evolution Simulator 3D</div>
     <div style="font-family:monospace;font-size:14px;color:#887750;margin-bottom:30px;">Stone Age > Bronze Age > Iron Age</div>
@@ -66,6 +177,16 @@
   <!-- Context Action -->
   <div class="context-action" id="context-action">
     <span class="key">[E]</span> <span id="context-text">Chop Tree</span>
+  </div>
+
+  <!-- Tutorial Speech Bubble (above player head) -->
+  <div class="tutorial-bubble" id="tutorial-bubble">
+    <span id="tutorial-bubble-text"></span>
+  </div>
+
+  <!-- World Speech Bubble (above animals / world objects) -->
+  <div class="world-speech-bubble" id="world-speech-bubble">
+    <span id="world-speech-text"></span>
   </div>
 
   <!-- Combat HP bar -->
@@ -262,20 +383,5 @@
 
   <!-- Entry Point -->
   <script src="main.js"></script>
-
-  <!-- Background Music -->
-  <audio id="bg-music" src="asset/Chibi.mp3" loop preload="auto"></audio>
-  <script>
-    (function () {
-      var music = document.getElementById('bg-music');
-      music.volume = 0.4;
-      function tryPlay() {
-        music.play().catch(function () {});
-      }
-      // Auto-play as soon as a user gesture is detected
-      document.addEventListener('click', tryPlay, { once: true });
-      document.addEventListener('keydown', tryPlay, { once: true });
-    })();
-  </script>
 </body>
 </html>

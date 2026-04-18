@@ -724,6 +724,66 @@ window.GAME_BALANCE = {
       maxZoom: 4.0,
       zoomInFactor: 1.2,
       zoomOutFactor: 0.83
+    },
+    speechOverlay: {
+      suppressWhileUiOpen: true,
+      playerAnchorY: 2.7,
+      worldAnchorY: 1.75,
+      tutorials: {
+        harvest: {
+          text: 'Nhấn <span class="tut-key">[E]</span> để thu hoạch!',
+          once: true
+        },
+        eat: {
+          text: 'Đói rồi! Nhấn <span class="tut-key">[F]</span> để ăn',
+          once: true
+        },
+        night: {
+          text: 'Trời tối! Xây <span class="tut-key">Lửa Trại</span> để an toàn 🔥',
+          duration: 9,
+          once: true
+        },
+        lag: {
+          text: 'Ối dồi ôi, LAG rồi này, vãi lìn. Vào setting hạ xuống low đi.',
+          minFps: 40,
+          triggerSeconds: 2.5,
+          recoverFps: 45,
+          recoverSeconds: 1.25,
+          audioPath: 'asset/lag.ogg'
+        }
+      },
+      fireAction: {
+        text: 'đốt đốt đốt đốt, hẹ hẹ hẹ hẹ',
+        duration: 2.4,
+        audioPath: 'asset/fire.ogg'
+      },
+      resourceDiscovery: {
+        resourceIds: ['resource.copper', 'resource.tin', 'resource.iron', 'resource.coal', 'resource.bronze'],
+        text: '{name} kìa ra nhặt đi ông cháu',
+        duration: 3.2,
+        audioPath: '',
+        scanInterval: 0.6,
+        maxDistance: 18
+      },
+      threatTaunt: {
+        eligibleAnimalTypes: ['animal.bear', 'animal.lion', 'animal.sabertooth', 'animal.bandit'],
+        scanInterval: 0.8,
+        maxDistance: 18,
+        retrySeconds: 6,
+        first: {
+          text: 'Mày ngon vào ăn tao đi này',
+          duration: 2.6,
+          chance: 0.35,
+          cooldownSeconds: 18,
+          audioPath: ''
+        },
+        idleNudge: {
+          text: 'Mày sợ con kia à, đánh nó đi',
+          duration: 3.0,
+          delaySeconds: 7,
+          audioPath: ''
+        }
+      }
     }
   },
 

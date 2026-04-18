@@ -144,6 +144,9 @@ window.GameActions = (function () {
     GameHUD.showSuccess("Refueled successfully.");
     GameHUD.renderAll();
     GameHUD.selectInstance(instanceUid);
+    if (instance.entityId === 'building.campfire' && typeof GamePlayer !== 'undefined' && GamePlayer.triggerSpeechCue) {
+      GamePlayer.triggerSpeechCue('fireAction');
+    }
   }
 
   function getLevelConfigValue(config, level, fallbackValue) {
