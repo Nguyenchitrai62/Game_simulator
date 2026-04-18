@@ -23,6 +23,12 @@ window.NPCSystem = (function() {
   // NPCs array - all active NPCs
   let npcs = [];
   let nextNPCId = 1;
+  let _visualTime = 0;
+
+  function getLiveInstances() {
+    if (GameState.getAllInstancesLive) return GameState.getAllInstancesLive();
+    return GameState.getAllInstances();
+  }
 
   /**
    * Initialize NPC system
@@ -40,6 +46,7 @@ window.NPCSystem = (function() {
     // Reset NPC array
     npcs = [];
     nextNPCId = 1;
+    _visualTime = 0;
     
     console.log('[NPCSystem] Initialized');
   }
@@ -102,8 +109,15 @@ window.NPCSystem = (function() {
         carryingWater: false,
         stuckSeconds: 0,
         repathTriggered: false,
+        nightLightPaused: false,
+        threatenedById: null,
+        threatenedByType: null,
+        threatDistance: Infinity,
+        threatLevel: null,
+        threatExpiresAt: 0,
         statusText: 'Looking for work',
         speed: 0.05, // tiles per frame (slower than player)
+        visualOffset: Math.random() * Math.PI * 2,
         mesh: null
       };
 
@@ -144,6 +158,9 @@ window.NPCSystem = (function() {
    * @param {number} deltaTime - Time since last frame in seconds
    */
   function update(deltaTime) {
+    _visualTime += deltaTime;
+    var bobTime = _visualTime * 8;
+
     npcs.forEach(npc => {
       // Safety check: Skip NPCs for non-harvester buildings (e.g. Warehouse)
       const building = GameState.getInstance(npc.buildingUid);
@@ -156,9 +173,10 @@ window.NPCSystem = (function() {
         }
       }
       
-      var previousPosition = { x: npc.position.x, z: npc.position.z };
+      var previousX = npc.position.x;
+      var previousZ = npc.position.z;
       updateNPC(npc, deltaTime);
-      updateNPCStuckRecovery(npc, deltaTime, previousPosition);
+      updateNPCStuckRecovery(npc, deltaTime, previousX, previousZ);
       
       // Update 3D mesh position
       if (npc.mesh) {
@@ -167,7 +185,7 @@ window.NPCSystem = (function() {
         
         // Simple bobbing animation when walking
         if (npc.state === STATE.WALK_TO_NODE || npc.state === STATE.WALK_HOME || npc.state === STATE.WALK_TO_SOURCE || npc.state === STATE.WALK_TO_PLOT) {
-          npc.mesh.position.y = Math.abs(Math.sin(Date.now() * 0.005)) * 0.1;
+          npc.mesh.position.y = Math.abs(Math.sin(bobTime + (npc.visualOffset || 0))) * 0.1;
         } else {
           npc.mesh.position.y = 0;
         }
@@ -182,6 +200,10 @@ window.NPCSystem = (function() {
    */
   function updateNPC(npc, deltaTime) {
     const building = GameState.getInstance(npc.buildingUid);
+    if (!isWorkerThreatActive(npc)) {
+      clearWorkerThreatState(npc);
+    }
+
     if (building) {
       const nearBuilding = Math.abs(npc.position.x - building.x) < 1.6 && Math.abs(npc.position.z - building.z) < 1.6;
       if (isInsideBuildingFootprint(npc.position, building) || (nearBuilding && !canMoveTo(npc.position.x, npc.position.z))) {
@@ -196,6 +218,14 @@ window.NPCSystem = (function() {
           }
         }
       }
+    }
+
+    if (building && handleWorkerThreatResponse(npc, building)) {
+      return;
+    }
+
+    if (building && handleNightWorkPause(npc, building)) {
+      return;
     }
 
     switch (npc.state) {
@@ -232,16 +262,277 @@ window.NPCSystem = (function() {
     }
   }
 
+  function isNightWorkRestricted() {
+    return typeof DayNightSystem !== 'undefined' && DayNightSystem.isNight();
+  }
+
+  function isPositionLitForNightWork(worldX, worldZ) {
+    if (!isNightWorkRestricted()) return true;
+    return !!(window.FireSystem && FireSystem.isPositionLit && FireSystem.isPositionLit(worldX, worldZ, {
+      requireActive: true,
+      includePlayerTorch: false
+    }));
+  }
+
+  function areNightWorkPositionsLit(positions) {
+    if (!isNightWorkRestricted()) return true;
+    if (!positions || !positions.length) return false;
+
+    for (var i = 0; i < positions.length; i++) {
+      var pos = positions[i];
+      if (!pos) continue;
+      if (!isPositionLitForNightWork(pos.x, pos.z)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  function getNpcNightPauseLabel(npc, building) {
+    if (npc && npc.farmPlotUid) {
+      var plotInstance = GameState.getInstance(npc.farmPlotUid);
+      var plotEntity = plotInstance ? GameRegistry.getEntity(plotInstance.entityId) : null;
+      if (plotEntity) return plotEntity.name;
+    }
+
+    var buildingEntity = building ? GameRegistry.getEntity(building.entityId) : null;
+    return buildingEntity ? buildingEntity.name : 'Worker area';
+  }
+
+  function notifyNightWorkPause(npc, building) {
+    if (!window.GameHUD || !GameHUD.showNotification) return;
+
+    var label = getNpcNightPauseLabel(npc, building);
+    var warningKey = (building ? building.uid : 'unknown') + '::' + label;
+    var now = Date.now();
+
+    if (!notifyNightWorkPause._lastShown) {
+      notifyNightWorkPause._lastShown = {};
+    }
+
+    if (notifyNightWorkPause._lastShown[warningKey] && (now - notifyNightWorkPause._lastShown[warningKey]) < 12000) {
+      return;
+    }
+
+    notifyNightWorkPause._lastShown[warningKey] = now;
+    GameHUD.showNotification(label + ' paused at night: outside active campfire light.', 'warning');
+  }
+
+  function getNpcNightWorkAnchor(npc, building) {
+    if (npc && npc.farmPlotUid) {
+      var plotInstance = GameState.getInstance(npc.farmPlotUid);
+      if (plotInstance) {
+        return { x: plotInstance.x, z: plotInstance.z };
+      }
+    }
+
+    if (npc && npc.growthNodeId) {
+      var growthNode = getGrowthNodeById(npc.growthNodeId);
+      if (growthNode) {
+        return { x: growthNode.worldX, z: growthNode.worldZ };
+      }
+    }
+
+    if (npc && npc.targetNode) {
+      return { x: npc.targetNode.x, z: npc.targetNode.z };
+    }
+
+    if (npc && npc.targetPosition) {
+      return { x: npc.targetPosition.x, z: npc.targetPosition.z };
+    }
+
+    if (building) {
+      return { x: building.x, z: building.z };
+    }
+
+    return null;
+  }
+
+  function abortNightRestrictedWork(npc, building, statusText) {
+    if (!building) return false;
+
+    if (npc.taskType === 'farm' || npc.taskType === 'tree_growth') {
+      clearFarmAssignment(npc);
+    }
+
+    npc.targetNode = null;
+    npc.harvestProgress = 0;
+
+    var homePosition = findBuildingAccessPosition(building, npc.position) || { x: building.x, z: building.z };
+    npc.targetPosition = homePosition;
+    npc.pathQueue = findPath(npc.position, npc.targetPosition);
+    npc.state = STATE.WALK_HOME;
+    npc.statusText = statusText || 'Returning to campfire light';
+    return true;
+  }
+
+  function handleNightWorkPause(npc, building) {
+    if (!building) return false;
+
+    if (!isNightWorkRestricted()) {
+      npc.nightLightPaused = false;
+      return false;
+    }
+
+    if (npc.state === STATE.WALK_HOME || npc.state === STATE.DEPOSIT) {
+      npc.nightLightPaused = false;
+      return false;
+    }
+
+    var homeLit = isPositionLitForNightWork(building.x, building.z);
+    var workAnchor = getNpcNightWorkAnchor(npc, building);
+    var workLit = workAnchor ? areNightWorkPositionsLit([workAnchor]) : homeLit;
+
+    if ((npc.state === STATE.IDLE || npc.state === STATE.FIND_NODE) && !homeLit) {
+      if (!npc.nightLightPaused) {
+        notifyNightWorkPause(npc, building);
+      }
+      npc.nightLightPaused = true;
+      npc.targetNode = null;
+      npc.targetPosition = null;
+      npc.pathQueue = [];
+      npc.state = STATE.IDLE;
+      npc.statusText = 'Waiting for campfire light';
+      return true;
+    }
+
+    if (homeLit && workLit) {
+      npc.nightLightPaused = false;
+      return false;
+    }
+
+    if (!npc.nightLightPaused) {
+      notifyNightWorkPause(npc, building);
+    }
+    npc.nightLightPaused = true;
+    return abortNightRestrictedWork(npc, building, 'Returning to campfire light');
+  }
+
+  function clearWorkerThreatState(npc) {
+    if (!npc) return;
+    npc.threatenedById = null;
+    npc.threatenedByType = null;
+    npc.threatDistance = Infinity;
+    npc.threatLevel = null;
+    npc.threatExpiresAt = 0;
+  }
+
+  function isWorkerThreatActive(npc) {
+    return false;
+  }
+
+  function getWorkerThreatLabel(npc) {
+    if (!npc || !npc.threatenedByType) return 'threat';
+    var entity = GameRegistry.getEntity(npc.threatenedByType);
+    return entity ? entity.name : npc.threatenedByType;
+  }
+
+  function notifyWorkerThreat(npc, building) {
+    if (!npc || !building || !window.GameHUD || !GameHUD.showNotification) return;
+
+    var warningKey = building.uid + '::' + (npc.threatenedByType || 'threat');
+    var now = Date.now();
+    if (!notifyWorkerThreat._lastShown) {
+      notifyWorkerThreat._lastShown = {};
+    }
+
+    if (notifyWorkerThreat._lastShown[warningKey] && (now - notifyWorkerThreat._lastShown[warningKey]) < 10000) {
+      return;
+    }
+
+    notifyWorkerThreat._lastShown[warningKey] = now;
+    var buildingEntity = GameRegistry.getEntity(building.entityId);
+    var buildingLabel = buildingEntity ? buildingEntity.name : 'Worker area';
+    GameHUD.showNotification(buildingLabel + ' workers are under attack by ' + getWorkerThreatLabel(npc) + '.', 'warning');
+  }
+
+  function isWorkerExposed(npc, building) {
+    if (!npc || !npc.position || !building) return false;
+    if (npc.state === STATE.DEPOSIT) return false;
+
+    var dx = npc.position.x - building.x;
+    var dz = npc.position.z - building.z;
+    var distanceFromHome = Math.sqrt(dx * dx + dz * dz);
+
+    if (npc.state === STATE.WALK_HOME && distanceFromHome < 1.8) return false;
+    if (npc.state === STATE.IDLE && distanceFromHome < 1.9) return false;
+
+    return distanceFromHome > 1.9 || npc.state === STATE.FIND_NODE || npc.state === STATE.WALK_TO_NODE || npc.state === STATE.HARVEST || isFarmTaskState(npc.state);
+  }
+
+  function reportWorkerThreat(npcUid, threatType, threatSourceId, distance, isAttacking) {
+    return false;
+  }
+
+  function handleWorkerThreatResponse(npc, building) {
+    if (!building || !isWorkerThreatActive(npc)) return false;
+
+    var threatLabel = getWorkerThreatLabel(npc);
+    var dx = npc.position.x - building.x;
+    var dz = npc.position.z - building.z;
+    var distanceFromHome = Math.sqrt(dx * dx + dz * dz);
+
+    if (npc.threatLevel === 'attacking') {
+      notifyWorkerThreat(npc, building);
+    }
+
+    if (npc.state === STATE.DEPOSIT) {
+      npc.statusText = 'Depositing under threat';
+      return false;
+    }
+
+    if (npc.state === STATE.WALK_HOME && npc.targetPosition) {
+      npc.statusText = 'Fleeing ' + threatLabel;
+      return false;
+    }
+
+    if (distanceFromHome <= 1.9) {
+      if (npc.taskType === 'farm' || npc.taskType === 'tree_growth') {
+        clearFarmAssignment(npc);
+      }
+      npc.targetNode = null;
+      npc.targetPosition = null;
+      npc.pathQueue = [];
+      npc.state = STATE.IDLE;
+      npc.statusText = 'Taking cover from ' + threatLabel;
+      return true;
+    }
+
+    npc.harvestProgress = 0;
+    if (sendNpcHomeWithGoods(npc, 'Fleeing ' + threatLabel)) {
+      return true;
+    }
+
+    npc.state = STATE.IDLE;
+    npc.statusText = 'Escaping ' + threatLabel;
+    return true;
+  }
+
+  function getNearestExposedWorker(worldX, worldZ, maxDistance) {
+    return null;
+  }
+
+  function getThreatenedWorkersSummary() {
+    return {
+      count: 0,
+      attackingCount: 0,
+      nearbyCount: 0,
+      workers: [],
+      topThreat: null
+    };
+  }
+
   /**
    * IDLE state - transition to find node
    */
   function handleIdle(npc) {
     npc.targetNode = null;
+    const workerBuilding = GameState.getInstance(npc.buildingUid);
 
     if (npc.harvestedAmount && Object.keys(npc.harvestedAmount).length > 0) {
-      const building = GameState.getInstance(npc.buildingUid);
-      if (building) {
-        const homePosition = findBuildingAccessPosition(building, npc.position) || { x: building.x, z: building.z };
+      if (workerBuilding) {
+        const homePosition = findBuildingAccessPosition(workerBuilding, npc.position) || { x: workerBuilding.x, z: workerBuilding.z };
         npc.targetPosition = homePosition;
         npc.pathQueue = findPath(npc.position, npc.targetPosition);
         npc.state = STATE.WALK_HOME;
@@ -261,10 +552,12 @@ window.NPCSystem = (function() {
       return;
     }
 
-    if (handleFindFarmTask(npc, {
-      allowedTasks: { water: true }
-    })) {
-      return;
+    if (canWorkerHandleWaterTasks(workerBuilding)) {
+      if (handleFindFarmTask(npc, {
+        allowedTasks: { water: true }
+      })) {
+        return;
+      }
     }
 
     if (handleFindFarmTask(npc, {
@@ -332,8 +625,9 @@ window.NPCSystem = (function() {
       return;
     }
 
+    var homeLit = building ? isPositionLitForNightWork(building.x, building.z) : true;
     npc.state = STATE.IDLE;
-    npc.statusText = npcCanServiceFarm(npc) ? 'Looking for resources or farm work' : 'Looking for work';
+    npc.statusText = (!homeLit && isNightWorkRestricted()) ? 'Waiting for campfire light' : (npcCanServiceFarm(npc) ? 'Looking for resources or farm work' : 'Looking for work');
   }
 
   /**
@@ -645,9 +939,17 @@ window.NPCSystem = (function() {
     return (workerBuilding.level || 1) >= (farming.requiredWorkerLevel || 1);
   }
 
+  function canWorkerHandleWaterTasks(workerBuilding) {
+    if (!workerBuilding) return false;
+    const balance = GameRegistry.getBalance(workerBuilding.entityId) || {};
+    return (workerBuilding.level || 1) >= (balance.farmWaterLevel || 1);
+  }
+
   function getWorkerTreeCareConfig(workerBuilding) {
     const balance = workerBuilding ? GameRegistry.getBalance(workerBuilding.entityId) : null;
-    return balance && balance.treeCare ? balance.treeCare : null;
+    if (!balance || !balance.treeCare) return null;
+    if ((workerBuilding.level || 1) < (balance.treeCare.requiredWorkerLevel || 1)) return null;
+    return balance.treeCare;
   }
 
   function findRiverWaterSourceForPosition(worldX, worldZ, searchRadius, boostRadius) {
@@ -692,7 +994,7 @@ window.NPCSystem = (function() {
     var maxDistance = Math.max(0, searchRadius || 0);
     if (maxDistance <= 0) return null;
 
-    var instances = GameState.getAllInstances();
+    var instances = getLiveInstances();
     var bestWell = null;
     var bestDistance = Infinity;
 
@@ -813,7 +1115,7 @@ window.NPCSystem = (function() {
   function findFarmTaskForWorker(npc, workerBuilding, options) {
     options = options || {};
 
-    const instances = GameState.getAllInstances();
+    const instances = getLiveInstances();
     let bestTask = null;
     let bestScore = Infinity;
     var allowedTasks = options.allowedTasks || null;
@@ -849,6 +1151,7 @@ window.NPCSystem = (function() {
         targetPosition = findBuildingAccessPosition(plotBuilding, npc.position) || { x: plotBuilding.x, z: plotBuilding.z };
         statusText = 'Walking to harvest plot';
       } else if ((!allowedTasks || allowedTasks.water) && farmState.planted && !farmState.watered) {
+        if (!canWorkerHandleWaterTasks(workerBuilding)) continue;
         const support = getFarmWaterSupportForNPC(uid);
         if (support && support.type) {
           if (support.type === 'well' && support.sourceUid) {
@@ -873,6 +1176,10 @@ window.NPCSystem = (function() {
       }
 
       if (!task || !targetPosition) continue;
+      if (!areNightWorkPositionsLit([
+        { x: plotBuilding.x, z: plotBuilding.z },
+        { x: targetPosition.x, z: targetPosition.z }
+      ])) continue;
 
       const dx = plotBuilding.x - npc.position.x;
       const dz = plotBuilding.z - npc.position.z;
@@ -925,6 +1232,9 @@ window.NPCSystem = (function() {
   function handleFindPriorityTreeHarvestTask(npc) {
     const workerBuilding = GameState.getInstance(npc.buildingUid);
     if (!workerBuilding) return false;
+
+    const treeCare = getWorkerTreeCareConfig(workerBuilding);
+    if (!treeCare || !treeCare.harvestOnlyMaxStage) return false;
 
     const balance = GameRegistry.getBalance(workerBuilding.entityId);
     const level = workerBuilding.level || 1;
@@ -996,6 +1306,10 @@ window.NPCSystem = (function() {
           }
 
           if (!sourcePosition) continue;
+          if (!areNightWorkPositionsLit([
+            { x: obj.worldX, z: obj.worldZ },
+            { x: sourcePosition.x, z: sourcePosition.z }
+          ])) continue;
 
           var stagePenalty = (typeof obj.growthStage === 'number' ? obj.growthStage : 0) * 4;
           var score = stagePenalty + distance;
@@ -1346,7 +1660,7 @@ window.NPCSystem = (function() {
     return true;
   }
 
-  function updateNPCStuckRecovery(npc, deltaTime, previousPosition) {
+  function updateNPCStuckRecovery(npc, deltaTime, previousX, previousZ) {
     var building = GameState.getInstance(npc.buildingUid);
 
     if (npc.targetPosition && !canMoveTo(npc.targetPosition.x, npc.targetPosition.z)) {
@@ -1369,8 +1683,8 @@ window.NPCSystem = (function() {
       return;
     }
 
-    var movedDx = npc.position.x - previousPosition.x;
-    var movedDz = npc.position.z - previousPosition.z;
+    var movedDx = npc.position.x - previousX;
+    var movedDz = npc.position.z - previousZ;
     var movedDistance = Math.sqrt(movedDx * movedDx + movedDz * movedDz);
 
     if (movedDistance > 0.01) {
@@ -1647,6 +1961,8 @@ window.NPCSystem = (function() {
             const dx = objWorldX - x;
             const dz = objWorldZ - z;
             const distance = Math.sqrt(dx * dx + dz * dz);
+
+            if (!areNightWorkPositionsLit([{ x: objWorldX, z: objWorldZ }])) continue;
             
             if (distance <= radius && distance < nearestDistance) {
               nearestDistance = distance;
@@ -1885,6 +2201,16 @@ window.NPCSystem = (function() {
 
     var farming = getFarmingConfig(plotInstance);
     if (!farming) return null;
+    var farmState = GameState.getFarmState(instanceUid) || { planted: false, watered: false, ready: false, progress: 0 };
+
+    if (isNightWorkRestricted() && !isPositionLitForNightWork(plotInstance.x, plotInstance.z)) {
+      return {
+        state: STATE.IDLE,
+        task: null,
+        carryingWater: false,
+        text: 'Night pause: outside active campfire light'
+      };
+    }
 
     var nearbyWorker = npcs.find(function(npc) {
       if (!npcCanServiceFarm(npc)) return false;
@@ -1909,6 +2235,16 @@ window.NPCSystem = (function() {
       };
     }
 
+    var nearbyWorkerBuilding = GameState.getInstance(nearbyWorker.buildingUid);
+    if (farmState.planted && !farmState.watered && nearbyWorkerBuilding && !canWorkerHandleWaterTasks(nearbyWorkerBuilding)) {
+      return {
+        state: nearbyWorker.state,
+        task: nearbyWorker.farmTask,
+        carryingWater: !!nearbyWorker.carryingWater,
+        text: 'Nearby resident needs Level 3 to water this plot'
+      };
+    }
+
     return {
       state: nearbyWorker.state,
       task: nearbyWorker.farmTask,
@@ -1922,7 +2258,12 @@ window.NPCSystem = (function() {
     spawnWorkersForBuilding,
     despawnWorkersForBuilding,
     update,
+    findPath,
+    canMoveTo,
     getAllNPCs,
+    getNearestExposedWorker,
+    reportWorkerThreat,
+    getThreatenedWorkersSummary,
     getNPCsForBuilding,
     getActiveHarvestNodes,
     getFarmWorkerStatus,

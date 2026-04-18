@@ -13,6 +13,22 @@ window.DayNightSystem = (function () {
     fogFar: 80,
     darkness: 0
   };
+  var _phaseValues = {
+    ambient: 0.6,
+    dirInt: 0.8,
+    dirColor: new THREE.Color(0xfff4e0),
+    hemiInt: 0.3,
+    sky: new THREE.Color(0x87CEEB),
+    darkness: 0
+  };
+  var _lerpColorA = new THREE.Color();
+  var _lerpColorB = new THREE.Color();
+  var _dirLightRef = null;
+  var _ambLightRef = null;
+  var _hemiLightRef = null;
+  var _lastVignetteOpacity = '';
+  var _lastColorGradeOpacity = '';
+  var _lastColorGradeBackground = '';
 
   // Fog stays CONSTANT - darkness controlled ONLY by light intensity
   // This lets PointLights (torches, campfires) illuminate properly at night
@@ -42,11 +58,11 @@ window.DayNightSystem = (function () {
     return a + (b - a) * t;
   }
 
-  function lerpColor(hexA, hexB, t) {
-    var cA = new THREE.Color(hexA);
-    var cB = new THREE.Color(hexB);
-    cA.lerp(cB, t);
-    return cA;
+  function lerpColorInto(target, hexA, hexB, t) {
+    _lerpColorA.setHex(hexA);
+    _lerpColorB.setHex(hexB);
+    target.copy(_lerpColorA).lerp(_lerpColorB, t);
+    return target;
   }
 
   function getPhaseValues(time) {
@@ -65,14 +81,30 @@ window.DayNightSystem = (function () {
     var range = next.hour - prev.hour;
     var frac = range > 0 ? (t - prev.hour) / range : 0;
 
-    return {
-      ambient: lerp(prev.ambient, next.ambient, frac),
-      dirInt: lerp(prev.dirInt, next.dirInt, frac),
-      dirColor: lerpColor(prev.dirColor, next.dirColor, frac),
-      hemiInt: lerp(prev.hemiInt, next.hemiInt, frac),
-      sky: lerpColor(prev.sky, next.sky, frac),
-      darkness: lerp(prev.darkness, next.darkness, frac)
-    };
+    _phaseValues.ambient = lerp(prev.ambient, next.ambient, frac);
+    _phaseValues.dirInt = lerp(prev.dirInt, next.dirInt, frac);
+    _phaseValues.hemiInt = lerp(prev.hemiInt, next.hemiInt, frac);
+    _phaseValues.darkness = lerp(prev.darkness, next.darkness, frac);
+    lerpColorInto(_phaseValues.dirColor, prev.dirColor, next.dirColor, frac);
+    lerpColorInto(_phaseValues.sky, prev.sky, next.sky, frac);
+    return _phaseValues;
+  }
+
+  function cacheSceneLights(scene) {
+    if (_dirLightRef && _dirLightRef.parent === scene && _ambLightRef && _ambLightRef.parent === scene && _hemiLightRef && _hemiLightRef.parent === scene) {
+      return;
+    }
+
+    _dirLightRef = null;
+    _ambLightRef = null;
+    _hemiLightRef = null;
+
+    for (var i = 0; i < scene.children.length; i++) {
+      var child = scene.children[i];
+      if (child.isDirectionalLight) _dirLightRef = child;
+      else if (child.isAmbientLight) _ambLightRef = child;
+      else if (child.isHemisphereLight) _hemiLightRef = child;
+    }
   }
 
   function init() {
@@ -103,10 +135,10 @@ window.DayNightSystem = (function () {
     var vals = getPhaseValues(_timeOfDay);
     _lightState.ambientIntensity = vals.ambient;
     _lightState.dirIntensity = vals.dirInt;
-    _lightState.dirColor = vals.dirColor;
+    _lightState.dirColor.copy(vals.dirColor);
     _lightState.hemiIntensity = vals.hemiInt;
-    _lightState.skyColor = vals.sky;
-    _lightState.fogColor = vals.sky.clone();
+    _lightState.skyColor.copy(vals.sky);
+    _lightState.fogColor.copy(vals.sky);
     _lightState.darkness = vals.darkness;
 
     var scene = GameScene.getScene();
@@ -114,51 +146,60 @@ window.DayNightSystem = (function () {
     if (!scene || !camera) return;
 
     // Sky color changes with time of day
-    scene.background = vals.sky;
+    if (scene.background && scene.background.isColor) {
+      scene.background.copy(_lightState.skyColor);
+    } else {
+      scene.background = _lightState.skyColor.clone();
+    }
 
     // Fog color matches sky but distance stays CONSTANT
     // This prevents fog from acting as a "color blanket" at night
-    scene.fog.color = vals.sky.clone();
+    scene.fog.color.copy(_lightState.fogColor);
     scene.fog.near = FOG_NEAR;
     scene.fog.far = FOG_FAR;
 
     // Control darkness through light intensity ONLY
-    var dirLight = null;
-    var ambLight = null;
-    var hemiLight = null;
+    cacheSceneLights(scene);
 
-    for (var i = 0; i < scene.children.length; i++) {
-      var child = scene.children[i];
-      if (child.isDirectionalLight) dirLight = child;
-      else if (child.isAmbientLight) ambLight = child;
-      else if (child.isHemisphereLight) hemiLight = child;
+    if (_dirLightRef) {
+      _dirLightRef.intensity = vals.dirInt;
+      _dirLightRef.color.copy(vals.dirColor);
     }
-
-    if (dirLight) {
-      dirLight.intensity = vals.dirInt;
-      dirLight.color.copy(vals.dirColor);
+    if (_ambLightRef) {
+      _ambLightRef.intensity = vals.ambient;
     }
-    if (ambLight) {
-      ambLight.intensity = vals.ambient;
-    }
-    if (hemiLight) {
-      hemiLight.intensity = vals.hemiInt;
+    if (_hemiLightRef) {
+      _hemiLightRef.intensity = vals.hemiInt;
     }
 
     // Update vignette based on darkness
     var vignetteEl = document.getElementById('vignette');
     if (vignetteEl) {
-      vignetteEl.style.opacity = vals.darkness > 0.7 ? (vals.darkness - 0.7) * 1.5 : 0;
+      var vignetteOpacity = vals.darkness > 0.7 ? String((vals.darkness - 0.7) * 1.5) : '0';
+      if (_lastVignetteOpacity !== vignetteOpacity) {
+        vignetteEl.style.opacity = vignetteOpacity;
+        _lastVignetteOpacity = vignetteOpacity;
+      }
     }
 
     // Update color grade based on time of day
     var cgEl = document.getElementById('color-grade');
     if (cgEl) {
       if (vals.darkness > 0.5) {
-        cgEl.style.background = 'rgba(20,20,60,' + ((vals.darkness - 0.5) * 0.15).toFixed(3) + ')';
-        cgEl.style.opacity = '1';
+        var backgroundValue = 'rgba(20,20,60,' + ((vals.darkness - 0.5) * 0.15).toFixed(3) + ')';
+        if (_lastColorGradeBackground !== backgroundValue) {
+          cgEl.style.background = backgroundValue;
+          _lastColorGradeBackground = backgroundValue;
+        }
+        if (_lastColorGradeOpacity !== '1') {
+          cgEl.style.opacity = '1';
+          _lastColorGradeOpacity = '1';
+        }
       } else {
-        cgEl.style.opacity = '0';
+        if (_lastColorGradeOpacity !== '0') {
+          cgEl.style.opacity = '0';
+          _lastColorGradeOpacity = '0';
+        }
       }
     }
   }

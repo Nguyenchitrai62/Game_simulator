@@ -58,6 +58,22 @@ window.GameRegistry = (function () {
     return _balance[id] || null;
   }
 
+  function getAnimalDisposition(id) {
+    if (!id || id.indexOf('animal.') !== 0) return null;
+
+    var balance = getBalance(id) || {};
+    if (balance.animalDisposition) return balance.animalDisposition;
+    return (Number(balance.attack) || 0) > 0 ? 'threat' : 'prey';
+  }
+
+  function isAnimalThreat(id) {
+    return getAnimalDisposition(id) === 'threat';
+  }
+
+  function isAnimalPrey(id) {
+    return getAnimalDisposition(id) === 'prey';
+  }
+
   function getUnlocksForAge(ageId) {
     var results = [];
     for (var id in _entities) {
@@ -93,6 +109,9 @@ window.GameRegistry = (function () {
     getEntity: getEntity,
     getEntitiesByType: getEntitiesByType,
     getBalance: getBalance,
+    getAnimalDisposition: getAnimalDisposition,
+    isAnimalThreat: isAnimalThreat,
+    isAnimalPrey: isAnimalPrey,
     getUnlocksForAge: getUnlocksForAge,
     getEntitiesByUnlockAge: getEntitiesByUnlockAge,
     getAllEntities: getAllEntities,

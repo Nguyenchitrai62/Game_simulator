@@ -1,5 +1,148 @@
 console.log('[HUD] Loading hud.js...');
 
+window.GameDebugSettings = window.GameDebugSettings || (function () {
+  var STORAGE_KEY = 'evolution_debug_settings_v1';
+  var _defaults = {
+    hud: true,
+    minimap: true,
+    worldLabels: true,
+    notifications: true,
+    screenFx: true,
+    particles: true,
+    weather: true,
+    atmosphere: true,
+    animals: true,
+    npcs: true,
+    barracksTroops: true
+  };
+  var _state = loadState();
+  var _listeners = [];
+
+  function cloneDefaults() {
+    var copy = {};
+    for (var key in _defaults) {
+      copy[key] = _defaults[key];
+    }
+    return copy;
+  }
+
+  function loadState() {
+    var nextState = cloneDefaults();
+    try {
+      if (typeof localStorage === 'undefined') return nextState;
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return nextState;
+      var parsed = JSON.parse(raw);
+      for (var key in _defaults) {
+        if (parsed && typeof parsed[key] === 'boolean') {
+          nextState[key] = parsed[key];
+        }
+      }
+    } catch (error) {
+      console.warn('[DebugSettings] Failed to load saved state:', error);
+    }
+    return nextState;
+  }
+
+  function saveState() {
+    try {
+      if (typeof localStorage === 'undefined') return;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(_state));
+    } catch (error) {
+      console.warn('[DebugSettings] Failed to save state:', error);
+    }
+  }
+
+  function emit(change) {
+    var snapshot = getAll();
+    for (var i = 0; i < _listeners.length; i++) {
+      try {
+        _listeners[i](snapshot, change || null);
+      } catch (error) {
+        console.warn('[DebugSettings] Listener failed:', error);
+      }
+    }
+  }
+
+  function isEnabled(key) {
+    return _state[key] !== false;
+  }
+
+  function setEnabled(key, enabled, source) {
+    if (!_defaults.hasOwnProperty(key)) return false;
+    var nextValue = enabled !== false;
+    if (_state[key] === nextValue) return nextValue;
+    _state[key] = nextValue;
+    saveState();
+    emit({ key: key, value: nextValue, source: source || 'set' });
+    return nextValue;
+  }
+
+  function toggle(key, source) {
+    return setEnabled(key, !isEnabled(key), source || 'toggle');
+  }
+
+  function getAll() {
+    var snapshot = {};
+    for (var key in _defaults) {
+      snapshot[key] = _state[key] !== false;
+    }
+    return snapshot;
+  }
+
+  function reset(source) {
+    _state = cloneDefaults();
+    saveState();
+    emit({ type: 'reset', source: source || 'reset' });
+    return getAll();
+  }
+
+  function subscribe(listener) {
+    if (typeof listener !== 'function') {
+      return function () {};
+    }
+    _listeners.push(listener);
+    return function () {
+      for (var i = _listeners.length - 1; i >= 0; i--) {
+        if (_listeners[i] === listener) {
+          _listeners.splice(i, 1);
+          break;
+        }
+      }
+    };
+  }
+
+  return {
+    isEnabled: isEnabled,
+    setEnabled: setEnabled,
+    toggle: toggle,
+    getAll: getAll,
+    reset: reset,
+    subscribe: subscribe,
+    getDefaults: cloneDefaults
+  };
+})();
+
+(function applyEarlyDebugSettingsClasses() {
+  if (typeof document === 'undefined') return;
+
+  function syncBodyClasses() {
+    if (!document.body || !window.GameDebugSettings || !GameDebugSettings.isEnabled) return;
+
+    document.body.classList.toggle('debug-hud-hidden', !GameDebugSettings.isEnabled('hud'));
+    document.body.classList.toggle('debug-minimap-hidden', !GameDebugSettings.isEnabled('minimap'));
+    document.body.classList.toggle('debug-world-labels-hidden', !GameDebugSettings.isEnabled('worldLabels'));
+    document.body.classList.toggle('debug-screen-fx-hidden', !GameDebugSettings.isEnabled('screenFx'));
+  }
+
+  if (document.body) {
+    syncBodyClasses();
+    return;
+  }
+
+  document.addEventListener('DOMContentLoaded', syncBodyClasses, { once: true });
+})();
+
 try {
   window.GameHUD = (function () {
     console.log('[HUD] IIFE started');
@@ -9,14 +152,238 @@ try {
     var _quickbarMode = 'build';
     var _quickbarItems = [];
     var _quickbarSelected = { build: null, craft: null };
+    var _buildingLabelNodes = {};
+    var _buildingLabelContainer = null;
+    var _buildingLabelVector = null;
+    var _hudScratchVectors = [];
+    var _fpsPanel = null;
+    var _fpsSmoothed = 0;
+    var _fpsSmoothedMs = 0;
+    var _fpsUpdateAccumulator = 0;
+    var _renderScheduled = false;
+    var _renderHandle = null;
+    var _renderHandleIsFrame = false;
+    var _pendingRenderReason = 'scheduled';
+    var _screenPointScratch = { x: 0, y: 0, z: 0 };
+    var BUILDING_LABEL_STORAGE_WARNING_PCT = 70;
+    var _debugSettingsPanelOpen = false;
+    var _debugSettingsUnsubscribe = null;
+    var DEBUG_SETTINGS_GROUPS = [
+      {
+        title: 'Overlay',
+        items: [
+          { key: 'hud', label: 'HUD Overlay', hint: 'Hide all overlay UI except FPS and this debug panel.' },
+          { key: 'minimap', label: 'Minimap', hint: 'Stop minimap updates and close the world map overlay.' },
+          { key: 'worldLabels', label: 'World Labels', hint: 'Disable node HP bars, world labels, and storage warning labels.' },
+          { key: 'notifications', label: 'Notifications', hint: 'Mute toast notifications while profiling other systems.' }
+        ]
+      },
+      {
+        title: 'World FX',
+        items: [
+          { key: 'screenFx', label: 'Screen Effects', hint: 'Hide vignette, color grading, flash overlay, and fire light mask.' },
+          { key: 'particles', label: 'Particles', hint: 'Stop particle emission and clear active particles.' },
+          { key: 'weather', label: 'Weather', hint: 'Pause rain simulation and hide rain lines.' },
+          { key: 'atmosphere', label: 'Atmosphere', hint: 'Pause atmosphere updates such as wind, stars, and clouds.' }
+        ]
+      },
+      {
+        title: 'Simulation',
+        items: [
+          { key: 'animals', label: 'Animal Simulation', hint: 'Freeze animal AI and movement updates.' },
+          { key: 'npcs', label: 'NPC Workers', hint: 'Pause worker updates to isolate settlement CPU load.' },
+          { key: 'barracksTroops', label: 'Barracks Troops', hint: 'Pause deployed troop updates and targeting.' }
+        ]
+      }
+    ];
+
+    function isDebugSettingEnabled(key) {
+      return !window.GameDebugSettings || !GameDebugSettings.isEnabled || GameDebugSettings.isEnabled(key);
+    }
+
+    function isHudVisible() {
+      return isDebugSettingEnabled('hud');
+    }
+
+    function areWorldLabelsVisible() {
+      return isHudVisible() && isDebugSettingEnabled('worldLabels');
+    }
+
+    function areNotificationsVisible() {
+      return isHudVisible() && isDebugSettingEnabled('notifications');
+    }
+
+    function setBodyClass(name, enabled) {
+      if (!document.body) return;
+      if (enabled) document.body.classList.add(name);
+      else document.body.classList.remove(name);
+    }
+
+    function getDebugSettingsPanel() {
+      return document.getElementById('debug-settings-panel');
+    }
+
+    function getDebugSettingsToggleButton() {
+      return document.getElementById('debug-settings-toggle');
+    }
+
+    function updateDebugSettingsToggleState() {
+      var button = getDebugSettingsToggleButton();
+      if (!button) return;
+      button.setAttribute('aria-expanded', _debugSettingsPanelOpen ? 'true' : 'false');
+      setNodeClassState(button, 'is-open', _debugSettingsPanelOpen);
+    }
+
+    function clearWorldOverlayElements() {
+      var nodeHpContainer = document.getElementById('node-hp-bars-container');
+      if (nodeHpContainer) setInnerHtmlIfChanged(nodeHpContainer, '');
+
+      var nodeLabelContainer = document.getElementById('node-world-labels');
+      if (nodeLabelContainer) setInnerHtmlIfChanged(nodeLabelContainer, '');
+
+      hideUnusedBuildingLabels({}, {});
+      hideObjectHpBar();
+    }
+
+    function hideNotificationElement() {
+      var el = document.getElementById('notification');
+      if (!el) return;
+      el.classList.remove('show', 'error', 'success', 'info', 'warning', 'default');
+    }
+
+    function renderDebugSettingsPanel() {
+      var panel = getDebugSettingsPanel();
+      if (!panel) return;
+
+      var html = '<div class="debug-settings-header">' +
+        '<div>' +
+          '<div class="debug-settings-kicker">Runtime Profiling</div>' +
+          '<div class="debug-settings-title">Debug Settings</div>' +
+          '<div class="debug-settings-copy">Toggle systems on and off in real time to isolate which subsystem causes frame drops.</div>' +
+        '</div>' +
+        '<button class="debug-settings-reset" type="button" data-debug-reset="true">Reset</button>' +
+      '</div>';
+
+      for (var groupIndex = 0; groupIndex < DEBUG_SETTINGS_GROUPS.length; groupIndex++) {
+        var group = DEBUG_SETTINGS_GROUPS[groupIndex];
+        html += '<div class="debug-settings-group">';
+        html += '<div class="debug-settings-group-title">' + group.title + '</div>';
+        for (var itemIndex = 0; itemIndex < group.items.length; itemIndex++) {
+          var item = group.items[itemIndex];
+          html += '<label class="debug-setting-row">' +
+            '<span class="debug-setting-copy-block">' +
+              '<span class="debug-setting-name">' + item.label + '</span>' +
+              '<span class="debug-setting-hint">' + item.hint + '</span>' +
+            '</span>' +
+            '<input type="checkbox" data-debug-setting="' + item.key + '"' + (isDebugSettingEnabled(item.key) ? ' checked' : '') + '>' +
+          '</label>';
+        }
+        html += '</div>';
+      }
+
+      html += '<div class="debug-settings-copy" style="margin-top:12px; border-top:1px solid rgba(255,255,255,0.06); padding-top:10px;">Shortcuts: <strong>F9</strong> opens this panel. FPS stays visible even when HUD is disabled.</div>';
+
+      setInnerHtmlIfChanged(panel, html);
+      setNodeClassState(panel, 'open', _debugSettingsPanelOpen);
+      panel.setAttribute('aria-hidden', _debugSettingsPanelOpen ? 'false' : 'true');
+      updateDebugSettingsToggleState();
+    }
+
+    function applyDebugSettingsState(reason) {
+      var hudVisible = isHudVisible();
+      var worldLabelsVisible = areWorldLabelsVisible();
+
+      setBodyClass('debug-hud-hidden', !hudVisible);
+      setBodyClass('debug-minimap-hidden', !isDebugSettingEnabled('minimap'));
+      setBodyClass('debug-world-labels-hidden', !worldLabelsVisible);
+      setBodyClass('debug-screen-fx-hidden', !isDebugSettingEnabled('screenFx'));
+
+      if (!hudVisible) {
+        clearScheduledRender();
+        if (_modalActive) closeModal();
+        closeInspector();
+      }
+
+      if (!worldLabelsVisible) {
+        clearWorldOverlayElements();
+      }
+
+      if (!areNotificationsVisible()) {
+        hideNotificationElement();
+      }
+
+      if (window.MiniMap && MiniMap.refreshVisibility) {
+        MiniMap.refreshVisibility();
+      }
+      if (window.WeatherSystem && WeatherSystem.setEnabled) {
+        WeatherSystem.setEnabled(isDebugSettingEnabled('weather'));
+      }
+      if (window.ParticleSystem && ParticleSystem.clearAll && !isDebugSettingEnabled('particles')) {
+        ParticleSystem.clearAll();
+      }
+
+      renderDebugSettingsPanel();
+      if (hudVisible) {
+        renderAll(reason || 'debug-settings');
+      }
+    }
+
+    function toggleDebugSettingsPanel(forceOpen) {
+      _debugSettingsPanelOpen = typeof forceOpen === 'boolean' ? forceOpen : !_debugSettingsPanelOpen;
+      renderDebugSettingsPanel();
+      return _debugSettingsPanelOpen;
+    }
+
+    function bindDebugSettingsUi() {
+      var panel = getDebugSettingsPanel();
+      if (panel && !panel._debugSettingsBound) {
+        panel.addEventListener('change', function (event) {
+          var target = event.target;
+          var key = target && target.getAttribute ? target.getAttribute('data-debug-setting') : null;
+          if (!key || !window.GameDebugSettings) return;
+          GameDebugSettings.setEnabled(key, !!target.checked, 'panel');
+        });
+        panel.addEventListener('click', function (event) {
+          var target = event.target;
+          if (!target || !target.getAttribute || target.getAttribute('data-debug-reset') !== 'true' || !window.GameDebugSettings) return;
+          GameDebugSettings.reset('panel');
+        });
+        panel._debugSettingsBound = true;
+      }
+
+      var button = getDebugSettingsToggleButton();
+      if (button && !button._debugSettingsBound) {
+        button.addEventListener('click', function () {
+          toggleDebugSettingsPanel();
+        });
+        button._debugSettingsBound = true;
+      }
+
+      if (!_debugSettingsUnsubscribe && window.GameDebugSettings && GameDebugSettings.subscribe) {
+        _debugSettingsUnsubscribe = GameDebugSettings.subscribe(function (snapshot, change) {
+          applyDebugSettingsState(change && change.key ? ('debug:' + change.key) : 'debug-settings');
+        });
+      }
+    }
   
   function init() {
     // Initialize HUD - placeholder for future initialization
     console.log('[GameHUD] Initialized');
+    _buildingLabelContainer = document.getElementById('building-storage-labels');
+    _fpsPanel = document.getElementById('fps-panel');
+    if (_fpsPanel) {
+      _fpsPanel.textContent = 'FPS --';
+      _fpsPanel.classList.remove('warn', 'low');
+    }
+    bindDebugSettingsUi();
+    renderDebugSettingsPanel();
+    applyDebugSettingsState('init');
     renderQuickbar();
   }
 
-  function renderAll() {
+  function performRenderAll() {
+    if (!isHudVisible()) return;
+
     renderResources();
     renderPlayerStats();
     renderHungerBar();
@@ -28,6 +395,246 @@ try {
     if (_selectedInstance && GameState.getInstance && GameState.getInstance(_selectedInstance)) {
       showBuildingInspector(_selectedInstance);
     }
+  }
+
+  function clearScheduledRender() {
+    if (!_renderScheduled && _renderHandle === null) return;
+
+    if (_renderHandle !== null) {
+      if (_renderHandleIsFrame && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(_renderHandle);
+      else clearTimeout(_renderHandle);
+    }
+
+    _renderScheduled = false;
+    _renderHandle = null;
+    _renderHandleIsFrame = false;
+  }
+
+  function executeRender(reason) {
+    var perfMark = (typeof GamePerf !== 'undefined' && GamePerf.begin) ? GamePerf.begin('hud.render') : null;
+    _pendingRenderReason = reason || _pendingRenderReason;
+    performRenderAll();
+    if (perfMark && typeof GamePerf !== 'undefined' && GamePerf.end) {
+      GamePerf.end(perfMark);
+    }
+  }
+
+  function flushScheduledRender() {
+    _renderScheduled = false;
+    _renderHandle = null;
+    _renderHandleIsFrame = false;
+    executeRender(_pendingRenderReason);
+  }
+
+  function renderAll(reason) {
+    if (typeof reason === 'string' && reason) {
+      _pendingRenderReason = reason;
+    }
+
+    if (!isHudVisible()) return;
+
+    if (_renderScheduled) return;
+
+    _renderScheduled = true;
+    if (typeof requestAnimationFrame === 'function') {
+      _renderHandleIsFrame = true;
+      _renderHandle = requestAnimationFrame(flushScheduledRender);
+      return;
+    }
+
+    _renderHandleIsFrame = false;
+    _renderHandle = setTimeout(flushScheduledRender, 16);
+  }
+
+  function renderNow(reason) {
+    if (!isHudVisible()) {
+      clearScheduledRender();
+      return;
+    }
+
+    clearScheduledRender();
+    executeRender(typeof reason === 'string' && reason ? reason : 'immediate');
+  }
+
+  function getHudInstances() {
+    if (GameState.getAllInstancesLive) return GameState.getAllInstancesLive();
+    return GameState.getAllInstances();
+  }
+
+  function getBuildingLabelContainer() {
+    if (!_buildingLabelContainer) {
+      _buildingLabelContainer = document.getElementById('building-storage-labels');
+    }
+    return _buildingLabelContainer;
+  }
+
+  function getFpsPanel() {
+    if (!_fpsPanel) {
+      _fpsPanel = document.getElementById('fps-panel');
+    }
+    return _fpsPanel;
+  }
+
+  function getBuildingLabelVector() {
+    if (!_buildingLabelVector && typeof THREE !== 'undefined') {
+      _buildingLabelVector = new THREE.Vector3();
+    }
+    return _buildingLabelVector;
+  }
+
+  function getHudScratchVector(index) {
+    if (!_hudScratchVectors[index] && typeof THREE !== 'undefined') {
+      _hudScratchVectors[index] = new THREE.Vector3();
+    }
+    return _hudScratchVectors[index];
+  }
+
+  function projectHudWorldPoint(worldX, worldY, worldZ) {
+    if (!window.GameScene) return null;
+
+    if (GameScene.projectWorldToScreen) {
+      return GameScene.projectWorldToScreen(worldX, worldY, worldZ, _screenPointScratch);
+    }
+
+    var worldPos = getHudScratchVector(7);
+    if (!worldPos || !GameScene.worldToScreen) return null;
+
+    worldPos.set(worldX, worldY, worldZ);
+    return GameScene.worldToScreen(worldPos, _screenPointScratch);
+  }
+
+  function setNodeText(node, text) {
+    if (node && node.textContent !== text) {
+      node.textContent = text;
+    }
+  }
+
+  function setNodeTitle(node, title) {
+    if (node && node.title !== title) {
+      node.title = title;
+    }
+  }
+
+  function setInnerHtmlIfChanged(node, html) {
+    if (node && node.innerHTML !== html) {
+      node.innerHTML = html;
+    }
+  }
+
+  function setNodeDisplay(node, visible) {
+    if (!node) return;
+    var nextValue = visible ? '' : 'none';
+    if (node.style.display !== nextValue) {
+      node.style.display = nextValue;
+    }
+  }
+
+  function setNodeWidth(node, percent) {
+    if (!node) return;
+    var clamped = Math.max(0, Math.min(100, Math.round(percent)));
+    var nextValue = clamped + '%';
+    if (node.style.width !== nextValue) {
+      node.style.width = nextValue;
+    }
+  }
+
+  function setNodeColor(node, color) {
+    if (node && node.style.backgroundColor !== color) {
+      node.style.backgroundColor = color;
+    }
+  }
+
+  function setNodeClassState(node, className, enabled) {
+    if (!node) return;
+    if (enabled) node.classList.add(className);
+    else node.classList.remove(className);
+  }
+
+  function ensureBuildingLabelNode(uid, container) {
+    var entry = _buildingLabelNodes[uid];
+    if (entry) {
+      if (entry.root.parentNode !== container) {
+        container.appendChild(entry.root);
+      }
+      return entry;
+    }
+
+    var root = document.createElement('div');
+    root.className = 'building-world-label';
+
+    var fuelCard = document.createElement('div');
+    fuelCard.className = 'building-world-fuel';
+    var fuelBadge = document.createElement('div');
+    fuelBadge.className = 'building-world-badge';
+    fuelBadge.textContent = 'FIRE';
+    var fuelBar = document.createElement('div');
+    fuelBar.className = 'building-world-bar';
+    var fuelFill = document.createElement('div');
+    fuelFill.className = 'building-world-fill';
+    fuelBar.appendChild(fuelFill);
+    var fuelValue = document.createElement('div');
+    fuelValue.className = 'building-world-value';
+    fuelCard.appendChild(fuelBadge);
+    fuelCard.appendChild(fuelBar);
+    fuelCard.appendChild(fuelValue);
+
+    var storageCard = document.createElement('div');
+    storageCard.className = 'building-world-storage';
+    var storageBar = document.createElement('div');
+    storageBar.className = 'building-world-bar';
+    var storageFill = document.createElement('div');
+    storageFill.className = 'building-world-fill';
+    storageBar.appendChild(storageFill);
+    var storageValue = document.createElement('div');
+    storageValue.className = 'building-world-value';
+    storageCard.appendChild(storageBar);
+    storageCard.appendChild(storageValue);
+
+    root.appendChild(fuelCard);
+    root.appendChild(storageCard);
+    container.appendChild(root);
+
+    entry = {
+      root: root,
+      fuelCard: fuelCard,
+      fuelFill: fuelFill,
+      fuelValue: fuelValue,
+      storageCard: storageCard,
+      storageFill: storageFill,
+      storageValue: storageValue,
+      lastTransform: ''
+    };
+    _buildingLabelNodes[uid] = entry;
+    return entry;
+  }
+
+  function hideUnusedBuildingLabels(visibleMap, instances) {
+    for (var uid in _buildingLabelNodes) {
+      var entry = _buildingLabelNodes[uid];
+      if (!instances[uid]) {
+        if (entry.root && entry.root.parentNode) {
+          entry.root.parentNode.removeChild(entry.root);
+        }
+        delete _buildingLabelNodes[uid];
+        continue;
+      }
+
+      if (!visibleMap[uid]) {
+        if (entry.root && entry.root.parentNode) {
+          entry.root.parentNode.removeChild(entry.root);
+        }
+      }
+    }
+  }
+
+  function shouldShowBuildingStorageWarning(inst, balance, storageCapacity, storageUsed) {
+    if (!inst || !balance || _modalActive) return false;
+    if (balance.lightRadius) return false;
+    if (balance.farming) return false;
+    if (!(storageCapacity > 0) || !(storageUsed > 0)) return false;
+
+    var storagePct = (storageUsed / Math.max(1, storageCapacity)) * 100;
+    return storagePct >= BUILDING_LABEL_STORAGE_WARNING_PCT;
   }
 
   var _showProductionPanel = true;
@@ -101,7 +708,7 @@ try {
     html += '<button class="btn btn-small" onclick="GameHUD.toggleProductionPanel()" style="padding:2px 6px;font-size:11px;">' + (_showProductionPanel ? "Hide rates" : "Show rates") + '</button>';
     html += '</div>';
 
-    container.innerHTML = html;
+    setInnerHtmlIfChanged(container, html);
   }
 
   function renderPlayerStats() {
@@ -269,6 +876,24 @@ try {
     return null;
   }
 
+  function buildSettlementStatusHtml() {
+    if (!window.GameActions || !GameActions.getSettlementStatus) return '';
+
+    var settlementStatus = GameActions.getSettlementStatus();
+    if (!settlementStatus || !settlementStatus.alerts || !settlementStatus.alerts.length) return '';
+
+    var html = '<div class="objective-hint">Priority status</div>';
+    html += '<div class="objective-checklist">';
+    settlementStatus.alerts.forEach(function(alert) {
+      html += '<div class="objective-check ' + escapeHtml(alert.tone || 'info') + '">' +
+        '<span class="objective-check-icon">' + escapeHtml(alert.icon || '!') + '</span>' +
+        '<span class="objective-check-copy"><span class="objective-check-label">' + escapeHtml(alert.label || '') + '</span><span class="objective-check-progress">' + escapeHtml(alert.detail || '') + '</span></span>' +
+        '</div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
   function renderObjectiveTracker() {
     var tracker = document.getElementById("objective-tracker");
     if (!tracker) return;
@@ -277,10 +902,12 @@ try {
 
     var nextAge = getNextAgeObjective();
     if (!nextAge) {
+      var clearedSettlementHtml = buildSettlementStatusHtml();
       tracker.className = 'objective-tracker ready';
       tracker.innerHTML = '<div class="objective-meta"><span class="objective-label">Current Age</span><span class="objective-age">' + escapeHtml(currentAgeLabel) + '</span></div>' +
         '<div class="objective-title">All Ages Unlocked</div>' +
-        '<div class="objective-detail">Current progression content is fully cleared.</div>';
+        '<div class="objective-detail">Current progression content is fully cleared.</div>' +
+        clearedSettlementHtml;
       return;
     }
 
@@ -327,10 +954,12 @@ try {
     }
     checklistHtml += '</div>';
 
+    var settlementHtml = buildSettlementStatusHtml();
     tracker.className = 'objective-tracker' + (canAdvance ? ' ready' : '');
     tracker.innerHTML = '<div class="objective-meta"><span class="objective-label">Current Age</span><span class="objective-age">' + escapeHtml(currentAgeLabel) + '</span></div>' +
       '<div class="objective-title">' + escapeHtml(nextAge.entity.name) + (canAdvance ? ' Ready!' : '') + '</div>' +
       checklistHtml +
+      settlementHtml +
       '<div class="objective-actions"><button class="objective-advance-btn' + (canAdvance ? ' ready' : '') + '" onclick="GameActions.advanceAge(\'' + nextAge.entity.id + '\')"' + (canAdvance ? '' : ' disabled') + '>Advance Age</button></div>';
   }
 
@@ -433,12 +1062,16 @@ try {
     var toggleButton = document.getElementById('quickbar-toggle');
     var slots = document.getElementById('quickbar-slots');
     if (!toggleButton || !slots) return;
+    if (!isHudVisible()) return;
 
     _quickbarItems = _quickbarMode === 'craft' ? getQuickbarCraftItems() : getQuickbarBuildItems();
 
-    toggleButton.className = 'quickbar-toggle ' + (_quickbarMode === 'craft' ? 'craft' : 'build');
-    toggleButton.innerHTML = '<span class="quickbar-toggle-label">' + (_quickbarMode === 'craft' ? 'Craft' : 'Build') + '</span>' +
-      '<span class="quickbar-toggle-hint">Tab</span>';
+    var toggleClassName = 'quickbar-toggle ' + (_quickbarMode === 'craft' ? 'craft' : 'build');
+    if (toggleButton.className !== toggleClassName) {
+      toggleButton.className = toggleClassName;
+    }
+    setInnerHtmlIfChanged(toggleButton, '<span class="quickbar-toggle-label">' + (_quickbarMode === 'craft' ? 'Craft' : 'Build') + '</span>' +
+      '<span class="quickbar-toggle-hint">Tab</span>');
 
     var selectedId = _quickbarSelected[_quickbarMode];
     var html = '';
@@ -468,7 +1101,7 @@ try {
         '</button>';
     }
 
-    slots.innerHTML = html;
+    setInnerHtmlIfChanged(slots, html);
   }
 
   function toggleQuickbarMode(nextMode, silent) {
@@ -675,7 +1308,7 @@ try {
       html += '</div>';
     });
 
-    panel.innerHTML = html || '<div class="card">No buildings available yet.</div>';
+    setInnerHtmlIfChanged(panel, html || '<div class="card">No buildings available yet.</div>');
   }
 
   function renderCraftPanel() {
@@ -767,7 +1400,7 @@ try {
       html += '</div>';
     });
 
-    panel.innerHTML = html || '<div class="card">No recipes available. Explore and gather resources!</div>';
+    setInnerHtmlIfChanged(panel, html || '<div class="card">No recipes available. Explore and gather resources!</div>');
   }
 
   function renderInventoryPanel() {
@@ -819,7 +1452,7 @@ try {
     }
     html += '</div></div>';
 
-    panel.innerHTML = html;
+    setInnerHtmlIfChanged(panel, html);
   }
 
   function renderStatsPanel() {
@@ -916,10 +1549,12 @@ try {
     html += '<button class="btn btn-secondary" onclick="GameActions.resetGame()">Reset</button>';
     html += '</div>';
 
-    panel.innerHTML = html;
+    setInnerHtmlIfChanged(panel, html);
   }
 
   function showNotification(msg, type = "default") {
+    if (!areNotificationsVisible()) return;
+
     var el = document.getElementById("notification");
     if (!el) return;
     var iconMap = {
@@ -961,7 +1596,10 @@ try {
   }
 
   function showFloatingText(worldX, worldY, worldZ, text, type = "default") {
-    var pos = GameScene.worldToScreen(new THREE.Vector3(worldX, worldY + 1.5, worldZ));
+    if (!isHudVisible()) return;
+
+    var pos = projectHudWorldPoint(worldX, worldY + 1.5, worldZ);
+    if (!pos) return;
     var el = document.createElement("div");
     el.className = "floating-text " + type;
     el.textContent = text;
@@ -975,7 +1613,10 @@ try {
   }
 
   function showDamageNumber(worldX, worldY, worldZ, text, type) {
-    var pos = GameScene.worldToScreen(new THREE.Vector3(worldX, worldY, worldZ));
+    if (!isHudVisible()) return;
+
+    var pos = projectHudWorldPoint(worldX, worldY, worldZ);
+    if (!pos) return;
     var el = document.createElement("div");
     el.className = "damage-number " + type;
     el.textContent = text;
@@ -1085,33 +1726,35 @@ try {
     // --- Storage section ---
     var storageHtml = "";
     if (balance && balance.storageCapacity) {
-      var storageUsed = GameState.getStorageUsed(uid);
       var storageCapacity = GameState.getStorageCapacity(uid);
-      var storagePct = storageCapacity > 0 ? Math.floor((storageUsed / storageCapacity) * 100) : 0;
-      var storageColor = storagePct >= 90 ? "#e63946" : (storagePct >= 70 ? "#f0a500" : "#4ecca3");
+      if (storageCapacity > 0) {
+        var storageUsed = GameState.getStorageUsed(uid);
+        var storagePct = storageCapacity > 0 ? Math.floor((storageUsed / storageCapacity) * 100) : 0;
+        var storageColor = storagePct >= 90 ? "#e63946" : (storagePct >= 70 ? "#f0a500" : "#4ecca3");
 
-      var storage = GameState.getBuildingStorage(uid);
-      var storageParts = [];
-      var hasResources = false;
-      for (var resId in storage) {
-        if (storage[resId] > 0) {
-          hasResources = true;
-          var res = GameRegistry.getEntity(resId);
-          storageParts.push(storage[resId] + " " + (res ? res.name : resId));
+        var storage = GameState.getBuildingStorage(uid);
+        var storageParts = [];
+        var hasResources = false;
+        for (var resId in storage) {
+          if (storage[resId] > 0) {
+            hasResources = true;
+            var res = GameRegistry.getEntity(resId);
+            storageParts.push(storage[resId] + " " + (res ? res.name : resId));
+          }
         }
-      }
 
-      storageHtml = '<div class="inspector-section">' +
-        '<div style="font-size:11px;">Storage: <span style="color:' + storageColor + '; font-weight:bold;">' + storageUsed + '/' + storageCapacity + '</span>';
+        storageHtml = '<div class="inspector-section">' +
+          '<div style="font-size:11px;">Storage: <span style="color:' + storageColor + '; font-weight:bold;">' + storageUsed + '/' + storageCapacity + '</span>';
 
-      if (hasResources) {
-        storageHtml += ' <span style="color:#ffb74d;">(' + storageParts.join(", ") + ')</span>' +
-          '</div>' +
-          '<button class="btn btn-success" style="margin-top:4px; font-size:11px; padding:3px 10px;" onclick="GameActions.collectFromBuilding(\'' + uid + '\')">Collect</button>';
-      } else {
-        storageHtml += '</div><div style="color:#555; font-size:10px;">Empty</div>';
+        if (hasResources) {
+          storageHtml += ' <span style="color:#ffb74d;">(' + storageParts.join(", ") + ')</span>' +
+            '</div>' +
+            '<button class="btn btn-success" style="margin-top:4px; font-size:11px; padding:3px 10px;" onclick="GameActions.collectFromBuilding(\'' + uid + '\')">Collect</button>';
+        } else {
+          storageHtml += '</div><div style="color:#555; font-size:10px;">Empty</div>';
+        }
+        storageHtml += '</div>';
       }
-      storageHtml += '</div>';
     }
 
     // --- Fuel section for fire buildings ---
@@ -1123,6 +1766,11 @@ try {
       var fuelPct = maxFuel > 0 ? Math.floor((currentFuel / maxFuel) * 100) : 0;
       var fuelColor = fuelPct > 50 ? "#4ecca3" : (fuelPct > 20 ? "#f0a500" : "#e94560");
       var needsFuel = currentFuel < maxFuel;
+      var isNight = typeof DayNightSystem !== 'undefined' && DayNightSystem.isNight();
+      var coverageText = currentFuel <= 0
+        ? 'No active coverage - out of fuel.'
+        : (isNight ? 'Coverage active now for nearby workers.' : 'Coverage turns on automatically at night.');
+      var coverageColor = currentFuel <= 0 ? '#e63946' : (isNight ? '#ffb74d' : '#c7d6e8');
 
       fuelHtml = '<div class="inspector-section">' +
         '<div style="font-size:11px;">🔥 Fuel: <span style="color:' + fuelColor + '; font-weight:bold;">' + Math.floor(currentFuel) + '/' + maxFuel + '</span> (' + fuelPct + '%)</div>';
@@ -1130,6 +1778,8 @@ try {
       fuelHtml += '<div style="width:' + fuelPct + '%; height:100%; background:linear-gradient(90deg, ' + fuelColor + ', #ffd166); border-radius:4px; transition:width 0.3s linear;"></div>';
       fuelHtml += '</div>';
       fuelHtml += '<div style="color:#888; font-size:10px; margin-top:3px;">Burning down through the night. Refuel fills the bar back to max.</div>';
+      fuelHtml += '<div style="color:#ffb74d; font-size:10px; margin-top:3px;">Light radius: ' + balance.lightRadius + ' tiles</div>';
+      fuelHtml += '<div style="color:' + coverageColor + '; font-size:10px; margin-top:2px;">' + coverageText + '</div>';
 
       if (balance.refuelCost) {
         var refuelParts = [];
@@ -1155,8 +1805,9 @@ try {
     if (balance && balance.farming && window.GameActions && GameActions.getFarmPlotStatus) {
       var farmStatus = GameActions.getFarmPlotStatus(uid);
       if (farmStatus) {
-        var progressColor = farmStatus.ready ? '#4ecca3' : (farmStatus.riverBoosted ? '#66d9ff' : (farmStatus.watered ? '#57c7ff' : '#f0a500'));
+        var progressColor = farmStatus.nightWorkBlocked ? '#f4a261' : (farmStatus.ready ? '#4ecca3' : (farmStatus.riverBoosted ? '#66d9ff' : (farmStatus.watered ? '#57c7ff' : '#f0a500')));
         var supportColor = farmStatus.hasWaterSupport ? (farmStatus.supportSourceType === 'river' ? '#66d9ff' : '#4ecca3') : '#888';
+        var lightColor = farmStatus.nightWorkBlocked ? '#f4a261' : (farmStatus.isNight ? '#ffb74d' : '#888');
         var storedText = farmStatus.storedAmount > 0 ? farmStatus.storedSummaryText : 'Storage empty';
         farmHtml = '<div class="inspector-section">' +
           '<div style="font-size:11px; color:#aaa; margin-bottom:4px;">🌱 Crop: <span style="color:#e0e0e0; font-weight:bold;">' + escapeHtml(farmStatus.cropName) + '</span></div>' +
@@ -1166,6 +1817,7 @@ try {
           '</div>' +
           '<div style="font-size:10px; color:#9fb3c8; margin-bottom:2px;">' + escapeHtml(farmStatus.detailText) + '</div>' +
           '<div style="font-size:10px; color:#c7d6e8; margin-bottom:3px;">👷 Resident: ' + escapeHtml(farmStatus.workerStatusText) + '</div>' +
+          '<div style="font-size:10px; color:' + lightColor + '; margin-bottom:3px;">🔥 Night light: ' + escapeHtml(farmStatus.nightLightLabel) + '</div>' +
           '<div style="font-size:10px; color:' + supportColor + '; margin-bottom:3px;">💧 ' + escapeHtml(farmStatus.supportSourceName) + '</div>' +
           '<div style="font-size:10px; color:#888; margin-bottom:3px;">Current yield: ' + escapeHtml(farmStatus.currentYieldText || farmStatus.dryYieldText) + '</div>' +
           '<div style="font-size:10px; color:#888; margin-bottom:3px;">Dry: ' + escapeHtml(farmStatus.dryYieldText) + ' • Watered: ' + escapeHtml(farmStatus.wateredYieldText) + '</div>' +
@@ -1201,16 +1853,98 @@ try {
       }
     }
 
+    // --- Military section ---
+    var militaryHtml = "";
+    if (window.GameActions && instance.entityId === 'building.barracks' && GameActions.getBarracksStatus) {
+      var barracksStatus = GameActions.getBarracksStatus(uid);
+      if (barracksStatus) {
+        var queueHtml = '';
+        if (barracksStatus.queue.length > 0) {
+          queueHtml = barracksStatus.queue.map(function(entry, index) {
+            return '<div style="font-size:10px; color:#d8d8d8; margin-top:3px;">' +
+              (index + 1) + '. ' + escapeHtml(entry.label) + ' • ' + entry.remainingSeconds + 's • ' + entry.progressPercent + '%</div>';
+          }).join('');
+        } else {
+          queueHtml = '<div style="font-size:10px; color:#777; margin-top:3px;">Queue empty</div>';
+        }
+
+        var reserveHtml = barracksStatus.reserves.length > 0
+          ? barracksStatus.reserves.map(function(entry) {
+              return escapeHtml(entry.label) + ': ' + entry.amount;
+            }).join(' • ')
+          : 'No trained reserves';
+        var towerSupportHtml = barracksStatus.availableUnits.filter(function(unit) {
+          return !!unit.towerSupportLabel;
+        }).map(function(unit) {
+          return escapeHtml(unit.label) + ': ' + escapeHtml(unit.towerSupportLabel);
+        }).join(' • ');
+        var modeButtons = [
+          '<button class="btn ' + (barracksStatus.commandMode === 'guard' ? 'btn-craft' : 'btn-secondary') + '" style="font-size:10px; padding:4px 8px;" onclick="GameActions.setBarracksCommandMode(\'' + uid + '\', \'guard\')">Guard Nearby</button>',
+          '<button class="btn ' + (barracksStatus.commandMode === 'follow' ? 'btn-craft' : 'btn-secondary') + '" style="font-size:10px; padding:4px 8px;" onclick="GameActions.setBarracksCommandMode(\'' + uid + '\', \'follow\')">Follow Player</button>'
+        ].join(' ');
+
+        var trainButtons = barracksStatus.availableUnits.map(function(unit) {
+          var disabled = !unit.unlocked || !unit.canAfford || !barracksStatus.canQueueMore;
+          var label = unit.unlocked ? unit.label : (unit.label + ' Lv.' + unit.unlockLevel);
+          var hint = unit.costText ? (' • ' + escapeHtml(unit.costText)) : '';
+          return '<button class="btn ' + (disabled ? 'btn-secondary' : 'btn-craft') + '" style="font-size:10px; padding:4px 8px;" onclick="GameActions.queueBarracksTraining(\'' + uid + '\', \'' + unit.unitType + '\')" ' + (disabled ? 'disabled' : '') + '>' + escapeHtml(label) + hint + '</button>';
+        }).join(' ');
+
+        militaryHtml = '<div class="inspector-section">' +
+          '<div style="color:#cfa66b; font-size:11px; margin-bottom:4px;">🛡️ Reserve ' + barracksStatus.reserveCount + '/' + barracksStatus.reserveCapacity + ' • Queue ' + barracksStatus.queueUsed + '/' + barracksStatus.queueCapacity + '</div>' +
+          '<div style="color:#888; font-size:10px; margin-bottom:4px;">Command radius: ' + barracksStatus.supportRange + ' • Training speed x' + barracksStatus.trainingSpeed.toFixed(2) + '</div>' +
+          '<div style="color:#d9c89f; font-size:10px; margin-bottom:4px;">Mode: ' + escapeHtml(barracksStatus.commandModeLabel) + '</div>' +
+          '<div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px;">' + modeButtons + '</div>' +
+          '<div style="color:#7fc8d8; font-size:10px; margin-bottom:4px;">Deployed: ' + barracksStatus.deployedCount + ' • Engaged: ' + barracksStatus.engagedCount + '</div>' +
+          '<div style="color:#9aa; font-size:10px; margin-bottom:4px;">' + escapeHtml(barracksStatus.troopStatusText) + '</div>' +
+          '<div style="color:#b9c8d8; font-size:10px; margin-bottom:4px;">' + escapeHtml(barracksStatus.troopSummaryText) + '</div>' +
+          '<div style="color:#8e9db0; font-size:10px; margin-bottom:4px;">Reserves: ' + escapeHtml(reserveHtml) + '</div>' +
+          (towerSupportHtml ? ('<div style="color:#9aa; font-size:10px; margin-bottom:4px;">Tower support: ' + escapeHtml(towerSupportHtml) + (barracksStatus.commandMode === 'follow' ? ' (paused while following)' : '') + '</div>') : '') +
+          '<div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px;">' + trainButtons + '</div>' +
+          '<div style="color:#9aa; font-size:10px;">Training queue</div>' +
+          queueHtml +
+          (barracksStatus.nextUnlock ? ('<div style="color:#777; font-size:10px; margin-top:4px;">Next unlock: ' + escapeHtml(barracksStatus.nextUnlock.label) + ' at Lv.' + barracksStatus.nextUnlock.level + '</div>') : '') +
+          '</div>';
+      }
+    } else if (window.GameActions && instance.entityId === 'building.watchtower' && GameActions.getWatchtowerStatus) {
+      var watchtowerStatus = GameActions.getWatchtowerStatus(uid);
+      if (watchtowerStatus) {
+        var supportBonusParts = [];
+        if (watchtowerStatus.rangeBonus > 0) supportBonusParts.push('+' + watchtowerStatus.rangeBonus.toFixed(1) + ' range');
+        if (watchtowerStatus.attackDamageBonus > 0) supportBonusParts.push('+' + watchtowerStatus.attackDamageBonus + ' damage');
+        if (watchtowerStatus.attackIntervalMultiplier < 0.999) supportBonusParts.push(Math.round((1 - watchtowerStatus.attackIntervalMultiplier) * 100) + '% faster');
+        if (watchtowerStatus.workerProtectRadiusBonus > 0) supportBonusParts.push('+' + watchtowerStatus.workerProtectRadiusBonus.toFixed(1) + ' worker cover');
+        var supportSummary = watchtowerStatus.linkedBarracksCount > 0
+          ? watchtowerStatus.reserveSupportLabel + ' • ' + watchtowerStatus.linkedBarracksCount + ' barracks'
+          : 'No barracks reserve link';
+        militaryHtml = '<div class="inspector-section">' +
+          '<div style="color:#e89b6b; font-size:11px; margin-bottom:4px;">🗼 ' + escapeHtml(watchtowerStatus.statusLabel) + '</div>' +
+          '<div style="color:#aaa; font-size:10px; margin-bottom:3px;">Damage: ' + watchtowerStatus.attackDamage + ' • Interval: ' + watchtowerStatus.attackIntervalSeconds.toFixed(1) + 's • Cooldown: ' + watchtowerStatus.cooldownRemaining.toFixed(1) + 's</div>' +
+          '<div style="color:#888; font-size:10px; margin-bottom:3px;">Worker cover: ' + watchtowerStatus.workerProtectRadius + ' • Shots: ' + watchtowerStatus.shotsFired + ' • Kills: ' + watchtowerStatus.kills + '</div>' +
+          '<div style="color:' + (watchtowerStatus.linkedBarracksCount > 0 ? '#cfa66b' : '#777') + '; font-size:10px; margin-bottom:3px;">Reserve link: ' + escapeHtml(supportSummary) + '</div>' +
+          (supportBonusParts.length ? ('<div style="color:#9aa; font-size:10px; margin-bottom:3px;">Support bonus: ' + escapeHtml(supportBonusParts.join(' • ')) + '</div>') : '') +
+          (watchtowerStatus.lastTargetName ? ('<div style="color:#9aa; font-size:10px;">Last target: ' + escapeHtml(watchtowerStatus.lastTargetName) + '</div>') : '') +
+          '</div>';
+      }
+    }
+
     // --- Range info ---
     var rangeHtml = "";
     if (balance) {
       var sR = (balance.searchRadius && balance.searchRadius[currentLevel]) ? balance.searchRadius[currentLevel] : 0;
       var tR = balance.transferRange || 0;
       var wR = balance.waterRadius || 0;
+      var lR = balance.lightRadius || 0;
+      var dR = (balance.guardRadius && balance.guardRadius[currentLevel]) ? balance.guardRadius[currentLevel] : 0;
+      if (!dR && balance.towerDefense && balance.towerDefense.range) {
+        dR = balance.towerDefense.range[currentLevel] || balance.towerDefense.range[1] || 0;
+      }
       var rangeParts = [];
       if (sR > 0) rangeParts.push('<span style="color:#00ff88;">' + (balance.farming ? 'Worker: ' : 'Harvest: ') + sR + '</span>');
       if (tR > 0) rangeParts.push('<span style="color:#4488ff;">Transfer: ' + tR + '</span>');
       if (wR > 0) rangeParts.push('<span style="color:#57c7ff;">Water: ' + wR + '</span>');
+      if (lR > 0) rangeParts.push('<span style="color:#ffb74d;">Light: ' + lR + '</span>');
+      if (dR > 0) rangeParts.push('<span style="color:#e76f51;">Defense: ' + dR + '</span>');
       if (rangeParts.length > 0) {
         rangeHtml = '<div class="inspector-section">' +
           '<div style="color:#aaa; font-size:11px;">📡 ' + rangeParts.join(' | ') + '</div>' +
@@ -1247,7 +1981,7 @@ try {
       }
     }
 
-    inspector.innerHTML =
+    var inspectorHtml =
       '<div style="padding:10px 12px;">' +
       '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
         '<div style="font-weight:bold; font-size:14px; color:#e0e0e0;">' + escapeHtml(entity.name) + '</div>' +
@@ -1258,6 +1992,7 @@ try {
       farmHtml +
       synergyHtml +
       workerHtml +
+      militaryHtml +
       rangeHtml +
       fuelHtml +
       upgradeHtml +
@@ -1267,6 +2002,8 @@ try {
         '<button class="btn btn-secondary" style="font-size:11px; padding:4px 12px;" onclick="GameHUD.closeInspector()">Close</button>' +
       '</div>' +
       '</div>';
+
+    setInnerHtmlIfChanged(inspector, inspectorHtml);
 
     inspector.classList.add("active");
   }
@@ -1315,6 +2052,20 @@ try {
 
     e.preventDefault();
     activateQuickbarSlot(quickbarIndex);
+  });
+
+  document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    if (e.key === 'F9') {
+      e.preventDefault();
+      toggleDebugSettingsPanel();
+      return;
+    }
+
+    if (e.key === 'Escape' && _debugSettingsPanelOpen) {
+      toggleDebugSettingsPanel(false);
+    }
   });
 
   function formatRewardSummary(rewardMap) {
@@ -1384,6 +2135,11 @@ try {
   }
 
   function showObjectHpBar(objData, holdMs) {
+    if (!areWorldLabelsVisible()) {
+      hideObjectHpBar();
+      return;
+    }
+
     if (showObjectHpBar._hideTimer) {
       clearTimeout(showObjectHpBar._hideTimer);
       showObjectHpBar._hideTimer = null;
@@ -1397,7 +2153,7 @@ try {
       document.body.appendChild(el);
     }
 
-    var pos = GameScene.worldToScreen(new THREE.Vector3(objData.worldX, 1.5, objData.worldZ));
+    var pos = projectHudWorldPoint(objData.worldX, 1.5, objData.worldZ);
     if (!pos) { el.style.display = "none"; return; }
 
     var nodeInfo = (objData.type && objData.type.indexOf('node.') === 0 && typeof GameTerrain !== 'undefined' && GameTerrain.getNodeInfo) ? GameTerrain.getNodeInfo(objData) : null;
@@ -1451,6 +2207,12 @@ try {
   }
 
   function updateNodeHpBars() {
+    if (!areWorldLabelsVisible()) {
+      var emptyNodeHpContainer = document.getElementById('node-hp-bars-container');
+      if (emptyNodeHpContainer) setInnerHtmlIfChanged(emptyNodeHpContainer, '');
+      return;
+    }
+
     if (!window.NPCSystem || !NPCSystem.getActiveHarvestNodes) return;
     
     var container = document.getElementById('node-hp-bars-container');
@@ -1459,7 +2221,7 @@ try {
     var activeNodes = NPCSystem.getActiveHarvestNodes();
     
     if (activeNodes.length === 0) {
-      container.innerHTML = '';
+      setInnerHtmlIfChanged(container, '');
       return;
     }
     
@@ -1467,25 +2229,27 @@ try {
     var camera = GameScene.getCamera();
     var canvas = document.getElementById('game-canvas');
     if (!camera || !canvas) {
-      container.innerHTML = '';
+      setInnerHtmlIfChanged(container, '');
       return;
     }
     
     var canvasRect = canvas.getBoundingClientRect();
+    var worldPos = getHudScratchVector(0);
+    if (!worldPos) return;
     
     // Create/update HP bars positioned on each node
     var html = '';
     activeNodes.forEach(function(nodeData, index) {
       // Convert world position to screen position
-      var worldPos = new THREE.Vector3(nodeData.worldX, 1.2, nodeData.worldZ); // Above node
-      var screenPos = worldPos.clone().project(camera);
+      worldPos.set(nodeData.worldX, 1.2, nodeData.worldZ);
+      worldPos.project(camera);
       
       // Check if in front of camera
-      if (screenPos.z > 1) return;
+      if (worldPos.z > 1 || worldPos.z < -1) return;
       
       // Convert to screen coordinates
-      var x = (screenPos.x * 0.5 + 0.5) * canvasRect.width + canvasRect.left;
-      var y = (-screenPos.y * 0.5 + 0.5) * canvasRect.height + canvasRect.top;
+      var x = Math.round((worldPos.x * 0.5 + 0.5) * canvasRect.width + canvasRect.left);
+      var y = Math.round((-worldPos.y * 0.5 + 0.5) * canvasRect.height + canvasRect.top);
       
       var percent = (nodeData.currentHp / nodeData.maxHp) * 100;
       var healthClass = percent > 60 ? 'healthy' : percent > 30 ? 'damaged' : 'critical';
@@ -1503,15 +2267,20 @@ try {
       html += '</div>';
     });
     
-    container.innerHTML = html;
+    setInnerHtmlIfChanged(container, html);
   }
 
   function updateNodeWorldLabels() {
     var container = document.getElementById('node-world-labels');
     if (!container) return;
 
+    if (!areWorldLabelsVisible()) {
+      setInnerHtmlIfChanged(container, '');
+      return;
+    }
+
     if (_modalActive || !window.GameTerrain || !GameTerrain.getNearbyObjects || !window.GamePlayer || !window.GameScene) {
-      container.innerHTML = '';
+      setInnerHtmlIfChanged(container, '');
       return;
     }
 
@@ -1519,18 +2288,20 @@ try {
     var camera = GameScene.getCamera();
     var canvas = document.getElementById('game-canvas');
     if (!playerPos || !camera || !canvas) {
-      container.innerHTML = '';
+      setInnerHtmlIfChanged(container, '');
       return;
     }
 
     var nearby = GameTerrain.getNearbyObjects(playerPos.x, playerPos.z, 6.5, 6);
     if (!nearby.length) {
-      container.innerHTML = '';
+      setInnerHtmlIfChanged(container, '');
       return;
     }
 
     var canvasRect = canvas.getBoundingClientRect();
     var html = '';
+    var worldPos = getHudScratchVector(1);
+    if (!worldPos) return;
 
     nearby.forEach(function(objData) {
       if (!shouldShowWorldNodeLabel(objData)) return;
@@ -1539,12 +2310,12 @@ try {
       if (!nodeInfo) return;
 
       var worldHeight = nodeInfo.isGiant ? 2.3 : 1.35;
-      var worldPos = new THREE.Vector3(objData.worldX, worldHeight, objData.worldZ);
-      var screenPos = worldPos.clone().project(camera);
-      if (screenPos.z > 1) return;
+      worldPos.set(objData.worldX, worldHeight, objData.worldZ);
+      worldPos.project(camera);
+      if (worldPos.z > 1 || worldPos.z < -1) return;
 
-      var x = (screenPos.x * 0.5 + 0.5) * canvasRect.width + canvasRect.left;
-      var y = (-screenPos.y * 0.5 + 0.5) * canvasRect.height + canvasRect.top;
+      var x = Math.round((worldPos.x * 0.5 + 0.5) * canvasRect.width + canvasRect.left);
+      var y = Math.round((-worldPos.y * 0.5 + 0.5) * canvasRect.height + canvasRect.top);
 
       if (x < canvasRect.left - 100 || x > canvasRect.right + 100 || y < canvasRect.top - 80 || y > canvasRect.bottom + 80) {
         return;
@@ -1560,90 +2331,161 @@ try {
       html += '</div>';
     });
 
-    container.innerHTML = html;
+    setInnerHtmlIfChanged(container, html);
   }
 
   function updateBuildingStorageLabels() {
-    if (!window.GameScene || !GameScene.getCamera || !window.GameState) return;
-
-    var container = document.getElementById('building-storage-labels');
-    if (!container) return;
-
-    var instances = GameState.getAllInstances();
-    var camera = GameScene.getCamera();
-    var canvas = document.getElementById('game-canvas');
-    if (!camera || !canvas) {
-      container.innerHTML = '';
+    if (!areWorldLabelsVisible()) {
+      hideUnusedBuildingLabels({}, {});
       return;
     }
 
-    var html = '';
+    if (!window.GameScene || !GameScene.getCamera || !window.GameState) return;
+
+    var container = getBuildingLabelContainer();
+    if (!container) return;
+
+    var instances = getHudInstances();
+    if (_modalActive) {
+      hideUnusedBuildingLabels({}, instances);
+      return;
+    }
+
+    var camera = GameScene.getCamera();
+    var canvas = document.getElementById('game-canvas');
+    if (!camera || !canvas) {
+      hideUnusedBuildingLabels({}, {});
+      return;
+    }
+
+    var visibleMap = {};
     var canvasRect = canvas.getBoundingClientRect();
+    var worldPos = getBuildingLabelVector();
+    var playerPos = (window.GamePlayer && GamePlayer.getPosition) ? GamePlayer.getPosition() : null;
+    var worldCullRadius = camera ? ((Math.abs(camera.right) + Math.abs(camera.top)) * 1.2 + 6) : 42;
+    if (!worldPos) return;
 
     for (var uid in instances) {
       var inst = instances[uid];
       var balance = GameRegistry.getBalance(inst.entityId);
       if (!balance) continue;
 
-      var storageCapacity = GameState.getStorageCapacity(uid);
+      if (playerPos && (Math.abs(inst.x - playerPos.x) > worldCullRadius || Math.abs(inst.z - playerPos.z) > worldCullRadius)) {
+        continue;
+      }
+
+      var storageCapacity = balance.storageCapacity ? GameState.getStorageCapacity(uid) : 0;
       var storageUsed = storageCapacity > 0 ? GameState.getStorageUsed(uid) : 0;
-      var showStorage = storageCapacity > 0 && (!balance.lightRadius || storageUsed > 0);
+      var showStorage = shouldShowBuildingStorageWarning(inst, balance, storageCapacity, storageUsed);
+      var showFuel = false;
 
-      var fuelData = (balance.lightRadius && GameState.getFireFuelData) ? GameState.getFireFuelData(uid) : null;
-      var maxFuel = balance.fuelCapacity || 0;
-      var currentFuel = maxFuel > 0 ? (fuelData ? fuelData.current : maxFuel) : 0;
-      var fuelPct = maxFuel > 0 ? Math.floor((currentFuel / maxFuel) * 100) : 0;
-      var fuelBarColor = fuelPct >= 60 ? '#4ecca3' : fuelPct >= 30 ? '#f0a500' : '#e94560';
-      var showFuel = maxFuel > 0;
-
-      if (!showStorage && !showFuel) continue;
+      if (!showStorage) continue;
 
       var pct = storageCapacity > 0 ? Math.floor((storageUsed / storageCapacity) * 100) : 0;
       var barColor = pct >= 90 ? '#e94560' : pct >= 70 ? '#f0a500' : '#4ecca3';
 
       // Calculate screen position
-      var worldPos = new THREE.Vector3(inst.x, 1.3, inst.z);
-      var screenPos = worldPos.clone().project(camera);
+      worldPos.set(inst.x, 1.3, inst.z);
+      worldPos.project(camera);
 
-      if (screenPos.z > 1) continue;
+      if (worldPos.z > 1 || worldPos.z < -1) continue;
 
-      var x = (screenPos.x * 0.5 + 0.5) * canvasRect.width + canvasRect.left;
-      var y = (-screenPos.y * 0.5 + 0.5) * canvasRect.height + canvasRect.top;
+      var x = (worldPos.x * 0.5 + 0.5) * canvasRect.width + canvasRect.left;
+      var y = (-worldPos.y * 0.5 + 0.5) * canvasRect.height + canvasRect.top;
 
-      html += '<div style="position:fixed; left:' + x + 'px; top:' + y + 'px; transform:translate(-50%, -50%); pointer-events:none; z-index:15; text-align:center;">';
-
-      if (showFuel) {
-        html += '<div style="width:62px; padding:3px 5px 4px; border-radius:7px; background:rgba(8,18,35,0.72); border:1px solid rgba(255,170,0,0.28); box-shadow:0 1px 4px rgba(0,0,0,0.35); margin:0 auto 4px;">';
-        html += '<div style="font-size:8px; color:#ffd8a8; text-shadow:0 1px 3px #000; margin-bottom:2px; font-weight:bold; letter-spacing:0.04em;">FIRE</div>';
-        html += '<div style="height:7px; background:rgba(15,52,96,0.9); border-radius:4px; overflow:hidden; border:1px solid rgba(255,170,0,0.22);">';
-        html += '<div style="width:' + fuelPct + '%; height:100%; background:' + fuelBarColor + '; border-radius:3px; transition:width 0.25s linear;"></div>';
-        html += '</div>';
-        if (fuelPct <= 0) {
-          html += '<div style="font-size:9px; color:#e94560; text-shadow:0 1px 3px #000; margin-top:2px; font-weight:bold;">OUT</div>';
-        } else {
-          html += '<div style="font-size:9px; color:#f5f5f5; text-shadow:0 1px 3px #000; margin-top:2px; font-weight:bold;">' + Math.ceil(currentFuel) + '/' + maxFuel + '</div>';
-        }
-        html += '</div>';
+      if (x < canvasRect.left - 100 || x > canvasRect.right + 100 || y < canvasRect.top - 100 || y > canvasRect.bottom + 100) {
+        continue;
       }
+
+      var entry = ensureBuildingLabelNode(uid, container);
+      var transformValue = 'translate3d(' + x.toFixed(1) + 'px, ' + y.toFixed(1) + 'px, 0) translate(-50%, -50%)';
+      if (entry.lastTransform !== transformValue) {
+        entry.root.style.transform = transformValue;
+        entry.lastTransform = transformValue;
+      }
+
+      setNodeDisplay(entry.root, true);
+      setNodeDisplay(entry.fuelCard, showFuel);
+      setNodeDisplay(entry.storageCard, showStorage);
 
       if (showStorage) {
-        html += '<div style="width:56px; height:8px; background:rgba(15,52,96,0.9); border-radius:4px; overflow:hidden; border:1px solid rgba(78,204,163,0.4); margin:0 auto; box-shadow:0 1px 4px rgba(0,0,0,0.3);">';
-        html += '<div style="width:' + pct + '%; height:100%; background:' + barColor + '; border-radius:3px; transition:width 0.3s;"></div>';
-        html += '</div>';
+        setNodeWidth(entry.storageFill, pct);
+        setNodeColor(entry.storageFill, barColor);
 
         if (pct >= 100) {
-          html += '<div style="font-size:9px; color:#e94560; text-shadow:0 1px 3px #000; margin-top:2px; font-weight:bold;">FULL</div>';
-        } else if (pct > 0) {
-          html += '<div style="font-size:9px; color:#ddd; text-shadow:0 1px 3px #000; margin-top:2px; font-weight:bold;">' + storageUsed + '/' + storageCapacity + '</div>';
+          setNodeText(entry.storageValue, 'FULL');
+          setNodeClassState(entry.storageValue, 'is-alert', true);
+          setNodeClassState(entry.storageValue, 'is-dim', false);
+        } else if (pct > 0 || !balance.lightRadius) {
+          setNodeText(entry.storageValue, storageUsed + '/' + storageCapacity);
+          setNodeClassState(entry.storageValue, 'is-alert', false);
+          setNodeClassState(entry.storageValue, 'is-dim', false);
         } else {
-          html += '<div style="font-size:8px; color:#888; text-shadow:0 1px 3px #000; margin-top:2px;">0/' + storageCapacity + '</div>';
+          setNodeText(entry.storageValue, '0/' + storageCapacity);
+          setNodeClassState(entry.storageValue, 'is-alert', false);
+          setNodeClassState(entry.storageValue, 'is-dim', true);
         }
       }
 
-      html += '</div>';
+      visibleMap[uid] = true;
     }
-    
-    container.innerHTML = html;
+
+    hideUnusedBuildingLabels(visibleMap, instances);
+  }
+
+  function updatePerformanceStats(dt) {
+    var panel = getFpsPanel();
+    if (!panel || !dt) return;
+
+    var instantFps = dt > 0 ? (1 / dt) : 0;
+    var instantMs = dt * 1000;
+
+    if (_fpsSmoothed <= 0) _fpsSmoothed = instantFps;
+    else _fpsSmoothed += (instantFps - _fpsSmoothed) * 0.18;
+
+    if (_fpsSmoothedMs <= 0) _fpsSmoothedMs = instantMs;
+    else _fpsSmoothedMs += (instantMs - _fpsSmoothedMs) * 0.18;
+
+    _fpsUpdateAccumulator += dt;
+    if (_fpsUpdateAccumulator < 0.12) return;
+    _fpsUpdateAccumulator = 0;
+
+    var label = Math.round(_fpsSmoothed) + ' FPS | ' + _fpsSmoothedMs.toFixed(1) + ' ms';
+    var drawCalls = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('draw.calls') : null;
+    if (typeof drawCalls === 'number' && drawCalls > 0) {
+      label += ' | DC ' + Math.round(drawCalls);
+    }
+
+    var tooltipParts = [];
+    var frameMetric = (typeof GamePerf !== 'undefined' && GamePerf.getMetric) ? GamePerf.getMetric('frame.total') : null;
+    var hudMetric = (typeof GamePerf !== 'undefined' && GamePerf.getMetric) ? GamePerf.getMetric('hud.render') : null;
+    var overlayMetric = (typeof GamePerf !== 'undefined' && GamePerf.getMetric) ? GamePerf.getMetric('overlays.update') : null;
+    var tickMetric = (typeof GamePerf !== 'undefined' && GamePerf.getMetric) ? GamePerf.getMetric('tick.total') : null;
+    var saveMetric = (typeof GamePerf !== 'undefined' && GamePerf.getMetric) ? GamePerf.getMetric('save.write') : null;
+    var triangles = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('draw.triangles') : null;
+    var geometries = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('memory.geometries') : null;
+    var loadedChunks = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('terrain.loadedChunks') : null;
+    var visibleChunks = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('terrain.visibleChunks') : null;
+    var renderPixelRatio = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('render.pixelRatio') : null;
+
+    if (frameMetric && frameMetric.avgMs > 0) tooltipParts.push('Frame ' + frameMetric.avgMs.toFixed(1) + ' ms');
+    if (hudMetric && hudMetric.avgMs > 0) tooltipParts.push('HUD ' + hudMetric.avgMs.toFixed(1) + ' ms');
+    if (overlayMetric && overlayMetric.avgMs > 0) tooltipParts.push('Overlay ' + overlayMetric.avgMs.toFixed(1) + ' ms');
+    if (tickMetric && tickMetric.avgMs > 0) tooltipParts.push('Tick ' + tickMetric.avgMs.toFixed(1) + ' ms');
+    if (saveMetric && saveMetric.avgMs > 0) tooltipParts.push('Save ' + saveMetric.avgMs.toFixed(1) + ' ms');
+    if (typeof triangles === 'number') tooltipParts.push('Triangles ' + Math.round(triangles));
+    if (typeof geometries === 'number') tooltipParts.push('Geometries ' + Math.round(geometries));
+    if (typeof loadedChunks === 'number' && typeof visibleChunks === 'number') tooltipParts.push('Chunks ' + Math.round(visibleChunks) + '/' + Math.round(loadedChunks));
+    if (typeof renderPixelRatio === 'number') tooltipParts.push('PixelRatio ' + renderPixelRatio.toFixed(2));
+
+    setNodeText(panel, label);
+    setNodeTitle(panel, tooltipParts.join(' | '));
+    panel.classList.remove('warn', 'low');
+    if (_fpsSmoothed < 25) {
+      panel.classList.add('low');
+    } else if (_fpsSmoothed < 45) {
+      panel.classList.add('warn');
+    }
   }
 
   // === MODAL SYSTEM ===
@@ -1660,6 +2502,8 @@ try {
   }
 
   function openModal() {
+    if (!isHudVisible()) return;
+
     _modalActive = true;
     var overlay = document.getElementById('modal-overlay');
     if (overlay) {
@@ -1915,6 +2759,7 @@ try {
         'building.farm_plot': '🌾',
         'building.tree_nursery': '🌲',
         'building.warehouse': '📦',
+        'building.watchtower': '🗼',
         'building.bridge': '🌉',
         'building.well': '🪣',
         'building.campfire': '🔥',
@@ -2277,9 +3122,11 @@ try {
       var costInfo = buildResourcePills(balance.cost, 'cost');
       var productionInfo = buildResourcePills(balance.produces, 'output');
       var consumptionInfo = buildResourcePills(balance.consumesPerSecond, 'neutral');
+      var defenseRange = (balance.guardRadius && getLevelValue(balance.guardRadius, 1)) || (balance.towerDefense && balance.towerDefense.range ? (getLevelValue(balance.towerDefense.range, 1) || balance.towerDefense.range[1]) : null);
       var metrics = buildMetricGrid([
         { label: 'Workers', value: getLevelValue(balance.workerCount, 1) || null },
         { label: 'Range', value: getLevelValue(balance.searchRadius, 1) ? getLevelValue(balance.searchRadius, 1) + ' tiles' : null },
+        { label: 'Defense', value: defenseRange ? defenseRange + ' tiles' : null },
         { label: 'Storage', value: getLevelValue(balance.storageCapacity, 1) || null },
         { label: 'Transfer', value: balance.transferRange ? balance.transferRange + ' tiles' : null },
         { label: 'Light', value: balance.lightRadius ? balance.lightRadius + ' tiles' : null },
@@ -2840,6 +3687,7 @@ try {
   return {
     init: init,
     renderAll: renderAll,
+    renderNow: renderNow,
     switchTab: switchTab,
     closePanels: closePanels,
     renderActivePanel: renderActivePanel,
@@ -2857,6 +3705,7 @@ try {
     updateNodeHpBars: updateNodeHpBars,
     updateNodeWorldLabels: updateNodeWorldLabels,
     updateBuildingStorageLabels: updateBuildingStorageLabels,
+    updatePerformanceStats: updatePerformanceStats,
     toggleProductionPanel: toggleProductionPanel,
     // Modal functions
     toggleModal: toggleModal,
@@ -2867,7 +3716,10 @@ try {
     updateModal: updateModal,
     renderQuickbar: renderQuickbar,
     toggleQuickbarMode: toggleQuickbarMode,
-    activateQuickbarSlot: activateQuickbarSlot
+    activateQuickbarSlot: activateQuickbarSlot,
+    toggleDebugSettingsPanel: toggleDebugSettingsPanel,
+    applyDebugSettingsState: applyDebugSettingsState,
+    isHudVisible: isHudVisible
   };
   })();
   

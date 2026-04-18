@@ -340,6 +340,7 @@ window.GameState = (function () {
   function addInstance(uid, data) { _state.instances[uid] = data; }
   function getInstance(uid) { return _state.instances[uid] || null; }
   function getAllInstances() { return JSON.parse(JSON.stringify(_state.instances)); }
+  function getAllInstancesLive() { return _state.instances; }
   function removeInstance(uid) { delete _state.instances[uid]; }
 
   function ensureFarmState(uid) {
@@ -415,6 +416,71 @@ window.GameState = (function () {
     };
 
     return JSON.parse(JSON.stringify(instance.farmState));
+  }
+
+  function ensureBarracksState(uid) {
+    var instance = getInstance(uid);
+    if (!instance) return null;
+
+    if (!instance.barracksState) {
+      instance.barracksState = {};
+    }
+
+    if (!Array.isArray(instance.barracksState.queue)) instance.barracksState.queue = [];
+    if (!instance.barracksState.reserves) instance.barracksState.reserves = {};
+    if (instance.barracksState.reserves.swordsman === undefined) instance.barracksState.reserves.swordsman = 0;
+    if (instance.barracksState.reserves.archer === undefined) instance.barracksState.reserves.archer = 0;
+    if (instance.barracksState.commandMode !== 'follow') instance.barracksState.commandMode = 'guard';
+    if (instance.barracksState.totalTrained === undefined) instance.barracksState.totalTrained = 0;
+    if (instance.barracksState.completedToday === undefined) instance.barracksState.completedToday = 0;
+
+    instance.barracksState.queue = instance.barracksState.queue.map(function(entry) {
+      return {
+        unitType: entry && entry.unitType ? entry.unitType : 'swordsman',
+        remainingSeconds: Math.max(0, Number(entry && entry.remainingSeconds) || 0),
+        totalSeconds: Math.max(1, Number(entry && entry.totalSeconds) || 1),
+        queuedAt: Number(entry && entry.queuedAt) || 0
+      };
+    });
+
+    return instance.barracksState;
+  }
+
+  function getBarracksState(uid) {
+    var state = ensureBarracksState(uid);
+    return state ? JSON.parse(JSON.stringify(state)) : null;
+  }
+
+  function getBarracksStateLive(uid) {
+    return ensureBarracksState(uid);
+  }
+
+  function setBarracksState(uid, nextState) {
+    var state = ensureBarracksState(uid);
+    if (!state) return null;
+
+    nextState = nextState || {};
+    for (var key in nextState) {
+      state[key] = nextState[key];
+    }
+
+    ensureBarracksState(uid);
+    return JSON.parse(JSON.stringify(state));
+  }
+
+  function getBarracksReserveCount(uid, unitType) {
+    var state = ensureBarracksState(uid);
+    if (!state || !state.reserves) return 0;
+    return state.reserves[unitType] || 0;
+  }
+
+  function addBarracksReserve(uid, unitType, amount) {
+    var state = ensureBarracksState(uid);
+    if (!state) return 0;
+
+    if (!state.reserves[unitType]) state.reserves[unitType] = 0;
+    state.reserves[unitType] = Math.max(0, state.reserves[unitType] + amount);
+    return state.reserves[unitType];
   }
   
   function destroyInstance(uid) {
@@ -530,15 +596,55 @@ window.GameState = (function () {
     return total;
   }
 
+  function resolveStorageCapacity(balance, level) {
+    if (!balance || balance.storageCapacity === undefined || balance.storageCapacity === null) {
+      return Infinity;
+    }
+    if (typeof balance.storageCapacity === 'number') {
+      return balance.storageCapacity;
+    }
+    if (balance.storageCapacity[level] !== undefined) {
+      return balance.storageCapacity[level];
+    }
+    if (balance.storageCapacity[1] !== undefined) {
+      return balance.storageCapacity[1];
+    }
+    return 100;
+  }
+
+  function normalizeZeroCapacityBuildingStorage() {
+    for (var instanceUid in _state.buildingStorage) {
+      var storage = _state.buildingStorage[instanceUid];
+      if (!storage) continue;
+
+      var instance = _state.instances[instanceUid];
+      if (!instance) {
+        delete _state.buildingStorage[instanceUid];
+        continue;
+      }
+
+      var balance = GameRegistry.getBalance(instance.entityId);
+      var capacity = resolveStorageCapacity(balance, instance.level || 1);
+      if (capacity > 0) continue;
+
+      for (var resourceId in storage) {
+        var amount = storage[resourceId] || 0;
+        if (amount > 0) {
+          addResource(resourceId, amount);
+        }
+      }
+
+      delete _state.buildingStorage[instanceUid];
+    }
+  }
+
   function getStorageCapacity(instanceUid) {
     var instance = getInstance(instanceUid);
     if (!instance) return 0;
     
     var balance = GameRegistry.getBalance(instance.entityId);
-    if (!balance || !balance.storageCapacity) return Infinity; // No limit if not defined
-    
     var level = instance.level || 1;
-    return balance.storageCapacity[level] || balance.storageCapacity[1] || 100;
+    return resolveStorageCapacity(balance, level);
   }
 
   function canDeposit(instanceUid, resourceId, amount) {
@@ -575,7 +681,7 @@ window.GameState = (function () {
   }
 
   // === Serialization ===
-  function exportState() {
+  function exportCoreState() {
     return {
       resources: _state.resources,
       buildings: _state.buildings,
@@ -596,9 +702,23 @@ window.GameState = (function () {
       hunger: _state.hunger,
       maxHunger: _state.maxHunger,
       timeOfDay: _state.timeOfDay,
-      fireFuel: _state.fireFuel,
+      fireFuel: _state.fireFuel
+    };
+  }
+
+  function exportWorldState() {
+    return {
+      version: _state.version,
+      chunks: _state.chunks,
       exploredChunks: _state.exploredChunks
     };
+  }
+
+  function exportState() {
+    var data = exportCoreState();
+    data.chunks = _state.chunks;
+    data.exploredChunks = _state.exploredChunks;
+    return data;
   }
 
   function importState(data) {
@@ -631,6 +751,14 @@ window.GameState = (function () {
     _state.maxHunger = data.maxHunger || 100;
     _state.timeOfDay = data.timeOfDay !== undefined ? data.timeOfDay : 6;
     _state.fireFuel = data.fireFuel || {};
+    _state.exploredChunks = data.exploredChunks || {};
+    normalizeZeroCapacityBuildingStorage();
+    return true;
+  }
+
+  function importWorldState(data) {
+    if (!data) return false;
+    _state.chunks = data.chunks || {};
     _state.exploredChunks = data.exploredChunks || {};
     return true;
   }
@@ -726,8 +854,10 @@ window.GameState = (function () {
     addToInventory: addToInventory, removeFromInventory: removeFromInventory,
     getInventory: getInventory, getInventoryCount: getInventoryCount,
     addInstance: addInstance, getInstance: getInstance,
-    getAllInstances: getAllInstances, removeInstance: removeInstance,
+    getAllInstances: getAllInstances, getAllInstancesLive: getAllInstancesLive, removeInstance: removeInstance,
     getFarmState: getFarmState, setFarmState: setFarmState, resetFarmState: resetFarmState,
+    getBarracksState: getBarracksState, getBarracksStateLive: getBarracksStateLive, setBarracksState: setBarracksState,
+    getBarracksReserveCount: getBarracksReserveCount, addBarracksReserve: addBarracksReserve,
     destroyInstance: destroyInstance,
     addBuildingStorage: addBuildingStorage, getBuildingStorage: getBuildingStorage,
     collectFromBuilding: collectFromBuilding, clearBuildingStorage: clearBuildingStorage,
@@ -736,7 +866,8 @@ window.GameState = (function () {
     saveChunkData: saveChunkData, getChunkData: getChunkData, getAllChunkData: getAllChunkData,
     getChunks: getChunks,
     getTechState: getTechState, setTechState: setTechState,
-    exportState: exportState, importState: importState,
+    exportCoreState: exportCoreState, exportWorldState: exportWorldState,
+    exportState: exportState, importState: importState, importWorldState: importWorldState,
     setGameSpeed: setGameSpeed, getGameSpeed: getGameSpeed,
     setGamePaused: setGamePaused, getGamePaused: getGamePaused,
     getShowLockedItems: getShowLockedItems,

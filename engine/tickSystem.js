@@ -2,28 +2,75 @@ window.TickSystem = (function () {
   var _tickCount = 0;
   var _resourceStats = {};
   var _lastNet = {};
+  var AUTOSAVE_INTERVAL_TICKS = 12;
+  var PAUSED_AUTOSAVE_INTERVAL_TICKS = 24;
 
-  function tick() {
-    _tickCount++;
-    calculateResourceStats();
-    applyConsumption();  // Only consumption now, no passive production
-    applyFarmingProgress();
-    applyHunger();
-    applyFireFuelDrain();
-    UnlockSystem.checkAll();
+  function getLiveInstances() {
+    if (GameState.getAllInstancesLive) return GameState.getAllInstancesLive();
+    return GameState.getAllInstances();
+  }
 
-    if (typeof GameHUD !== "undefined") {
-      GameHUD.renderAll();
-    }
+  function beginPerfMark(name) {
+    return (typeof GamePerf !== 'undefined' && GamePerf.begin) ? GamePerf.begin(name) : null;
+  }
 
-    if (_tickCount % 5 === 0) {
-      GameStorage.save();
+  function endPerfMark(mark) {
+    if (mark && typeof GamePerf !== 'undefined' && GamePerf.end) {
+      GamePerf.end(mark);
     }
   }
+
+  function tick() {
+    var tickMark = beginPerfMark('tick.total');
+    _tickCount++;
+    var instances = getLiveInstances();
+
+    var resourceStatsMark = beginPerfMark('tick.resourceStats');
+    calculateResourceStats(instances);
+    endPerfMark(resourceStatsMark);
+
+    var consumptionMark = beginPerfMark('tick.consumption');
+    applyConsumption(instances);  // Only consumption now, no passive production
+    endPerfMark(consumptionMark);
+
+    var farmingMark = beginPerfMark('tick.farming');
+    applyFarmingProgress(instances);
+    endPerfMark(farmingMark);
+
+    var barracksMark = beginPerfMark('tick.barracks');
+    applyBarracksTraining(instances);
+    endPerfMark(barracksMark);
+
+    var watchtowerMark = beginPerfMark('tick.watchtower');
+    applyWatchtowerDefense(instances);
+    endPerfMark(watchtowerMark);
+
+    var hungerMark = beginPerfMark('tick.hunger');
+    applyHunger();
+    endPerfMark(hungerMark);
+
+    var fireFuelMark = beginPerfMark('tick.fireFuel');
+    applyFireFuelDrain(instances);
+    endPerfMark(fireFuelMark);
+
+    var unlockMark = beginPerfMark('tick.unlocks');
+    UnlockSystem.checkAll();
+    endPerfMark(unlockMark);
+
+    if (typeof GameHUD !== "undefined") {
+      GameHUD.renderAll('tick');
+    }
+
+    if (_tickCount % AUTOSAVE_INTERVAL_TICKS === 0) {
+      GameStorage.save({ delayMs: 1200 });
+    }
+
+    endPerfMark(tickMark);
+  }
   
-  function calculateResourceStats() {
+  function calculateResourceStats(instances) {
     _resourceStats = { production: {}, consumption: {}, net: {}, timeLeft: {} };
-    var instances = GameState.getAllInstances();
+    instances = instances || getLiveInstances();
     var buildingList = [];
     
     for (var uid in instances) {
@@ -108,8 +155,8 @@ window.TickSystem = (function () {
    * Apply consumption only (e.g., Smelter consumes copper + tin)
    * Production now comes from NPCs harvesting to building storage
    */
-  function applyConsumption() {
-    var instances = GameState.getAllInstances();
+  function applyConsumption(instances) {
+    instances = instances || getLiveInstances();
     var buildingList = [];
     
     // Collect all buildings that consume resources
@@ -188,18 +235,18 @@ for (var resId in building.balance.consumesPerSecond) {
     }
 
     // Warehouse auto-transfer: move storage from nearby buildings to warehouses
-    transferToWarehouses();
+    transferToWarehouses(instances);
 
     // Passive production: buildings with produces but no consumesPerSecond and no workers
-    applyPassiveProduction();
+    applyPassiveProduction(instances);
   }
 
   /**
    * Passive production: buildings with produces but no consumption and no workers
    * (e.g., well produces food automatically)
    */
-  function applyPassiveProduction() {
-    var instances = GameState.getAllInstances();
+  function applyPassiveProduction(instances) {
+    instances = instances || getLiveInstances();
     for (var uid in instances) {
       var instance = instances[uid];
       var buildingId = instance.entityId;
@@ -235,8 +282,8 @@ for (var resId in building.balance.consumesPerSecond) {
     }
   }
 
-  function applyFarmingProgress() {
-    var instances = GameState.getAllInstances();
+  function applyFarmingProgress(instances) {
+    instances = instances || getLiveInstances();
 
     for (var uid in instances) {
       var instance = instances[uid];
@@ -267,11 +314,440 @@ for (var resId in building.balance.consumesPerSecond) {
     }
   }
 
+  function getLevelConfigValue(config, level, fallbackValue) {
+    if (!config) return fallbackValue;
+    if (typeof config === 'number') return config;
+    if (config[level] !== undefined) return config[level];
+    if (config[1] !== undefined) return config[1];
+    return fallbackValue;
+  }
+
+  function applyBarracksTraining(instances) {
+    if (!GameState.getBarracksState || !GameState.setBarracksState || !GameState.addBarracksReserve) return;
+
+    instances = instances || getLiveInstances();
+    for (var uid in instances) {
+      var instance = instances[uid];
+      if (!instance || instance.entityId !== 'building.barracks') continue;
+
+      var balance = GameRegistry.getBalance(instance.entityId) || {};
+      var military = balance.military || {};
+      if (!military.units) continue;
+
+      var level = instance.level || 1;
+      var trainingSpeed = getLevelConfigValue(military.trainingSpeed, level, 1) || 1;
+      var state = GameState.getBarracksState(uid);
+      if (!state || !state.queue || !state.queue.length) continue;
+
+      var activeEntry = state.queue[0];
+      activeEntry.remainingSeconds = Math.max(0, (Number(activeEntry.remainingSeconds) || 0) - trainingSpeed);
+
+      if (activeEntry.remainingSeconds <= 0) {
+        var unitType = activeEntry.unitType || 'swordsman';
+        var unitConfig = military.units[unitType] || {};
+        state.queue.shift();
+        state.totalTrained = (state.totalTrained || 0) + 1;
+        state.completedToday = (state.completedToday || 0) + 1;
+        GameState.setBarracksState(uid, state);
+        GameState.addBarracksReserve(uid, unitType, 1);
+
+        if (typeof GameHUD !== 'undefined' && GameHUD.showSuccess) {
+          GameHUD.showSuccess((unitConfig.label || unitType) + ' is ready at the Barracks.');
+        }
+      } else {
+        GameState.setBarracksState(uid, state);
+      }
+    }
+  }
+
+  function ensureWatchtowerState(instance) {
+    if (!instance) return null;
+    if (!instance.watchtowerState) instance.watchtowerState = {};
+    if (instance.watchtowerState.cooldownRemaining === undefined) instance.watchtowerState.cooldownRemaining = 0;
+    if (instance.watchtowerState.statusLabel === undefined) instance.watchtowerState.statusLabel = 'Scanning for threats';
+    if (instance.watchtowerState.lastTargetType === undefined) instance.watchtowerState.lastTargetType = null;
+    if (instance.watchtowerState.shotsFired === undefined) instance.watchtowerState.shotsFired = 0;
+    if (instance.watchtowerState.kills === undefined) instance.watchtowerState.kills = 0;
+    if (instance.watchtowerState.lastActionTick === undefined) instance.watchtowerState.lastActionTick = 0;
+
+    var reserveSupport = instance.watchtowerState.reserveSupport || {};
+    if (reserveSupport.swordsman === undefined) reserveSupport.swordsman = 0;
+    if (reserveSupport.archer === undefined) reserveSupport.archer = 0;
+    if (reserveSupport.linkedBarracksCount === undefined) reserveSupport.linkedBarracksCount = 0;
+    if (reserveSupport.rangeBonus === undefined) reserveSupport.rangeBonus = 0;
+    if (reserveSupport.attackDamageBonus === undefined) reserveSupport.attackDamageBonus = 0;
+    if (reserveSupport.attackIntervalMultiplier === undefined) reserveSupport.attackIntervalMultiplier = 1;
+    if (reserveSupport.workerProtectRadiusBonus === undefined) reserveSupport.workerProtectRadiusBonus = 0;
+    if (reserveSupport.targetPriorityBonus === undefined) reserveSupport.targetPriorityBonus = 0;
+    if (reserveSupport.supportLabel === undefined) reserveSupport.supportLabel = 'No barracks reserve link';
+    instance.watchtowerState.reserveSupport = reserveSupport;
+
+    return instance.watchtowerState;
+  }
+
+  function createEmptyReserveSupport() {
+    return {
+      swordsman: 0,
+      archer: 0,
+      linkedBarracksCount: 0,
+      rangeBonus: 0,
+      attackDamageBonus: 0,
+      attackIntervalMultiplier: 1,
+      workerProtectRadiusBonus: 0,
+      targetPriorityBonus: 0,
+      supportLabel: 'No barracks reserve link'
+    };
+  }
+
+  function getBarracksSupportPools(instances) {
+    var pools = [];
+    if (!GameState.getBarracksState) return pools;
+
+    for (var uid in instances) {
+      var instance = instances[uid];
+      if (!instance || instance.entityId !== 'building.barracks') continue;
+
+      var balance = GameRegistry.getBalance(instance.entityId) || {};
+      var military = balance.military || {};
+      var units = military.units || {};
+      var level = instance.level || 1;
+      var supportRadius = getLevelConfigValue(balance.guardRadius, level, 0) || 0;
+      if (supportRadius <= 0) continue;
+
+      var state = GameState.getBarracksState(uid);
+      if (!state || !state.reserves) continue;
+      if (state.commandMode === 'follow') continue;
+
+      var available = {};
+      var totalAvailable = 0;
+      for (var unitType in state.reserves) {
+        var amount = Math.max(0, state.reserves[unitType] || 0);
+        var unitConfig = units[unitType] || {};
+        if (amount <= 0 || !unitConfig.towerSupport) continue;
+
+        available[unitType] = amount;
+        totalAvailable += amount;
+      }
+
+      if (totalAvailable <= 0) continue;
+
+      pools.push({
+        uid: uid,
+        x: instance.x,
+        z: instance.z,
+        supportRadius: supportRadius,
+        units: units,
+        available: available
+      });
+    }
+
+    return pools;
+  }
+
+  function assignReserveSupportToTower(instance, supportPools) {
+    var support = createEmptyReserveSupport();
+    if (!instance || !supportPools || !supportPools.length) return support;
+
+    var linkedBarracks = {};
+    var supportLabels = [];
+    var supportOrder = ['swordsman', 'archer'];
+
+    for (var orderIndex = 0; orderIndex < supportOrder.length; orderIndex++) {
+      var unitType = supportOrder[orderIndex];
+      var bestPool = null;
+      var bestSupport = null;
+      var bestDistance = Infinity;
+
+      for (var poolIndex = 0; poolIndex < supportPools.length; poolIndex++) {
+        var pool = supportPools[poolIndex];
+        if (!pool || !pool.available || !pool.available[unitType]) continue;
+
+        var unitConfig = pool.units[unitType] || {};
+        var towerSupport = unitConfig.towerSupport;
+        if (!towerSupport) continue;
+
+        var dx = instance.x - pool.x;
+        var dz = instance.z - pool.z;
+        var distance = Math.sqrt(dx * dx + dz * dz);
+        if (distance > pool.supportRadius || distance >= bestDistance) continue;
+
+        bestDistance = distance;
+        bestPool = pool;
+        bestSupport = towerSupport;
+      }
+
+      if (!bestPool || !bestSupport) continue;
+
+      bestPool.available[unitType] -= 1;
+      support[unitType] = 1;
+      support.rangeBonus += Number(bestSupport.rangeBonus) || 0;
+      support.attackDamageBonus += Number(bestSupport.attackDamageBonus) || 0;
+      support.workerProtectRadiusBonus += Number(bestSupport.workerProtectRadiusBonus) || 0;
+      support.targetPriorityBonus += Number(bestSupport.targetPriorityBonus) || 0;
+
+      var intervalMultiplier = Number(bestSupport.attackIntervalMultiplier);
+      if (intervalMultiplier > 0) {
+        support.attackIntervalMultiplier *= intervalMultiplier;
+      }
+
+      if (!linkedBarracks[bestPool.uid]) {
+        linkedBarracks[bestPool.uid] = true;
+        support.linkedBarracksCount += 1;
+      }
+      if (bestSupport.label) {
+        supportLabels.push(bestSupport.label);
+      }
+    }
+
+    support.supportLabel = supportLabels.length ? supportLabels.join(' + ') : 'No barracks reserve link';
+    return support;
+  }
+
+  function getLoadedAnimalTargets() {
+    var targets = [];
+    if (!window.GameTerrain || !GameTerrain.getAllChunks) return targets;
+
+    var chunks = GameTerrain.getAllChunks();
+    for (var key in chunks) {
+      var chunk = chunks[key];
+      if (!chunk || !chunk.objects) continue;
+      for (var i = 0; i < chunk.objects.length; i++) {
+        var obj = chunk.objects[i];
+        if (!obj || !obj.type || obj.type.indexOf('animal.') !== 0) continue;
+        if (obj.hp <= 0 || obj._destroyed) continue;
+        if (window.GameRegistry && GameRegistry.isAnimalThreat && !GameRegistry.isAnimalThreat(obj.type)) continue;
+        targets.push(obj);
+      }
+    }
+
+    return targets;
+  }
+
+  function getActiveWorkerThreats() {
+    var threatMap = {};
+    if (!window.NPCSystem || !NPCSystem.getThreatenedWorkersSummary) return threatMap;
+
+    var summary = NPCSystem.getThreatenedWorkersSummary();
+    if (!summary || !summary.workers) return threatMap;
+
+    for (var i = 0; i < summary.workers.length; i++) {
+      var workerThreat = summary.workers[i];
+      if (!workerThreat || !workerThreat.threatSourceId) continue;
+
+      if (!threatMap[workerThreat.threatSourceId]) {
+        threatMap[workerThreat.threatSourceId] = {
+          workerCount: 0,
+          attackingCount: 0
+        };
+      }
+
+      threatMap[workerThreat.threatSourceId].workerCount += 1;
+      if (workerThreat.threatLevel === 'attacking') {
+        threatMap[workerThreat.threatSourceId].attackingCount += 1;
+      }
+    }
+
+    return threatMap;
+  }
+
+  function scoreThreatForTower(target, tower, workers, protectRadius, priorityBonus, activeWorkerThreats) {
+    var dx = target.worldX - tower.x;
+    var dz = target.worldZ - tower.z;
+    var towerDistance = Math.sqrt(dx * dx + dz * dz);
+    var nearestWorkerDistance = Infinity;
+
+    for (var i = 0; i < workers.length; i++) {
+      var worker = workers[i];
+      if (!worker || !worker.position) continue;
+      var workerDx = target.worldX - worker.position.x;
+      var workerDz = target.worldZ - worker.position.z;
+      var workerDistance = Math.sqrt(workerDx * workerDx + workerDz * workerDz);
+      if (workerDistance < nearestWorkerDistance) nearestWorkerDistance = workerDistance;
+    }
+
+    var score = towerDistance;
+    if (nearestWorkerDistance <= protectRadius) {
+      score -= (priorityBonus || 0) + (protectRadius - nearestWorkerDistance);
+    }
+
+    var threatPressure = activeWorkerThreats ? activeWorkerThreats[target.id] : null;
+    if (threatPressure) {
+      score -= (priorityBonus || 0) * 1.75;
+      score -= threatPressure.workerCount * 1.2;
+      if (threatPressure.attackingCount > 0) {
+        score -= 2.5 + (threatPressure.attackingCount * 0.75);
+      }
+    }
+
+    if (target.type === 'animal.bandit' || target.type === 'animal.sabertooth') {
+      score -= 0.9;
+    } else if (target.type === 'animal.lion' || target.type === 'animal.bear') {
+      score -= 0.45;
+    }
+
+    return score;
+  }
+
+  function scheduleAnimalRespawn(target, balance) {
+    var respawnTime = balance ? (balance.respawnTime || 60) : 60;
+    target.respawnAt = Date.now() + (respawnTime * 1000);
+
+    function tryAnimalRespawn() {
+      if (!target || !target._destroyed) return;
+
+      var relocated = false;
+      if (window.GameTerrain && GameTerrain.relocateRespawnedAnimal) {
+        relocated = GameTerrain.relocateRespawnedAnimal(target);
+      }
+
+      if (!relocated && window.GamePlayer) {
+        var playerPos = GamePlayer.getPosition();
+        var dx = Math.abs(target.worldX - playerPos.x);
+        var dz = Math.abs(target.worldZ - playerPos.z);
+        if (dx < 2 && dz < 2) {
+          setTimeout(tryAnimalRespawn, 5000);
+          return;
+        }
+      }
+
+      target.hp = target.maxHp || (balance ? balance.hp : 1) || 1;
+      target._destroyed = false;
+      target.respawnAt = 0;
+      if (typeof GameEntities !== 'undefined' && GameEntities.showObject) {
+        GameEntities.showObject(target);
+      }
+    }
+
+    setTimeout(tryAnimalRespawn, respawnTime * 1000);
+  }
+
+  function rewardWatchtowerKill(instanceUid, target, balance) {
+    if (!balance || !balance.rewards) return;
+
+    for (var resId in balance.rewards) {
+      var amount = balance.rewards[resId] || 0;
+      if (amount <= 0) continue;
+
+      GameState.addResource(resId, amount);
+
+      if (typeof GameHUD !== 'undefined' && GameHUD.showDamageNumber) {
+        var entity = GameRegistry.getEntity(resId);
+        var name = entity ? entity.name : resId;
+        GameHUD.showDamageNumber(target.worldX, 1.35, target.worldZ, '+' + amount + ' ' + name, 'loot');
+      }
+    }
+  }
+
+  function applyWatchtowerDefense(instances) {
+    instances = instances || getLiveInstances();
+    var animalTargets = getLoadedAnimalTargets();
+    var supportPools = getBarracksSupportPools(instances);
+
+    var workers = (window.NPCSystem && NPCSystem.getAllNPCs) ? NPCSystem.getAllNPCs() : [];
+    var activeWorkerThreats = getActiveWorkerThreats();
+    var activeCombatTarget = (window.GameCombat && GameCombat.getTarget) ? GameCombat.getTarget() : null;
+
+    for (var uid in instances) {
+      var instance = instances[uid];
+      if (!instance || instance.entityId !== 'building.watchtower') continue;
+
+      var balance = GameRegistry.getBalance(instance.entityId) || {};
+      var towerDefense = balance.towerDefense || {};
+      var level = instance.level || 1;
+      var range = getLevelConfigValue(towerDefense.range, level, getLevelConfigValue(balance.guardRadius, level, 0)) || 0;
+      if (range <= 0) continue;
+
+      var attackDamage = getLevelConfigValue(towerDefense.attackDamage, level, 1) || 1;
+      var attackIntervalSeconds = getLevelConfigValue(towerDefense.attackIntervalSeconds, level, 2) || 2;
+      var protectRadius = towerDefense.workerProtectRadius || 0;
+      var priorityBonus = towerDefense.targetPriorityBonus || 0;
+      var state = ensureWatchtowerState(instance);
+      var reserveSupport = assignReserveSupportToTower(instance, supportPools);
+      var hasReserveSupport = reserveSupport.linkedBarracksCount > 0;
+
+      state.reserveSupport = reserveSupport;
+      range += reserveSupport.rangeBonus;
+      attackDamage += reserveSupport.attackDamageBonus;
+      attackIntervalSeconds = Math.max(0.6, attackIntervalSeconds * reserveSupport.attackIntervalMultiplier);
+      protectRadius += reserveSupport.workerProtectRadiusBonus;
+      priorityBonus += reserveSupport.targetPriorityBonus;
+
+      state.cooldownRemaining = Math.max(0, (Number(state.cooldownRemaining) || 0) - 1);
+
+      var bestTarget = null;
+      var bestScore = Infinity;
+      for (var i = 0; i < animalTargets.length; i++) {
+        var target = animalTargets[i];
+        if (!target || target.hp <= 0 || target._destroyed) continue;
+        if (activeCombatTarget && activeCombatTarget.id === target.id) continue;
+
+        var dx = target.worldX - instance.x;
+        var dz = target.worldZ - instance.z;
+        var distance = Math.sqrt(dx * dx + dz * dz);
+        if (distance > range) continue;
+
+        var score = scoreThreatForTower(target, instance, workers, protectRadius, priorityBonus, activeWorkerThreats);
+        if (score < bestScore) {
+          bestScore = score;
+          bestTarget = target;
+        }
+      }
+
+      if (!bestTarget) {
+        state.statusLabel = state.cooldownRemaining > 0 ? 'Rearming' : (hasReserveSupport ? 'Scanning with reserve support' : 'Scanning for threats');
+        state.lastTargetType = null;
+        continue;
+      }
+
+      if (state.cooldownRemaining > 0) {
+        var targetEntityWaiting = GameRegistry.getEntity(bestTarget.type);
+        state.statusLabel = (hasReserveSupport ? 'Coordinating ' : 'Tracking ') + (targetEntityWaiting ? targetEntityWaiting.name : 'target');
+        state.lastTargetType = bestTarget.type;
+        continue;
+      }
+
+      var targetBalance = GameRegistry.getBalance(bestTarget.type) || {};
+      var targetDefense = bestTarget.defense !== undefined ? bestTarget.defense : (targetBalance.defense || 0);
+      var damage = Math.max(1, attackDamage - targetDefense);
+      bestTarget.hp -= damage;
+      state.cooldownRemaining = attackIntervalSeconds;
+      state.lastTargetType = bestTarget.type;
+      state.statusLabel = (hasReserveSupport ? 'Coordinated fire on ' : 'Firing on ') + ((GameRegistry.getEntity(bestTarget.type) || {}).name || 'threat');
+      state.shotsFired = (state.shotsFired || 0) + 1;
+      state.lastActionTick = _tickCount;
+
+      if (typeof GameHUD !== 'undefined' && GameHUD.showDamageNumber) {
+        GameHUD.showDamageNumber(bestTarget.worldX, 1.0, bestTarget.worldZ, '-' + damage, 'damage');
+      }
+      if (typeof ParticleSystem !== 'undefined') {
+        ParticleSystem.emit('combatHit', { x: bestTarget.worldX, y: 0.8, z: bestTarget.worldZ }, { color: 0xE76F51 });
+      }
+
+      if (bestTarget.hp <= 0) {
+        bestTarget.hp = 0;
+        bestTarget._destroyed = true;
+        state.kills = (state.kills || 0) + 1;
+        state.statusLabel = (hasReserveSupport ? 'Reserve line dropped ' : 'Dropped ') + ((GameRegistry.getEntity(bestTarget.type) || {}).name || 'threat');
+
+        rewardWatchtowerKill(uid, bestTarget, targetBalance);
+
+        if (typeof GameEntities !== 'undefined' && GameEntities.hideObject) {
+          GameEntities.hideObject(bestTarget);
+        }
+        if (typeof ParticleSystem !== 'undefined') {
+          ParticleSystem.emit('deathBurst', { x: bestTarget.worldX, y: 0.5, z: bestTarget.worldZ });
+        }
+
+        scheduleAnimalRespawn(bestTarget, targetBalance);
+      }
+    }
+  }
+
   /**
    * Transfer storage from production buildings to nearby Warehouses
    */
-  function transferToWarehouses() {
-    var instances = GameState.getAllInstances();
+  function transferToWarehouses(instances) {
+    instances = instances || getLiveInstances();
     var warehouses = [];
     var productionBuildings = [];
 
@@ -380,12 +856,12 @@ for (var resId in building.balance.consumesPerSecond) {
     GameState.setHunger(Math.max(0, newHunger));
   }
 
-  function applyFireFuelDrain() {
+  function applyFireFuelDrain(instances) {
     // Only drain fuel at night when fire is burning
     if (typeof DayNightSystem === 'undefined') return;
     if (!DayNightSystem.isNight()) return;
 
-    var instances = GameState.getAllInstances();
+    instances = instances || getLiveInstances();
     for (var uid in instances) {
       var inst = instances[uid];
       var balance = GameRegistry.getBalance(inst.entityId);
@@ -414,8 +890,8 @@ for (var resId in building.balance.consumesPerSecond) {
 
   function tickPausedOnly() {
     _tickCount++;
-    if (_tickCount % 10 === 0) {
-      GameStorage.save();
+    if (_tickCount % PAUSED_AUTOSAVE_INTERVAL_TICKS === 0) {
+      GameStorage.save({ delayMs: 1600 });
     }
   }
 

@@ -140,51 +140,82 @@ window.AtmosphereSystem = (function () {
     _windStrength = 0.2 + 0.1 * Math.sin(_windTime * 0.2) + 0.05 * Math.sin(_windTime * 0.07);
     _windDirection.x = Math.cos(_windAngle);
     _windDirection.z = Math.sin(_windAngle);
+    var playerPos = (typeof GamePlayer !== 'undefined' && GamePlayer.getPosition) ? GamePlayer.getPosition() : { x: 0, z: 0 };
+    var currentDarkness = (typeof DayNightSystem !== 'undefined') ? DayNightSystem.getDarkness() : 0;
 
     updateWindTargets(dt);
-    updateStars(dt);
-    updateMoon(dt);
-    updateClouds(dt);
+    updateStars(dt, playerPos, currentDarkness);
+    updateMoon(dt, playerPos, currentDarkness);
+    updateClouds(dt, playerPos, currentDarkness);
 
     // Ambient particles: falling leaves & fireflies
     _ambientTimer += dt;
     if (typeof ParticleSystem !== 'undefined' && typeof GamePlayer !== 'undefined') {
       // Falling leaves near trees
       if (Math.random() < 0.003 * dt * 60) {
-        var pp = GamePlayer.getPosition();
-        ParticleSystem.emit('leafFall', {x: pp.x + (Math.random() - 0.5) * 10, y: 2 + Math.random() * 3, z: pp.z + (Math.random() - 0.5) * 10});
+        ParticleSystem.emit('leafFall', {x: playerPos.x + (Math.random() - 0.5) * 10, y: 2 + Math.random() * 3, z: playerPos.z + (Math.random() - 0.5) * 10});
       }
       // Fireflies at night
-      var currentDarkness = (typeof DayNightSystem !== 'undefined') ? DayNightSystem.getDarkness() : 0;
       if (currentDarkness > 0.7 && Math.random() < 0.005 * dt * 60) {
-        var pp2 = GamePlayer.getPosition();
-        ParticleSystem.emit('firefly', {x: pp2.x + (Math.random() - 0.5) * 8, y: 0.5 + Math.random() * 1.5, z: pp2.z + (Math.random() - 0.5) * 8});
+        ParticleSystem.emit('firefly', {x: playerPos.x + (Math.random() - 0.5) * 8, y: 0.5 + Math.random() * 1.5, z: playerPos.z + (Math.random() - 0.5) * 8});
       }
     }
   }
 
+  function isAttachedToActiveScene(mesh) {
+    if (!mesh) return false;
+    var scene = (typeof GameScene !== 'undefined' && GameScene.getScene) ? GameScene.getScene() : null;
+    if (!scene) return !!mesh.parent;
+
+    var current = mesh;
+    while (current) {
+      if (current === scene) return true;
+      current = current.parent;
+    }
+
+    return false;
+  }
+
+  function findWindPivot(mesh, type) {
+    if (!mesh) return null;
+    if (type !== 'tree') return mesh;
+
+    mesh.userData = mesh.userData || {};
+    if (mesh.userData.windCanopy) {
+      return mesh.userData.windCanopy;
+    }
+
+    var canopy = null;
+    mesh.traverse(function (child) {
+      if (!canopy && child.userData && child.userData.isCanopy) {
+        canopy = child;
+      }
+    });
+
+    mesh.userData.windCanopy = canopy || mesh;
+    return mesh.userData.windCanopy;
+  }
+
   function updateWindTargets(dt) {
     var time = performance.now() * 0.001;
+    var writeIndex = 0;
 
     for (var i = 0; i < _windTargets.length; i++) {
       var entry = _windTargets[i];
-      if (!entry.mesh || !entry.mesh.parent) continue;
+      if (!entry || !entry.mesh || !isAttachedToActiveScene(entry.mesh)) continue;
+
+      _windTargets[writeIndex++] = entry;
 
       var mesh = entry.mesh;
+      var pivot = entry.pivot || mesh;
       var px = mesh.position.x || 0;
       var pz = mesh.position.z || 0;
 
       if (entry.type === 'tree') {
-        var canopy = null;
-        mesh.traverse(function (child) {
-          if (child.userData && child.userData.isCanopy) {
-            canopy = child;
-          }
-        });
-        if (canopy) {
+        if (pivot) {
           var sway = Math.sin(time * 1.5 + px * 0.5 + pz * 0.3) * _windStrength * 0.12;
-          canopy.rotation.z = sway;
-          canopy.rotation.x = Math.sin(time * 1.2 + pz * 0.4) * _windStrength * 0.05;
+          pivot.rotation.z = sway;
+          pivot.rotation.x = Math.sin(time * 1.2 + pz * 0.4) * _windStrength * 0.05;
         }
       } else if (entry.type === 'bush') {
         var swayBush = Math.sin(time * 2.0 + px * 0.3) * _windStrength * 0.06;
@@ -194,12 +225,14 @@ window.AtmosphereSystem = (function () {
         mesh.rotation.x = swayGrass;
       }
     }
+
+    if (writeIndex !== _windTargets.length) {
+      _windTargets.length = writeIndex;
+    }
   }
 
-  function updateStars(dt) {
+  function updateStars(dt, playerPos, darkness) {
     if (!_starField) return;
-
-    var darkness = (typeof DayNightSystem !== 'undefined') ? DayNightSystem.getDarkness() : 0;
     var targetOpacity = Math.max(0, (darkness - 0.4) * 1.67);
     targetOpacity = Math.min(1, targetOpacity);
 
@@ -214,23 +247,11 @@ window.AtmosphereSystem = (function () {
     var currentOpacity = _starField.material.opacity;
     _starField.material.opacity = currentOpacity + (targetOpacity - currentOpacity) * 0.05;
 
-    var phases = _starField.userData.phases;
-    var posAttr = _starField.geometry.attributes.position;
-    var count = _starField.userData.starCount;
-    var twinkling = 0;
-
-    for (var i = 0; i < count; i++) {
-      twinkling = (0.85 + 0.15 * Math.sin(time * 3.0 + phases[i]));
-    }
-
-    var playerPos = (typeof GamePlayer !== 'undefined') ? GamePlayer.getPosition() : { x: 0, z: 0 };
     _starField.position.set(playerPos.x, 0, playerPos.z);
   }
 
-  function updateMoon(dt) {
+  function updateMoon(dt, playerPos, darkness) {
     if (!_moonMesh) return;
-
-    var darkness = (typeof DayNightSystem !== 'undefined') ? DayNightSystem.getDarkness() : 0;
 
     var targetOpacity = 0;
     var targetIntensity = 0;
@@ -251,8 +272,6 @@ window.AtmosphereSystem = (function () {
       var moonAngle = (timeOfDay - 18) / 12 * Math.PI;
       var moonDist = 35;
 
-      var playerPos = (typeof GamePlayer !== 'undefined') ? GamePlayer.getPosition() : { x: 0, z: 0 };
-
       _moonMesh.position.set(
         playerPos.x + Math.cos(moonAngle) * moonDist,
         28,
@@ -262,13 +281,9 @@ window.AtmosphereSystem = (function () {
     }
   }
 
-  function updateClouds(dt) {
+  function updateClouds(dt, playerPos, darkness) {
     if (!_cloudGroup) return;
-
-    var darkness = (typeof DayNightSystem !== 'undefined') ? DayNightSystem.getDarkness() : 0;
     var cloudOpacity = 0.3 * (1 - darkness * 0.6);
-
-    var playerPos = (typeof GamePlayer !== 'undefined') ? GamePlayer.getPosition() : { x: 0, z: 0 };
 
     for (var i = 0; i < _clouds.length; i++) {
       var cloud = _clouds[i];
@@ -292,7 +307,15 @@ window.AtmosphereSystem = (function () {
   }
 
   function registerWindTarget(mesh, type) {
-    _windTargets.push({ mesh: mesh, type: type });
+    if (!mesh) return;
+    for (var i = 0; i < _windTargets.length; i++) {
+      if (_windTargets[i] && _windTargets[i].mesh === mesh) {
+        _windTargets[i].type = type;
+        _windTargets[i].pivot = findWindPivot(mesh, type);
+        return;
+      }
+    }
+    _windTargets.push({ mesh: mesh, type: type, pivot: findWindPivot(mesh, type) });
   }
 
   function unregisterWindTarget(mesh) {

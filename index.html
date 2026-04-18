@@ -57,6 +57,15 @@
     <span id="clock-time">☀ 12:00</span>
   </div>
 
+  <div class="perf-tools" id="perf-tools">
+    <div id="fps-panel" class="fps-panel">FPS --</div>
+    <button id="debug-settings-toggle" class="debug-settings-toggle" type="button" aria-expanded="false">
+      <span class="debug-settings-toggle-label">Debug</span>
+      <span class="debug-settings-toggle-hint">F9</span>
+    </button>
+  </div>
+  <div id="debug-settings-panel" class="debug-settings-panel" aria-hidden="true"></div>
+
   <!-- Context Action -->
   <div class="context-action" id="context-action">
     <span class="key">[E]</span> <span id="context-text">Chop Tree</span>
@@ -210,11 +219,14 @@
   <script src="content/expansion_iron_age.js"></script>
   <script src="content/expansion_fire_light.js"></script>
   <script src="content/expansion_water.js"></script>
+  <script src="content/expansion_military_defense.js"></script>
+  <script src="content/expansion_hunt_prey.js"></script>
   <script src="balance/balance.js"></script>
 
   <!-- Engine Core -->
   <script src="engine/registry.js"></script>
   <script src="engine/gameState.js"></script>
+  <script src="engine/perfMonitor.js"></script>
 
   <!-- Persistence -->
   <script src="storage/localStorage.js"></script>
@@ -235,6 +247,7 @@
   <script src="world/combat.js"></script>
   <script src="world/buildingSystem.js"></script>
   <script src="world/npcSystem.js"></script>
+  <script src="world/barracksTroopSystem.js"></script>
   <script src="world/rangeIndicator.js"></script>
   <script src="world/dayNightSystem.js"></script>
   <script src="world/fireSystem.js"></script>
