@@ -267,6 +267,14 @@ window.GameTerrain = (function () {
     return getTerrainBalanceConfig().predatorZones || {};
   }
 
+  function getBossZoneConfig() {
+    return getTerrainBalanceConfig().bossZones || {};
+  }
+
+  function getRuinedOutpostConfig() {
+    return getTerrainBalanceConfig().ruinedOutposts || {};
+  }
+
   function getAnimalSpawnConfig() {
     return getTerrainBalanceConfig().animalSpawns || {};
   }
@@ -436,6 +444,51 @@ window.GameTerrain = (function () {
     };
   }
 
+  function getBossZoneProfile(seed, distFromHome) {
+    var candidates = getBossZoneConfig().candidates || [];
+    for (var index = 0; index < candidates.length; index++) {
+      var candidate = candidates[index];
+      if (distFromHome < Number(candidate.minDistance || 0)) continue;
+
+      var bossRoll = seededRandom(seed + 10300 + index * 37);
+      if (bossRoll <= Number(candidate.threshold || 0)) continue;
+
+      var bossEntity = (typeof GameRegistry !== 'undefined' && GameRegistry.getEntity)
+        ? GameRegistry.getEntity(candidate.bossType)
+        : null;
+      return {
+        label: candidate.label || (bossEntity ? bossEntity.name : candidate.bossType),
+        bossType: candidate.bossType,
+        rewardId: candidate.rewardId || null,
+        rewardLabel: candidate.rewardLabel || candidate.rewardId || '',
+        overlayFill: candidate.overlayFill || 'rgba(255, 209, 102, 0.12)',
+        overlayStroke: candidate.overlayStroke || 'rgba(255, 209, 102, 0.55)',
+        markerColor: candidate.markerColor || '#ffd166'
+      };
+    }
+
+    return null;
+  }
+
+  function getRuinedOutpostProfile(seed, distFromHome) {
+    var tiers = getRuinedOutpostConfig().tiers || [];
+    for (var index = 0; index < tiers.length; index++) {
+      var tier = tiers[index];
+      if (distFromHome < Number(tier.minDistance || 0)) continue;
+
+      var outpostRoll = seededRandom(seed + 10700 + index * 29);
+      if (outpostRoll <= Number(tier.threshold || 0)) continue;
+
+      return {
+        label: tier.label || 'Ruined Outpost',
+        rewardLabel: tier.rewardLabel || 'Cached supplies',
+        rewards: cloneMap(tier.rewards)
+      };
+    }
+
+    return null;
+  }
+
   function chooseAnimalType(currentAge, distFromHome, animalRoll, predatorZone) {
     var spawnConfig = getAnimalSpawnConfig();
     var tableKey = predatorZone ? predatorZone.level : 'normal';
@@ -448,6 +501,14 @@ window.GameTerrain = (function () {
 
   function isResourceNode(objData) {
     return !!(objData && objData.type && objData.type.indexOf("node.") === 0);
+  }
+
+  function isWorldSite(objData) {
+    return !!(objData && objData.type && objData.type.indexOf('site.') === 0);
+  }
+
+  function isPersistentChunkObject(objData) {
+    return !!(isResourceNode(objData) || (objData && objData.persistentChunkState));
   }
 
   function cloneMap(map) {
@@ -723,6 +784,22 @@ window.GameTerrain = (function () {
     return hasChanges ? saved : null;
   }
 
+  function buildSavedChunkObjectState(objData) {
+    if (!isPersistentChunkObject(objData)) return null;
+    if (isResourceNode(objData)) return buildSavedNodeState(objData);
+
+    return {
+      i: objData.id,
+      x: objData.x,
+      z: objData.z,
+      wx: objData.worldX,
+      wz: objData.worldZ,
+      h: typeof objData.hp === 'number' ? objData.hp : null,
+      d: objData._destroyed ? 1 : 0,
+      r: objData.respawnAt || 0
+    };
+  }
+
   function initializeNodeState(objData, now) {
     if (!isResourceNode(objData)) return;
 
@@ -836,6 +913,48 @@ window.GameTerrain = (function () {
 
     if (!objData._destroyed && !objData.nextGrowthAt) {
       objData._persistBase = captureNodePersistState(objData);
+    }
+  }
+
+  function restoreSavedChunkObjectState(objData, savedData, now) {
+    if (!savedData || !objData) return;
+    if (isResourceNode(objData)) {
+      restoreSavedNodeState(objData, savedData, now);
+      return;
+    }
+
+    var savedHp = getSavedNodeField(savedData, 'hp', 'h');
+    var savedDestroyed = getSavedNodeField(savedData, '_destroyed', 'd');
+    var savedX = getSavedNodeField(savedData, 'x', 'x');
+    var savedZ = getSavedNodeField(savedData, 'z', 'z');
+    var savedWorldX = getSavedNodeField(savedData, 'worldX', 'wx');
+    var savedWorldZ = getSavedNodeField(savedData, 'worldZ', 'wz');
+    var savedRespawnAt = getSavedNodeField(savedData, 'respawnAt', 'r');
+
+    if (savedX !== undefined) objData.x = savedX;
+    if (savedZ !== undefined) objData.z = savedZ;
+    if (savedWorldX !== undefined) objData.worldX = savedWorldX;
+    if (savedWorldZ !== undefined) objData.worldZ = savedWorldZ;
+    if ((savedX !== undefined || savedZ !== undefined) && (savedWorldX === undefined || savedWorldZ === undefined)) {
+      syncNodeWorldPosition(objData);
+    }
+
+    objData.persistentChunkState = true;
+    objData._destroyed = !!savedDestroyed;
+    if (savedRespawnAt !== undefined) objData.respawnAt = savedRespawnAt;
+
+    var maxHp = getBalancedEntityHp(objData.type, objData.maxHp || objData.hp || 1);
+    objData.maxHp = maxHp;
+    if (typeof savedHp === 'number') {
+      objData.hp = Math.max(0, Math.min(savedHp, maxHp));
+    } else if (objData._destroyed) {
+      objData.hp = 0;
+    } else {
+      objData.hp = maxHp;
+    }
+
+    if (savedX !== undefined || savedZ !== undefined || savedWorldX !== undefined || savedWorldZ !== undefined) {
+      objData._needsMeshRefresh = true;
     }
   }
 
@@ -1227,7 +1346,7 @@ window.GameTerrain = (function () {
               if (chunks[key] && chunks[key].objects) {
                 chunks[key].objects.forEach(function (obj) {
                   if (savedMap[obj.id]) {
-                    restoreSavedNodeState(obj, savedMap[obj.id], now);
+                    restoreSavedChunkObjectState(obj, savedMap[obj.id], now);
                     // If destroyed, hide the 3D mesh
                     if (obj._destroyed || obj.hp <= 0) {
                       GameEntities.hideObject(obj);
@@ -1248,18 +1367,7 @@ window.GameTerrain = (function () {
         if (Math.abs(cx - pcx) > RENDER_DISTANCE + 1 || Math.abs(cz - pcz) > RENDER_DISTANCE + 1) {
           // Save object HP states before unloading
           var chunkToUnload = chunks[key];
-          if (chunkToUnload.objects) {
-            var savedObjects = [];
-            chunkToUnload.objects.forEach(function (obj) {
-              var savedNode = buildSavedNodeState(obj);
-              if (savedNode) savedObjects.push(savedNode);
-            });
-            GameState.saveChunkData(key, savedObjects.length ? {
-              cx: cx,
-              cz: cz,
-              objects: savedObjects
-            } : null);
-          }
+          persistChunkData(chunkToUnload);
 
           if (typeof GameEntities !== 'undefined' && GameEntities.removeChunkObjects) {
             GameEntities.removeChunkObjects(chunkToUnload);
@@ -1320,12 +1428,69 @@ window.GameTerrain = (function () {
     });
   }
 
+  function cloneChunkFeatureData(featureData) {
+    if (!featureData) return null;
+
+    var copy = {};
+    for (var key in featureData) {
+      if (!Object.prototype.hasOwnProperty.call(featureData, key)) continue;
+      if (key === 'rewards') {
+        copy.rewards = cloneMap(featureData.rewards);
+      } else {
+        copy[key] = featureData[key];
+      }
+    }
+    return copy;
+  }
+
+  function buildChunkSaveData(chunkData) {
+    if (!chunkData || !chunkData.objects) return null;
+
+    var savedObjects = [];
+    chunkData.objects.forEach(function(obj) {
+      var savedObject = buildSavedChunkObjectState(obj);
+      if (savedObject) savedObjects.push(savedObject);
+    });
+
+    var hasFeatureMetadata = !!(chunkData.bossZone || chunkData.ruinedOutpost);
+    if (!savedObjects.length && !hasFeatureMetadata) {
+      return null;
+    }
+
+    return {
+      cx: chunkData.cx,
+      cz: chunkData.cz,
+      objects: savedObjects,
+      bossZone: cloneChunkFeatureData(chunkData.bossZone),
+      ruinedOutpost: cloneChunkFeatureData(chunkData.ruinedOutpost)
+    };
+  }
+
+  function persistChunkData(chunkData) {
+    if (!chunkData || typeof GameState === 'undefined' || !GameState.saveChunkData) return;
+    var key = chunkData.cx + ',' + chunkData.cz;
+    GameState.saveChunkData(key, buildChunkSaveData(chunkData));
+  }
+
+  function persistObjectState(objData) {
+    if (!objData) return false;
+
+    var chunkData = getChunkAt(objData.worldX, objData.worldZ);
+    if (!chunkData) return false;
+    persistChunkData(chunkData);
+    return true;
+  }
+
   function generateChunk(cx, cz, savedChunkData) {
     var key = cx + "," + cz;
     var seed = chunkSeed(cx, cz) + worldSeed;
     var distFromHome = Math.sqrt(cx * cx + cz * cz);
     var currentAge = (typeof GameState !== 'undefined' && GameState.getAge) ? GameState.getAge() : 'age.stone';
     var predatorZone = (savedChunkData && savedChunkData.predatorZone) ? savedChunkData.predatorZone : getPredatorZoneProfile(seed, distFromHome, currentAge);
+    var bossZone = (savedChunkData && savedChunkData.bossZone) ? savedChunkData.bossZone : getBossZoneProfile(seed, distFromHome);
+    var ruinedOutpost = (savedChunkData && savedChunkData.ruinedOutpost) ? savedChunkData.ruinedOutpost : getRuinedOutpostProfile(seed, distFromHome);
+    var bossObjectId = bossZone ? (bossZone.objectId || ("obj_" + key + "_boss")) : null;
+    var outpostObjectId = ruinedOutpost ? (ruinedOutpost.objectId || ("obj_" + key + "_site0")) : null;
 
     var chunkData = {
       cx: cx, cz: cz,
@@ -1337,6 +1502,22 @@ window.GameTerrain = (function () {
         label: predatorZone.label,
         animalBonus: predatorZone.animalBonus,
         dangerBonus: predatorZone.dangerBonus
+      } : null,
+      bossZone: bossZone ? {
+        label: bossZone.label,
+        bossType: bossZone.bossType,
+        rewardId: bossZone.rewardId || null,
+        rewardLabel: bossZone.rewardLabel || '',
+        overlayFill: bossZone.overlayFill || 'rgba(255, 209, 102, 0.12)',
+        overlayStroke: bossZone.overlayStroke || 'rgba(255, 209, 102, 0.55)',
+        markerColor: bossZone.markerColor || '#ffd166',
+        objectId: bossObjectId
+      } : null,
+      ruinedOutpost: ruinedOutpost ? {
+        label: ruinedOutpost.label || 'Ruined Outpost',
+        rewardLabel: ruinedOutpost.rewardLabel || '',
+        rewards: cloneMap(ruinedOutpost.rewards),
+        objectId: outpostObjectId
       } : null,
       generated: true,
       generatedAt: (savedChunkData && typeof savedChunkData.generatedAt === "number") ? savedChunkData.generatedAt : Date.now(),
@@ -1513,6 +1694,34 @@ window.GameTerrain = (function () {
       }
     }
 
+    if (chunkData.bossZone) {
+      var bossPos = findChunkSpawnPosition(chunkData, playerPos, 470, 471, 0, buildSpawnOptions(animalGeneration.placement || {}, {
+        instances: placedInstances,
+        clearance: 2.2,
+        buildingClearance: 1.8,
+        playerClearance: 3.2,
+        maxAttempts: 72
+      }));
+
+      if (bossPos) {
+        var bossHp = getBalancedEntityHp(chunkData.bossZone.bossType);
+        chunkData.objects.push({
+          id: chunkData.bossZone.objectId,
+          type: chunkData.bossZone.bossType,
+          x: bossPos.x, z: bossPos.z,
+          hp: bossHp, maxHp: bossHp,
+          worldX: bossPos.worldX,
+          worldZ: bossPos.worldZ,
+          persistentChunkState: true,
+          isBoss: true,
+          bossRewardId: chunkData.bossZone.rewardId || null,
+          bossRewardLabel: chunkData.bossZone.rewardLabel || ''
+        });
+      } else {
+        chunkData.bossZone = null;
+      }
+    }
+
     // Flint deposits (far chunks)
     var flintGeneration = getTerrainOreGenerationConfig('flint');
     if (distFromHome >= Number(flintGeneration.minDistanceFromHome || 0) && rng(500) > Number(flintGeneration.rollThreshold)) {
@@ -1573,6 +1782,33 @@ window.GameTerrain = (function () {
       }
     }
 
+    if (chunkData.ruinedOutpost) {
+      var outpostPos = findChunkSpawnPosition(chunkData, playerPos, 1300, 1301, 0, buildSpawnOptions({}, {
+        instances: placedInstances,
+        clearance: 2.3,
+        buildingClearance: 2.0,
+        playerClearance: 2.8,
+        maxAttempts: 56
+      }));
+
+      if (outpostPos) {
+        chunkData.objects.push({
+          id: chunkData.ruinedOutpost.objectId,
+          type: 'site.ruined_outpost',
+          x: outpostPos.x, z: outpostPos.z,
+          hp: 1, maxHp: 1,
+          worldX: outpostPos.worldX,
+          worldZ: outpostPos.worldZ,
+          persistentChunkState: true,
+          siteRewards: cloneMap(chunkData.ruinedOutpost.rewards),
+          siteLabel: chunkData.ruinedOutpost.label,
+          rewardLabel: chunkData.ruinedOutpost.rewardLabel
+        });
+      } else {
+        chunkData.ruinedOutpost = null;
+      }
+    }
+
     var generationTime = chunkData.generatedAt;
     chunkData.objects.forEach(function (obj) {
       initializeNodeState(obj, generationTime);
@@ -1589,6 +1825,10 @@ window.GameTerrain = (function () {
     // Create 3D meshes for objects in this chunk
     if (typeof GameEntities !== 'undefined') {
       GameEntities.createObjectForChunk(chunkData);
+    }
+
+    if (chunkData.bossZone || chunkData.ruinedOutpost) {
+      persistChunkData(chunkData);
     }
 
     return chunkData;
@@ -1718,7 +1958,7 @@ window.GameTerrain = (function () {
         var now = Date.now();
         chunks[key].objects.forEach(function (obj) {
           if (savedMap[obj.id]) {
-            restoreSavedNodeState(obj, savedMap[obj.id], now);
+            restoreSavedChunkObjectState(obj, savedMap[obj.id], now);
           }
         });
       }
@@ -1824,6 +2064,7 @@ window.GameTerrain = (function () {
     canHarvestNode: canHarvestNode,
     completeNodeHarvest: completeNodeHarvest,
     relocateRespawnedAnimal: relocateRespawnedAnimal,
+    persistObjectState: persistObjectState,
     restoreChunk: restoreChunk,
     seededRandom: seededRandom,
     reserveTile: reserveTile,

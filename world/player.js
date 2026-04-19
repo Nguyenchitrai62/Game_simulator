@@ -191,7 +191,7 @@ window.GamePlayer = (function () {
         if (GameHUD.isModalActive()) {
           GameHUD.closeModal();
         } else {
-          GameHUD.openModal();
+          GameHUD.openModal({ tab: 'resources' });
         }
       }
       if (e.key.toLowerCase() === 'm') {
@@ -230,6 +230,18 @@ window.GamePlayer = (function () {
     if (intersects.length > 0) {
       var objData = GameEntities.getDataFromMesh(intersects[0].object);
       if (objData) {
+        if (handleBarracksTargetSelection(objData)) {
+          return;
+        }
+
+        if (handleCombatClick(objData)) {
+          return;
+        }
+
+        if (handleWorldSiteClick(objData)) {
+          return;
+        }
+
         var entity = GameRegistry.getEntity(objData.type);
         var name = entity ? entity.name : objData.type;
         if (objData.type.startsWith('animal.')) {
@@ -245,10 +257,49 @@ window.GamePlayer = (function () {
           GameHUD.showNotification(info);
         } else if (objData.type.startsWith('node.')) {
           GameHUD.showNotification(name + ' | ' + t('hud.nodes.hpShort', null, 'HP') + ': ' + objData.hp + '/' + objData.maxHp);
+        } else if (objData.type === 'site.ruined_outpost') {
+          GameHUD.showNotification(name + ' | Move closer and click or press E to salvage the cache.');
         }
       }
     }
 
+  }
+
+  function handleBarracksTargetSelection(objData) {
+    if (!objData || !objData.type || objData.type.indexOf('animal.') !== 0) return false;
+    if (!window.GameHUD || !GameHUD.getSelectedInstance || !window.GameActions || !GameActions.setBarracksAttackTarget) return false;
+
+    var selectedUid = GameHUD.getSelectedInstance();
+    if (!selectedUid || !window.GameState || !GameState.getInstance || !GameState.getBarracksState) return false;
+
+    var instance = GameState.getInstance(selectedUid);
+    if (!instance || instance.entityId !== 'building.barracks') return false;
+
+    var state = GameState.getBarracksState(selectedUid);
+    if (!state || state.commandMode !== 'attack') return false;
+
+    return !!GameActions.setBarracksAttackTarget(selectedUid, objData.id);
+  }
+
+  function handleCombatClick(objData) {
+    if (!objData || !objData.type || objData.type.indexOf('animal.') !== 0) return false;
+    if (!window.GameCombat || !GameCombat.canStartCombatWith || !GameCombat.startCombat) return false;
+    if (GameCombat.isActive && GameCombat.isActive()) return false;
+    if (!GameCombat.canStartCombatWith(objData)) return false;
+
+    _handleThreatEngaged(objData);
+    return !!GameCombat.startCombat(objData);
+  }
+
+  function handleWorldSiteClick(objData) {
+    if (!objData || objData.type !== 'site.ruined_outpost') return false;
+
+    var interactionRadius = getPlayerInteractionRadius();
+    var dx = (objData.worldX || 0) - _x;
+    var dz = (objData.worldZ || 0) - _z;
+    if (Math.sqrt(dx * dx + dz * dz) > interactionRadius) return false;
+
+    return lootWorldSite(objData);
   }
 
   // === MANUAL EAT: press F or click Eat button ===
@@ -1277,6 +1328,31 @@ window.GamePlayer = (function () {
     return parts.join(", ");
   }
 
+  function getRuinedOutpostKey(siteData) {
+    var rewards = siteData && siteData.siteRewards ? siteData.siteRewards : null;
+    if (rewards) {
+      if (rewards['resource.iron'] || rewards['resource.coal']) return 'frontierHold';
+      if (rewards['resource.bronze']) return 'bronzeOutpost';
+      if (rewards['resource.flint'] || rewards['resource.wood']) return 'hunterCamp';
+    }
+
+    var label = siteData && siteData.siteLabel ? String(siteData.siteLabel) : '';
+    if (label === 'Ruined Frontier Hold') return 'frontierHold';
+    if (label === 'Ruined Bronze Outpost') return 'bronzeOutpost';
+    if (label === 'Collapsed Hunter Camp') return 'hunterCamp';
+    return '';
+  }
+
+  function getLocalizedRuinedOutpostLabel(siteData) {
+    var outpostKey = getRuinedOutpostKey(siteData);
+    if (outpostKey) {
+      return t('world.ruinedOutposts.' + outpostKey + '.label', null, siteData && siteData.siteLabel ? siteData.siteLabel : t('entities.site.ruined_outpost.name', null, 'Ruined Outpost'));
+    }
+
+    var siteEntity = GameRegistry.getEntity('site.ruined_outpost');
+    return siteEntity && siteEntity.name ? siteEntity.name : t('entities.site.ruined_outpost.name', null, 'Ruined Outpost');
+  }
+
   function buildFarmPrompt(status) {
     if (!status) return null;
 
@@ -1443,7 +1519,57 @@ window.GamePlayer = (function () {
       GameCombat.startCombat(objData);
     } else if (objData.type.startsWith("node.")) {
       harvestNode(objData);
+    } else if (objData.type === 'site.ruined_outpost') {
+      lootWorldSite(objData);
     }
+  }
+
+  function lootWorldSite(objData) {
+    if (!objData || objData._destroyed || objData.hp <= 0) return false;
+
+    var rewards = objData.siteRewards || {};
+    var rewardParts = [];
+    for (var rewardId in rewards) {
+      var amount = Number(rewards[rewardId]) || 0;
+      if (amount <= 0) continue;
+
+      var rewardEntity = GameRegistry.getEntity(rewardId);
+      if (rewardEntity && (rewardEntity.type === 'equipment' || rewardEntity.type === 'tool' || rewardEntity.type === 'consumable')) {
+        GameState.addToInventory(rewardId, amount);
+      } else {
+        GameState.addResource(rewardId, amount);
+      }
+
+      rewardParts.push(amount + ' ' + (rewardEntity ? rewardEntity.name : rewardId));
+      if (window.GameHUD && GameHUD.showDamageNumber) {
+        GameHUD.showDamageNumber(objData.worldX, 1.2, objData.worldZ, '+' + amount + ' ' + (rewardEntity ? rewardEntity.name : rewardId), 'loot');
+      }
+    }
+
+    objData._destroyed = true;
+    objData.hp = 0;
+    if (typeof GameEntities !== 'undefined' && GameEntities.hideObject) {
+      GameEntities.hideObject(objData);
+    }
+    if (typeof GameTerrain !== 'undefined' && GameTerrain.persistObjectState) {
+      GameTerrain.persistObjectState(objData);
+    }
+    if (typeof UnlockSystem !== 'undefined' && UnlockSystem.checkAll) {
+      UnlockSystem.checkAll();
+    }
+    if (typeof ParticleSystem !== 'undefined') {
+      ParticleSystem.emit('loot', { x: objData.worldX, y: 0.8, z: objData.worldZ });
+    }
+    if (window.GameHUD && GameHUD.showNotification) {
+      var label = getLocalizedRuinedOutpostLabel(objData);
+      var rewardText = rewardParts.length ? rewardParts.join(', ') : t('world.player.suppliesRecovered', null, 'Supplies recovered.');
+      GameHUD.showNotification(t('world.player.ruinedOutpostSalvaged', { name: label, rewards: rewardText }, '{name} salvaged: {rewards}'));
+    }
+    if (window.GameHUD && GameHUD.renderAll) {
+      GameHUD.renderAll();
+    }
+
+    return true;
   }
 
   function findNearestBuilding(px, pz, radius) {
@@ -1555,54 +1681,118 @@ window.GamePlayer = (function () {
     GameHUD.renderAll();
   }
 
+  function getEquipmentVisualColor(equipmentId, fallbackColor) {
+    var color = fallbackColor;
+    var entity = GameRegistry.getEntity(equipmentId);
+    if (entity && entity.id) {
+      if (entity.id.indexOf('wooden') > -1 || entity.id.indexOf('hunting') > -1) color = 0x8B6914;
+      else if (entity.id.indexOf('stone') > -1) color = 0x808080;
+      else if (entity.id.indexOf('bronze') > -1) color = 0xB87333;
+      else if (entity.id.indexOf('iron') > -1) color = 0x6A6A6A;
+    }
+    return color;
+  }
+
+  function createWeaponVisual(weaponId) {
+    if (typeof THREE === 'undefined' || !weaponId) return null;
+
+    var group = new THREE.Group();
+    var balance = GameRegistry.getBalance(weaponId) || {};
+    var profileId = balance.weaponProfile || 'sword';
+    var metalColor = getEquipmentVisualColor(weaponId, 0xA0A0A0);
+    var woodColor = weaponId.indexOf('bow') !== -1 ? 0x7c5731 : 0x5c4033;
+
+    function addMesh(geometry, material, x, y, z, rotX, rotY, rotZ) {
+      var part = new THREE.Mesh(geometry, material);
+      part.position.set(x || 0, y || 0, z || 0);
+      part.rotation.set(rotX || 0, rotY || 0, rotZ || 0);
+      part.castShadow = true;
+      group.add(part);
+      return part;
+    }
+
+    if (profileId === 'special') {
+      if (weaponId.indexOf('sunpiercer') !== -1) {
+        addMesh(new THREE.TorusGeometry(0.15, 0.014, 8, 22, Math.PI), new THREE.MeshLambertMaterial({ color: 0xa06a28 }), 0.01, 0.18, 0.03, Math.PI / 2, 0, Math.PI / 2);
+        addMesh(new THREE.BoxGeometry(0.004, 0.3, 0.004), new THREE.MeshBasicMaterial({ color: 0xfff1c1 }), 0.01, 0.18, 0.03);
+        addMesh(new THREE.ConeGeometry(0.03, 0.11, 6), new THREE.MeshLambertMaterial({ color: 0xffd166 }), 0.12, 0.29, 0.03, 0, 0, 0.88);
+      } else if (weaponId.indexOf('stormspine') !== -1 || weaponId.indexOf('glaive') !== -1) {
+        addMesh(new THREE.CylinderGeometry(0.012, 0.012, 0.46, 6), new THREE.MeshLambertMaterial({ color: 0x5c4033 }), 0.02, 0.2, 0.02, 0, 0, 0.16);
+        addMesh(new THREE.ConeGeometry(0.034, 0.14, 6), new THREE.MeshLambertMaterial({ color: 0x7ef0d0 }), 0.08, 0.43, 0.02, 0, 0, Math.PI - 0.16);
+        addMesh(new THREE.BoxGeometry(0.08, 0.03, 0.02), new THREE.MeshLambertMaterial({ color: 0xaaf9ec }), 0.02, 0.32, 0.02, 0, 0, 0.16);
+      } else {
+        addMesh(new THREE.BoxGeometry(0.03, 0.34, 0.04), new THREE.MeshLambertMaterial({ color: 0xc8ddff }), 0.03, 0.22, 0.02, 0, 0, -0.14);
+        addMesh(new THREE.BoxGeometry(0.08, 0.03, 0.05), new THREE.MeshLambertMaterial({ color: 0x5c4033 }), 0.03, 0.05, 0.02);
+        addMesh(new THREE.CylinderGeometry(0.018, 0.018, 0.06, 10), new THREE.MeshLambertMaterial({ color: 0xaed7ff }), 0.03, 0.39, 0.02, Math.PI / 2, 0, 0);
+      }
+    } else if (profileId === 'bow') {
+      addMesh(new THREE.TorusGeometry(0.14, 0.012, 6, 20, Math.PI), new THREE.MeshLambertMaterial({ color: woodColor }), 0.01, 0.18, 0.03, Math.PI / 2, 0, Math.PI / 2);
+      addMesh(new THREE.BoxGeometry(0.003, 0.28, 0.003), new THREE.MeshBasicMaterial({ color: 0xf2ead2 }), 0.01, 0.18, 0.03);
+      addMesh(new THREE.CylinderGeometry(0.008, 0.008, 0.22, 6), new THREE.MeshLambertMaterial({ color: metalColor }), 0.12, 0.17, 0.03, 0.2, 0, 0.9);
+    } else if (profileId === 'spear') {
+      addMesh(new THREE.CylinderGeometry(0.012, 0.012, 0.42, 6), new THREE.MeshLambertMaterial({ color: woodColor }), 0.02, 0.18, 0.02, 0, 0, 0.18);
+      addMesh(new THREE.ConeGeometry(0.028, 0.1, 6), new THREE.MeshLambertMaterial({ color: metalColor }), 0.07, 0.39, 0.02, 0, 0, Math.PI - 0.18);
+    } else {
+      addMesh(new THREE.BoxGeometry(0.028, 0.3, 0.04), new THREE.MeshLambertMaterial({ color: metalColor }), 0.03, 0.2, 0.02, 0, 0, -0.12);
+      addMesh(new THREE.BoxGeometry(0.07, 0.03, 0.05), new THREE.MeshLambertMaterial({ color: woodColor }), 0.03, 0.05, 0.02);
+      addMesh(new THREE.BoxGeometry(0.022, 0.09, 0.03), new THREE.MeshLambertMaterial({ color: woodColor }), 0.03, -0.02, 0.02);
+    }
+
+    group.userData.weaponId = weaponId;
+    group.position.set(0.3, -0.05, 0.15);
+    return group;
+  }
+
+  function createShieldVisual(offhandId) {
+    if (typeof THREE === 'undefined' || !offhandId) return null;
+
+    var group = new THREE.Group();
+    var shieldColor = getEquipmentVisualColor(offhandId, 0x8B7355);
+    var outer = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.24, 0.2), new THREE.MeshLambertMaterial({ color: shieldColor }));
+    outer.castShadow = true;
+    group.add(outer);
+
+    var boss = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.03, 8), new THREE.MeshLambertMaterial({ color: 0xd6c38d }));
+    boss.rotation.x = Math.PI / 2;
+    boss.position.z = 0.05;
+    boss.castShadow = true;
+    group.add(boss);
+
+    group.userData.offhandId = offhandId;
+    group.position.set(-0.3, 0.0, 0.0);
+    return group;
+  }
+
   // === Equipment 3D Visuals ===
   function updateEquipmentVisuals() {
     if (!mesh) return;
     var player = GameState.getPlayer();
     if (!player || !player.equipped) return;
 
-    // Weapon
     var weaponId = player.equipped.weapon;
-    if (weaponId && !_weaponMesh) {
-      var weaponGeo = new THREE.BoxGeometry(0.04, 0.3, 0.06);
-      var weaponColor = 0xA0A0A0;
-      var wep = GameRegistry.getEntity(weaponId);
-      if (wep && wep.id) {
-        if (wep.id.indexOf('wooden') > -1) weaponColor = 0x8B6914;
-        else if (wep.id.indexOf('stone') > -1) weaponColor = 0x808080;
-        else if (wep.id.indexOf('bronze') > -1) weaponColor = 0xB87333;
-        else if (wep.id.indexOf('iron') > -1) weaponColor = 0x6A6A6A;
+    var currentWeaponVisualId = _weaponMesh && _weaponMesh.userData ? _weaponMesh.userData.weaponId : null;
+    if (weaponId !== currentWeaponVisualId) {
+      if (_weaponMesh) {
+        mesh.remove(_weaponMesh);
+        _weaponMesh = null;
       }
-      var weaponMat = new THREE.MeshLambertMaterial({ color: weaponColor });
-      _weaponMesh = new THREE.Mesh(weaponGeo, weaponMat);
-      _weaponMesh.castShadow = true;
-      mesh.add(_weaponMesh);
-      _weaponMesh.position.set(0.3, -0.05, 0.15);
-    } else if (!weaponId && _weaponMesh) {
-      mesh.remove(_weaponMesh);
-      _weaponMesh = null;
+      if (weaponId) {
+        _weaponMesh = createWeaponVisual(weaponId);
+        if (_weaponMesh) mesh.add(_weaponMesh);
+      }
     }
 
-    // Shield (offhand)
     var offhandId = player.equipped.offhand;
-    if (offhandId && !_shieldMesh) {
-      var shieldGeo = new THREE.BoxGeometry(0.04, 0.2, 0.18);
-      var shieldColor = 0x8B7355;
-      var shld = GameRegistry.getEntity(offhandId);
-      if (shld && shld.id) {
-        if (shld.id.indexOf('wooden') > -1) shieldColor = 0x8B6914;
-        else if (shld.id.indexOf('stone') > -1) shieldColor = 0x808080;
-        else if (shld.id.indexOf('bronze') > -1) shieldColor = 0xB87333;
-        else if (shld.id.indexOf('iron') > -1) shieldColor = 0x6A6A6A;
+    var currentShieldVisualId = _shieldMesh && _shieldMesh.userData ? _shieldMesh.userData.offhandId : null;
+    if (offhandId !== currentShieldVisualId) {
+      if (_shieldMesh) {
+        mesh.remove(_shieldMesh);
+        _shieldMesh = null;
       }
-      var shieldMat = new THREE.MeshLambertMaterial({ color: shieldColor });
-      _shieldMesh = new THREE.Mesh(shieldGeo, shieldMat);
-      _shieldMesh.castShadow = true;
-      mesh.add(_shieldMesh);
-      _shieldMesh.position.set(-0.3, 0.0, 0.0);
-    } else if (!offhandId && _shieldMesh) {
-      mesh.remove(_shieldMesh);
-      _shieldMesh = null;
+      if (offhandId) {
+        _shieldMesh = createShieldVisual(offhandId);
+        if (_shieldMesh) mesh.add(_shieldMesh);
+      }
     }
 
     // Armor body color

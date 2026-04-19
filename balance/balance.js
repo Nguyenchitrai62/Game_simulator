@@ -290,6 +290,17 @@ window.GAME_BALANCE = {
             targetPriorityBonus: 1.4
           }
         },
+        spearman: {
+          label: "Spearman",
+          role: "Reach guard",
+          unlockLevel: 2,
+          trainingSeconds: 22,
+          attackDamage: 6,
+          attackRange: 2.2,
+          attackIntervalSeconds: 1.05,
+          moveSpeed: 3.05,
+          cost: { "resource.wood": 18, "resource.food": 13, "resource.flint": 4 }
+        },
         archer: {
           label: "Archer",
           role: "Ranged reserve",
@@ -375,6 +386,11 @@ window.GAME_BALANCE = {
     input: { "resource.wood": 5, "resource.flint": 2 },
     output: { "equipment.wooden_sword": 1 }
   },
+  "recipe.hunting_bow": {
+    // Cung săn - vũ khí tầm xa an toàn hơn
+    input: { "resource.wood": 10, "resource.flint": 2, "resource.leather": 1 },
+    output: { "equipment.hunting_bow": 1 }
+  },
   "recipe.stone_spear": {
     // Giáo đá - +6 ATK
     input: { "resource.wood": 8, "resource.flint": 4, "resource.stone": 3 },
@@ -400,11 +416,18 @@ window.GAME_BALANCE = {
   // Đây là nguồn stat gameplay chính cho trang bị. Chỉ cần sửa các số ở đây, UI sẽ tự cập nhật.
   "equipment.wooden_sword": {
     stats: { attack: 3 },   // +3 tấn công
-    slot: "weapon"
+    slot: "weapon",
+    weaponProfile: "sword"
+  },
+  "equipment.hunting_bow": {
+    stats: { attack: 3 },
+    slot: "weapon",
+    weaponProfile: "bow"
   },
   "equipment.stone_spear": {
     stats: { attack: 6 },   // +6 tấn công
-    slot: "weapon"
+    slot: "weapon",
+    weaponProfile: "spear"
   },
   "equipment.stone_shield": {
     stats: { defense: 3 },  // +3 phòng thủ
@@ -530,6 +553,11 @@ window.GAME_BALANCE = {
     input: { "resource.bronze": 5, "resource.wood": 3 },
     output: { "equipment.bronze_sword": 1 }
   },
+  "recipe.bronze_bow": {
+    // Cung đồng - vũ khí tầm xa thời Đồng
+    input: { "resource.bronze": 4, "resource.wood": 6, "resource.leather": 2 },
+    output: { "equipment.bronze_bow": 1 }
+  },
   "recipe.bronze_shield": {
     // Khiên đồng điếu - +6 DEF
     input: { "resource.bronze": 5, "resource.wood": 4 },
@@ -545,7 +573,13 @@ window.GAME_BALANCE = {
   // Các stat ở đây là nguồn cân bằng chính cho combat và UI mô tả.
   "equipment.bronze_sword": {
     stats: { attack: 10 },  // +10 tấn công
-    slot: "weapon"
+    slot: "weapon",
+    weaponProfile: "sword"
+  },
+  "equipment.bronze_bow": {
+    stats: { attack: 8 },
+    slot: "weapon",
+    weaponProfile: "bow"
   },
   "equipment.bronze_shield": {
     stats: { defense: 6 },  // +6 phòng thủ
@@ -641,6 +675,66 @@ window.GAME_BALANCE = {
       chaseRange: 9.2
     }
   },
+  "animal.moonfang_alpha": {
+    hp: 150,
+    attack: 18,
+    defense: 7,
+    rewards: { "equipment.moonfang_blade": 1, "resource.food": 22, "resource.leather": 12 },
+    noRespawn: true,
+    isBoss: true,
+    bossRewardLabel: "Moonfang Blade",
+    aggroRange: 4.2,
+    behavior: {
+      patrolRadius: 3.8,
+      patrolSpeed: 0.52,
+      chaseSpeed: 1.35,
+      returnSpeed: 0.88,
+      turnRate: 0.3,
+      attackRange: 1.85,
+      attackIntervalSeconds: 0.72,
+      chaseRange: 10.5
+    }
+  },
+  "animal.sunscale_lion": {
+    hp: 220,
+    attack: 24,
+    defense: 11,
+    rewards: { "equipment.sunpiercer_bow": 1, "resource.food": 36, "resource.leather": 16, "resource.bronze": 8 },
+    noRespawn: true,
+    isBoss: true,
+    bossRewardLabel: "Sunpiercer Bow",
+    aggroRange: 4.8,
+    behavior: {
+      patrolRadius: 4.5,
+      patrolSpeed: 0.48,
+      chaseSpeed: 1.28,
+      returnSpeed: 0.86,
+      turnRate: 0.28,
+      attackRange: 2.1,
+      attackIntervalSeconds: 0.8,
+      chaseRange: 11.4
+    }
+  },
+  "animal.stormhide_sabertooth": {
+    hp: 320,
+    attack: 31,
+    defense: 15,
+    rewards: { "equipment.stormspine_glaive": 1, "resource.food": 52, "resource.leather": 24, "resource.iron": 10, "resource.coal": 6 },
+    noRespawn: true,
+    isBoss: true,
+    bossRewardLabel: "Stormspine Glaive",
+    aggroRange: 5.2,
+    behavior: {
+      patrolRadius: 4.9,
+      patrolSpeed: 0.54,
+      chaseSpeed: 1.36,
+      returnSpeed: 0.9,
+      turnRate: 0.3,
+      attackRange: 2.35,
+      attackIntervalSeconds: 0.78,
+      chaseRange: 12.2
+    }
+  },
 
   // === CÔNG TRÌNH THỜI ĐẠI SẮT ===
   "building.iron_mine": {
@@ -694,6 +788,20 @@ window.GAME_BALANCE = {
     produces: {},
     upgrades: {}
   },
+  "building.armory": {
+    cost: { "resource.wood": 90, "resource.stone": 70, "resource.iron": 25, "resource.tool": 12 },
+    searchRadius: { 1: 0 },
+    workerCount: { 1: 0 },
+    storageCapacity: { 1: 0 },
+    productionSpeed: { 1: 1.0 },
+    produces: {},
+    armorySupport: {
+      barracksTrainingSpeedBonus: 0.08,
+      troopDamageFlatBonus: 1,
+      troopAttackSpeedBonus: 0.05
+    },
+    upgrades: {}
+  },
 
   // === CÔNG THỨC THỜI ĐẠI SẮT ===
   // Recipe hiển thị bonus dựa trên equipment.* tương ứng để tránh lệch số khi cân bằng lại.
@@ -701,6 +809,11 @@ window.GAME_BALANCE = {
     // Kiếm sắt - +15 ATK
     input: { "resource.iron": 8, "resource.wood": 5, "resource.coal": 3 },
     output: { "equipment.iron_sword": 1 }
+  },
+  "recipe.iron_longbow": {
+    // Cung dài sắt - vũ khí tầm xa cuối game cơ bản
+    input: { "resource.iron": 7, "resource.wood": 7, "resource.leather": 4, "resource.coal": 2 },
+    output: { "equipment.iron_longbow": 1 }
   },
   "recipe.iron_shield": {
     // Khiên sắt - +10 DEF
@@ -722,7 +835,13 @@ window.GAME_BALANCE = {
   // Chỉnh stat trong các entry này để đổi hiệu lực thực tế của trang bị.
   "equipment.iron_sword": {
     stats: { attack: 15 },  // +15 tấn công
-    slot: "weapon"
+    slot: "weapon",
+    weaponProfile: "sword"
+  },
+  "equipment.iron_longbow": {
+    stats: { attack: 12 },
+    slot: "weapon",
+    weaponProfile: "bow"
   },
   "equipment.iron_shield": {
     stats: { defense: 10 }, // +10 phòng thủ
@@ -735,6 +854,54 @@ window.GAME_BALANCE = {
   "equipment.iron_boots": {
     stats: { speed: 1, defense: 3 }, // +1 tốc độ, +3 phòng thủ
     slot: "boots"
+  },
+  "equipment.moonfang_blade": {
+    stats: { attack: 22, speed: 0.2 },
+    slot: "weapon",
+    weaponProfile: "special",
+    autoEquipOnReward: true,
+    weaponProfileOverrides: {
+      label: "Moonfang Blade",
+      classId: "special",
+      attackRange: 2.35,
+      attackIntervalSeconds: 0.46,
+      engageRange: 2.9,
+      damageMultiplier: 1.18,
+      bossDamageMultiplier: 1.4,
+      hitColor: 0xaed7ff
+    }
+  },
+  "equipment.sunpiercer_bow": {
+    stats: { attack: 20, speed: 0.25 },
+    slot: "weapon",
+    weaponProfile: "special",
+    autoEquipOnReward: true,
+    weaponProfileOverrides: {
+      label: "Sunpiercer Bow",
+      classId: "special",
+      attackRange: 6.8,
+      attackIntervalSeconds: 0.56,
+      engageRange: 7.3,
+      damageMultiplier: 1.08,
+      bossDamageMultiplier: 1.16,
+      hitColor: 0xffd166
+    }
+  },
+  "equipment.stormspine_glaive": {
+    stats: { attack: 28, speed: 0.35 },
+    slot: "weapon",
+    weaponProfile: "special",
+    autoEquipOnReward: true,
+    weaponProfileOverrides: {
+      label: "Stormspine Glaive",
+      classId: "special",
+      attackRange: 3.4,
+      attackIntervalSeconds: 0.5,
+      engageRange: 3.95,
+      damageMultiplier: 1.22,
+      bossDamageMultiplier: 1.48,
+      hitColor: 0x7ef0d0
+    }
   },
 
   // === CÔNG NGHÊ THỜI ĐẠI SẮT ===
@@ -755,6 +922,17 @@ window.GAME_BALANCE = {
     researchCost: { "resource.stone": 100, "resource.iron": 30, "resource.bronze": 20 },
     requires: ["tech.expanded_storage"],
     effects: { storageBonus: 0.50 }
+  },
+  "tech.military_drills": {
+    // Huấn luyện quân sự - lính cận chiến và tầm xa gây thêm sát thương, di chuyển nhanh hơn
+    researchCost: { "resource.food": 35, "resource.tool": 12, "resource.wood": 25 },
+    effects: { troopDamageFlatBonus: 1, troopMoveSpeedBonus: 0.10 }
+  },
+  "tech.barracks_logistics": {
+    // Hậu cần doanh trại - huấn luyện nhanh hơn và tăng nhịp đánh của quân dự bị
+    researchCost: { "resource.food": 55, "resource.bronze": 12, "resource.wood": 35 },
+    requires: ["tech.military_drills"],
+    effects: { barracksTrainingSpeedBonus: 0.20, troopAttackSpeedBonus: 0.12 }
   },
 
   // === HỆ THỐNG ĐÓI ===
@@ -809,7 +987,63 @@ window.GAME_BALANCE = {
   combat: {
     playerAttackIntervalSeconds: 0.5,
     disengageDistance: 3,
-    minimumDamage: 1
+    minimumDamage: 1,
+    enemyAttackIntervalSeconds: 0.9,
+    defaultEnemyAttackRange: 1.7,
+    playerStartRangePadding: 0.65,
+    playerDisengagePadding: 2.4,
+    weaponProfiles: {
+      unarmed: {
+        label: "Bare Hands",
+        classId: "melee",
+        attackRange: 1.15,
+        attackIntervalSeconds: 0.8,
+        engageRange: 1.55,
+        damageMultiplier: 1.0,
+        bossDamageMultiplier: 1.0,
+        hitColor: 0xd8d8d8
+      },
+      sword: {
+        label: "Sword",
+        classId: "melee",
+        attackRange: 1.65,
+        attackIntervalSeconds: 0.42,
+        engageRange: 2.1,
+        damageMultiplier: 1.0,
+        bossDamageMultiplier: 1.15,
+        hitColor: 0xf4b35e
+      },
+      spear: {
+        label: "Spear",
+        classId: "reach",
+        attackRange: 2.2,
+        attackIntervalSeconds: 0.6,
+        engageRange: 2.65,
+        damageMultiplier: 1.0,
+        bossDamageMultiplier: 1.05,
+        hitColor: 0xb7d3ff
+      },
+      bow: {
+        label: "Bow",
+        classId: "ranged",
+        attackRange: 4.9,
+        attackIntervalSeconds: 0.78,
+        engageRange: 5.5,
+        damageMultiplier: 1.0,
+        bossDamageMultiplier: 0.85,
+        hitColor: 0x7fd3ff
+      },
+      special: {
+        label: "Relic",
+        classId: "special",
+        attackRange: 5.4,
+        attackIntervalSeconds: 0.56,
+        engageRange: 5.9,
+        damageMultiplier: 1.08,
+        bossDamageMultiplier: 1.25,
+        hitColor: 0x88ffd2
+      }
+    }
   },
 
   animalRespawn: {
@@ -850,9 +1084,14 @@ window.GAME_BALANCE = {
       guardBaseRadius: 1.7,
       guardRingSpacing: 0.7,
       guardArcherOffset: 0.25,
+      guardWatchtowerRadius: 1.7,
+      guardRearSpacing: 0.7,
       followBaseRadius: 1.8,
       followRingSpacing: 0.8,
       followArcherOffset: 0.2,
+      followRearOffset: 1.75,
+      followFrontOffset: 0.95,
+      followSideSpacing: 0.7,
       followAngleStep: 0.72,
       engageMinRadius: 1.1,
       engageRadiusMultiplier: 0.88
@@ -922,6 +1161,83 @@ window.GAME_BALANCE = {
           dangerBonus: 6.5
         }
       }
+    },
+    bossZones: {
+      candidates: [
+        {
+          minDistance: 9,
+          threshold: 0.955,
+          bossType: "animal.stormhide_sabertooth",
+          label: "Stormhide Lair",
+          rewardId: "equipment.stormspine_glaive",
+          rewardLabel: "Stormspine Glaive",
+          overlayFill: "rgba(54, 196, 169, 0.16)",
+          overlayStroke: "rgba(126, 240, 208, 0.62)",
+          markerColor: "#7ef0d0"
+        },
+        {
+          minDistance: 7,
+          threshold: 0.95,
+          bossType: "animal.sunscale_lion",
+          label: "Sunscale Pride",
+          rewardId: "equipment.sunpiercer_bow",
+          rewardLabel: "Sunpiercer Bow",
+          overlayFill: "rgba(255, 177, 74, 0.16)",
+          overlayStroke: "rgba(255, 209, 102, 0.65)",
+          markerColor: "#ffd166"
+        },
+        {
+          minDistance: 5,
+          threshold: 0.945,
+          bossType: "animal.moonfang_alpha",
+          label: "Moonfang Den",
+          rewardId: "equipment.moonfang_blade",
+          rewardLabel: "Moonfang Blade",
+          overlayFill: "rgba(110, 153, 255, 0.16)",
+          overlayStroke: "rgba(174, 215, 255, 0.62)",
+          markerColor: "#aed7ff"
+        }
+      ]
+    },
+    ruinedOutposts: {
+      tiers: [
+        {
+          minDistance: 8,
+          threshold: 0.86,
+          label: "Ruined Frontier Hold",
+          rewardLabel: "Iron caches and preserved supplies",
+          rewards: {
+            "resource.food": 24,
+            "resource.tool": 8,
+            "resource.iron": 6,
+            "resource.coal": 4
+          }
+        },
+        {
+          minDistance: 5,
+          threshold: 0.84,
+          label: "Ruined Bronze Outpost",
+          rewardLabel: "Bronze stock and marching rations",
+          rewards: {
+            "resource.food": 18,
+            "resource.tool": 5,
+            "resource.bronze": 5,
+            "resource.leather": 4
+          }
+        },
+        {
+          minDistance: 3,
+          threshold: 0.82,
+          label: "Collapsed Hunter Camp",
+          rewardLabel: "Early salvage and travel supplies",
+          rewards: {
+            "resource.food": 14,
+            "resource.wood": 10,
+            "resource.flint": 5,
+            "resource.tool": 2
+          }
+        }
+      ]
     },
     animalSpawns: {
       high: [

@@ -245,22 +245,26 @@ window.GameHUDModules.createInspectorModule = function createInspectorModule(con
           return escapeHtml(unit.label) + ': ' + escapeHtml(unit.towerSupportLabel);
         }).join(' • ');
         var modeButtons = [
-          '<button class="btn ' + (barracksStatus.commandMode === 'guard' ? 'btn-craft' : 'btn-secondary') + '" style="font-size:10px; padding:4px 8px;" onclick="GameActions.setBarracksCommandMode(\'' + uid + '\', \'guard\')">' + escapeHtml(inspectorT('guardNearby', null, 'Guard Nearby')) + '</button>',
-          '<button class="btn ' + (barracksStatus.commandMode === 'follow' ? 'btn-craft' : 'btn-secondary') + '" style="font-size:10px; padding:4px 8px;" onclick="GameActions.setBarracksCommandMode(\'' + uid + '\', \'follow\')">' + escapeHtml(inspectorT('followPlayer', null, 'Follow Player')) + '</button>'
+          '<button class="btn ' + (barracksStatus.commandMode === 'guard' ? 'btn-craft' : 'btn-secondary') + '" style="font-size:10px; padding:4px 8px;" onclick="GameActions.setBarracksCommandMode(\'' + uid + '\', \'guard\')">' + escapeHtml(inspectorT('holdPosition', null, 'Hold Position')) + '</button>',
+          '<button class="btn ' + (barracksStatus.commandMode === 'follow' ? 'btn-craft' : 'btn-secondary') + '" style="font-size:10px; padding:4px 8px;" onclick="GameActions.setBarracksCommandMode(\'' + uid + '\', \'follow\')">' + escapeHtml(inspectorT('followPlayer', null, 'Follow Player')) + '</button>',
+          '<button class="btn ' + (barracksStatus.commandMode === 'attack' ? 'btn-craft' : 'btn-secondary') + '" style="font-size:10px; padding:4px 8px;" onclick="GameActions.setBarracksCommandMode(\'' + uid + '\', \'attack\')">' + escapeHtml(inspectorT('attackTarget', null, 'Attack Target')) + '</button>'
         ].join(' ');
 
         var trainButtons = barracksStatus.availableUnits.map(function(unit) {
           var disabled = !unit.unlocked || !unit.canAfford || !barracksStatus.canQueueMore;
           var label = unit.unlocked ? unit.label : (unit.label + ' Lv.' + unit.unlockLevel);
           var hint = unit.costText ? (' • ' + escapeHtml(unit.costText)) : '';
-          return '<button class="btn ' + (disabled ? 'btn-secondary' : 'btn-craft') + '" style="font-size:10px; padding:4px 8px;" onclick="GameActions.queueBarracksTraining(\'' + uid + '\', \'" + unit.unitType + "\')" ' + (disabled ? 'disabled' : '') + '>' + escapeHtml(label) + hint + '</button>';
+          return '<button class="btn ' + (disabled ? 'btn-secondary' : 'btn-craft') + '" style="font-size:10px; padding:4px 8px;" onclick="GameActions.queueBarracksTraining(\'' + uid + '\', \'' + unit.unitType + '\')" ' + (disabled ? 'disabled' : '') + '>' + escapeHtml(label) + hint + '</button>';
         }).join(' ');
 
         militaryHtml = '<div class="inspector-section">' +
           '<div style="color:#cfa66b; font-size:11px; margin-bottom:4px;">🛡️ ' + escapeHtml(inspectorT('reserveSummary', { current: barracksStatus.reserveCount, capacity: barracksStatus.reserveCapacity, used: barracksStatus.queueUsed, queue: barracksStatus.queueCapacity }, 'Reserve {current}/{capacity} • Queue {used}/{queue}')) + '</div>' +
           '<div style="color:#888; font-size:10px; margin-bottom:4px;">' + escapeHtml(inspectorT('commandRadius', { range: barracksStatus.supportRange, speed: barracksStatus.trainingSpeed.toFixed(2) }, 'Command radius: {range} • Training speed x{speed}')) + '</div>' +
+          (barracksStatus.upgradeSummaryText ? ('<div style="color:#9fc7a7; font-size:10px; margin-bottom:4px;">' + escapeHtml(inspectorT('activeUpgrades', { text: barracksStatus.upgradeSummaryText }, 'Active upgrades: {text}')) + '</div>') : '') +
           '<div style="color:#d9c89f; font-size:10px; margin-bottom:4px;">' + escapeHtml(inspectorT('mode', { mode: barracksStatus.commandModeLabel }, 'Mode: {mode}')) + '</div>' +
           '<div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px;">' + modeButtons + '</div>' +
+          (barracksStatus.commandMode === 'attack' ? ('<div style="color:#e7c98b; font-size:10px; margin-bottom:4px;">' + escapeHtml(inspectorT('attackTargetSummary', { name: barracksStatus.attackTargetLabel || inspectorT('clickToChooseTarget', null, 'Click an animal to choose the target') }, 'Attack target: {name}')) + '</div>' +
+            (barracksStatus.attackTargetLabel ? ('<button class="btn btn-secondary" style="font-size:10px; padding:4px 8px; margin-bottom:4px;" onclick="GameActions.clearBarracksAttackTarget(\'' + uid + '\')">' + escapeHtml(inspectorT('clearAttackTarget', null, 'Clear target')) + '</button>') : '')) : '') +
           '<div style="color:#7fc8d8; font-size:10px; margin-bottom:4px;">' + escapeHtml(inspectorT('deployed', { deployed: barracksStatus.deployedCount, engaged: barracksStatus.engagedCount }, 'Deployed: {deployed} • Engaged: {engaged}')) + '</div>' +
           '<div style="color:#9aa; font-size:10px; margin-bottom:4px;">' + escapeHtml(barracksStatus.troopStatusText) + '</div>' +
           '<div style="color:#b9c8d8; font-size:10px; margin-bottom:4px;">' + escapeHtml(barracksStatus.troopSummaryText) + '</div>' +

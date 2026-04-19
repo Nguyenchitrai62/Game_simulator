@@ -1,5 +1,5 @@
 window.GAME_MANIFEST = {
-  version: "1.1.2",
+  version: "1.1.3",
   packs: [
     "base_stone_age",
     "expansion_tree_farming",
@@ -8,6 +8,9 @@ window.GAME_MANIFEST = {
     "expansion_fire_light",
     "expansion_water",
     "expansion_military_defense",
-    "expansion_hunt_prey"
+    "expansion_hunt_prey",
+    "expansion_military_upgrades",
+    "expansion_ranged_weapons",
+    "expansion_boss_frontier"
   ]
 };

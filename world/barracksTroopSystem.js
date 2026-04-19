@@ -5,8 +5,9 @@ window.BarracksTroopSystem = (function () {
   var _syncAccumulator = 0;
 
   var MODE_LABELS = {
-    guard: 'Guard Nearby',
-    follow: 'Follow Player'
+    guard: 'Hold Position',
+    follow: 'Follow Player',
+    attack: 'Attack Target'
   };
 
   function getTroopBalanceConfig() {
@@ -82,6 +83,14 @@ window.BarracksTroopSystem = (function () {
     return Number(getTroopFormationConfig().guardArcherOffset) || 0;
   }
 
+  function getGuardWatchtowerRadius() {
+    return Number(getTroopFormationConfig().guardWatchtowerRadius) || 0;
+  }
+
+  function getGuardRearSpacing() {
+    return Number(getTroopFormationConfig().guardRearSpacing) || 0;
+  }
+
   function getFollowBaseRadius() {
     return Number(getTroopFormationConfig().followBaseRadius) || 0;
   }
@@ -92,6 +101,18 @@ window.BarracksTroopSystem = (function () {
 
   function getFollowArcherOffset() {
     return Number(getTroopFormationConfig().followArcherOffset) || 0;
+  }
+
+  function getFollowRearOffset() {
+    return Number(getTroopFormationConfig().followRearOffset) || 0;
+  }
+
+  function getFollowFrontOffset() {
+    return Number(getTroopFormationConfig().followFrontOffset) || 0;
+  }
+
+  function getFollowSideSpacing() {
+    return Number(getTroopFormationConfig().followSideSpacing) || 0;
   }
 
   function getFollowAngleStep() {
@@ -169,8 +190,11 @@ window.BarracksTroopSystem = (function () {
 
     var animals = needsAnimalScan ? getLoadedAnimals() : [];
     var animalMap = {};
+    var watchtowers = getWatchtowerInstances();
     var playerPos = (window.GamePlayer && GamePlayer.getPosition) ? GamePlayer.getPosition() : null;
+    var playerDir = (window.GamePlayer && GamePlayer.getDirection) ? GamePlayer.getDirection() : { x: 0, z: 1 };
     var activeCombatTarget = (window.GameCombat && GameCombat.getTarget) ? GameCombat.getTarget() : null;
+    var troopBonuses = getTroopResearchBonuses();
 
     for (var i = 0; i < animals.length; i++) {
       animalMap[animals[i].id] = animals[i];
@@ -178,7 +202,7 @@ window.BarracksTroopSystem = (function () {
 
     for (var troopIndex = 0; troopIndex < _troops.length; troopIndex++) {
       var troop = _troops[troopIndex];
-      updateTroop(troop, dt, barracksMap, animals, animalMap, playerPos, activeCombatTarget, modeMap[troop.barracksUid] || 'guard');
+      updateTroop(troop, dt, barracksMap, animals, animalMap, watchtowers, playerPos, playerDir, activeCombatTarget, modeMap[troop.barracksUid] || 'guard', troopBonuses);
     }
 
     if (typeof GamePerf !== 'undefined' && GamePerf.setValue) {
@@ -205,6 +229,20 @@ window.BarracksTroopSystem = (function () {
     }
 
     return map;
+  }
+
+  function getWatchtowerInstances() {
+    var list = [];
+    if (!window.GameState || !GameState.getAllInstancesLive) return list;
+
+    var instances = GameState.getAllInstancesLive();
+    for (var uid in instances) {
+      var instance = instances[uid];
+      if (!instance || instance.entityId !== 'building.watchtower') continue;
+      list.push(instance);
+    }
+
+    return list;
   }
 
   function getBarracksStateLive(uid) {
@@ -307,16 +345,36 @@ window.BarracksTroopSystem = (function () {
       var group = byBarracks[uid];
       group.sort(function(a, b) {
         if (a.unitType === b.unitType) return a.uid < b.uid ? -1 : 1;
-        if (a.unitType === 'swordsman') return -1;
-        if (b.unitType === 'swordsman') return 1;
-        return a.unitType < b.unitType ? -1 : 1;
+        return getTroopSortWeight(a.unitType) - getTroopSortWeight(b.unitType);
       });
+
+      var roleCounts = { melee: 0, ranged: 0 };
+      for (var countIndex = 0; countIndex < group.length; countIndex++) {
+        roleCounts[getTroopRole(group[countIndex].unitType)] += 1;
+      }
+
+      var roleSeen = { melee: 0, ranged: 0 };
 
       for (var index = 0; index < group.length; index++) {
         group[index].slotIndex = index;
         group[index].groupSize = group.length;
+        group[index].role = getTroopRole(group[index].unitType);
+        group[index].roleIndex = roleSeen[group[index].role];
+        group[index].roleGroupSize = roleCounts[group[index].role];
+        roleSeen[group[index].role] += 1;
       }
     }
+  }
+
+  function getTroopSortWeight(unitType) {
+    if (unitType === 'swordsman') return 0;
+    if (unitType === 'spearman') return 1;
+    if (unitType === 'archer') return 2;
+    return 3;
+  }
+
+  function getTroopRole(unitType) {
+    return unitType === 'archer' ? 'ranged' : 'melee';
   }
 
   function createTroop(barracks, unitType) {
@@ -369,8 +427,8 @@ window.BarracksTroopSystem = (function () {
     if (typeof THREE === 'undefined') return null;
 
     var group = new THREE.Group();
-    var clothColor = unitType === 'archer' ? 0x4b6a3f : 0x8b4a3b;
-    var trimColor = unitType === 'archer' ? 0xd1b37a : 0xb6bcc6;
+    var clothColor = unitType === 'archer' ? 0x4b6a3f : (unitType === 'spearman' ? 0x6f6237 : 0x8b4a3b);
+    var trimColor = unitType === 'archer' ? 0xd1b37a : (unitType === 'spearman' ? 0xc7bf7c : 0xb6bcc6);
     var skinColor = 0xe1bc91;
     var leatherColor = 0x5c4033;
 
@@ -397,6 +455,11 @@ window.BarracksTroopSystem = (function () {
       addMesh(new THREE.BoxGeometry(0.003, 0.24, 0.003), new THREE.MeshBasicMaterial({ color: 0xf4e6c8 }), 0.18, 0.48, 0.03, 0, 0, 0);
       addMesh(new THREE.BoxGeometry(0.08, 0.18, 0.08), new THREE.MeshLambertMaterial({ color: 0x70513d }), -0.15, 0.46, -0.12, 0.15, 0, 0);
       addMesh(new THREE.CylinderGeometry(0.02, 0.02, 0.16, 6), new THREE.MeshLambertMaterial({ color: 0xf0d8a0 }), -0.12, 0.56, -0.12, 0.2, 0, 0.8);
+    } else if (unitType === 'spearman') {
+      addMesh(new THREE.CylinderGeometry(0.018, 0.018, 0.54, 6), new THREE.MeshLambertMaterial({ color: 0x9a7b4f }), 0.18, 0.56, 0.02, 0, 0, -0.08);
+      addMesh(new THREE.ConeGeometry(0.032, 0.12, 6), new THREE.MeshLambertMaterial({ color: 0xcfd5df }), 0.18, 0.82, 0.02, 0, 0, Math.PI - 0.08);
+      addMesh(new THREE.BoxGeometry(0.05, 0.16, 0.14), new THREE.MeshLambertMaterial({ color: 0x6d5634 }), -0.16, 0.47, 0.02, 0, 0, 0);
+      addMesh(new THREE.BoxGeometry(0.035, 0.11, 0.11), new THREE.MeshLambertMaterial({ color: trimColor }), -0.16, 0.47, 0.03, 0, 0, 0);
     } else {
       addMesh(new THREE.BoxGeometry(0.03, 0.28, 0.03), new THREE.MeshLambertMaterial({ color: 0xc6ccd4 }), 0.18, 0.52, 0.02, 0, 0, -0.1);
       addMesh(new THREE.BoxGeometry(0.08, 0.04, 0.05), new THREE.MeshLambertMaterial({ color: 0x8b6b3f }), 0.18, 0.39, 0.02, 0, 0, 0);
@@ -410,7 +473,7 @@ window.BarracksTroopSystem = (function () {
     return group;
   }
 
-  function updateTroop(troop, dt, barracksMap, animals, animalMap, playerPos, activeCombatTarget, mode) {
+  function updateTroop(troop, dt, barracksMap, animals, animalMap, watchtowers, playerPos, playerDir, activeCombatTarget, mode, troopBonuses) {
     var barracks = barracksMap[troop.barracksUid];
     if (!barracks) return;
 
@@ -429,6 +492,8 @@ window.BarracksTroopSystem = (function () {
         target = activeCombatTarget;
         isSharedCombatTarget = true;
       }
+    } else if (mode === 'attack') {
+      target = selectAssignedTarget(troop, barracks, animalMap);
     } else {
       target = selectGuardTarget(troop, barracks, animals, animalMap);
     }
@@ -439,32 +504,32 @@ window.BarracksTroopSystem = (function () {
 
     if (isValidAnimalTarget(target)) {
       troop.targetAnimalId = target.id;
-      engageTarget(troop, barracks, target, unitConfig, dt, mode, isSharedCombatTarget, playerPos);
+      engageTarget(troop, barracks, target, unitConfig, dt, mode, isSharedCombatTarget, playerPos, troopBonuses);
     } else {
       troop.targetAnimalId = null;
-      holdFormation(troop, barracks, playerPos, unitConfig, dt, mode);
+      holdFormation(troop, barracks, watchtowers, playerPos, playerDir, unitConfig, dt, mode, troopBonuses);
     }
 
     updateTroopVisual(troop, dt);
   }
 
-  function holdFormation(troop, barracks, playerPos, unitConfig, dt, mode) {
+  function holdFormation(troop, barracks, watchtowers, playerPos, playerDir, unitConfig, dt, mode, troopBonuses) {
     var anchor = mode === 'follow'
-      ? getFollowAnchor(troop, playerPos || { x: barracks.x, z: barracks.z })
-      : getGuardAnchor(troop, barracks);
+      ? getFollowAnchor(troop, playerPos || { x: barracks.x, z: barracks.z }, playerDir || { x: 0, z: 1 })
+      : getGuardAnchor(troop, barracks, watchtowers || []);
 
-    troop.status = mode === 'follow' ? 'follow' : 'guard';
-    moveTroopTowards(troop, anchor, dt, getUnitMoveSpeed(unitConfig));
+    troop.status = mode === 'follow' ? 'follow' : (mode === 'attack' ? 'tracking' : 'guard');
+    moveTroopTowards(troop, anchor, dt, getUnitMoveSpeed(unitConfig, troopBonuses));
   }
 
-  function engageTarget(troop, barracks, target, unitConfig, dt, mode, isSharedCombatTarget, playerPos) {
-    var attackRange = getUnitAttackRange(unitConfig);
+  function engageTarget(troop, barracks, target, unitConfig, dt, mode, isSharedCombatTarget, playerPos, troopBonuses) {
+    var attackRange = getUnitAttackRange(unitConfig, troopBonuses);
     var guardRadius = getBarracksGuardRadius(barracks);
     var barracksDistance = distanceBetween({ x: barracks.x, z: barracks.z }, { x: target.worldX, z: target.worldZ });
 
-    if (mode !== 'follow' && barracksDistance > guardRadius + getGuardRadiusLeashBonus()) {
+    if (mode === 'guard' && barracksDistance > guardRadius + getGuardRadiusLeashBonus()) {
       troop.targetAnimalId = null;
-      holdFormation(troop, barracks, playerPos, unitConfig, dt, mode);
+      holdFormation(troop, barracks, null, playerPos, null, unitConfig, dt, mode, troopBonuses);
       return;
     }
 
@@ -474,7 +539,7 @@ window.BarracksTroopSystem = (function () {
     troop.status = mode === 'follow' ? 'assist' : 'attack';
 
     if (targetDistance > attackRange) {
-      moveTroopTowards(troop, engagePos, dt, getUnitMoveSpeed(unitConfig));
+      moveTroopTowards(troop, engagePos, dt, getUnitMoveSpeed(unitConfig, troopBonuses));
       return;
     }
 
@@ -485,11 +550,11 @@ window.BarracksTroopSystem = (function () {
 
     var targetBalance = GameRegistry.getBalance(target.type) || {};
     var targetDefense = target.defense !== undefined ? target.defense : (targetBalance.defense || 0);
-  var damage = Math.max(getMinimumDamage(), getUnitAttackDamage(unitConfig) - targetDefense);
+    var damage = Math.max(getMinimumDamage(), getUnitAttackDamage(unitConfig, troopBonuses) - targetDefense);
 
     target.hp -= damage;
     if (target.hp < 0) target.hp = 0;
-    troop.attackCooldown = getUnitAttackInterval(unitConfig);
+    troop.attackCooldown = getUnitAttackInterval(unitConfig, troopBonuses);
 
     if (window.GameHUD && GameHUD.showDamageNumber) {
       GameHUD.showDamageNumber(target.worldX, 1.0, target.worldZ, '-' + damage, 'damage');
@@ -657,6 +722,20 @@ window.BarracksTroopSystem = (function () {
     return bestTarget;
   }
 
+  function selectAssignedTarget(troop, barracks, animalMap) {
+    var state = getBarracksStateLive(troop.barracksUid);
+    if (!state || !state.attackTargetId) return null;
+
+    var target = animalMap[state.attackTargetId] || null;
+    if (isValidAnimalTarget(target)) {
+      return target;
+    }
+
+    state.attackTargetId = null;
+    state.attackTargetName = '';
+    return null;
+  }
+
   function isAnimalWithinGuardRadius(animal, barracks, radius) {
     if (!isValidAnimalTarget(animal) || !barracks) return false;
     var dx = animal.worldX - barracks.x;
@@ -664,12 +743,26 @@ window.BarracksTroopSystem = (function () {
     return Math.sqrt(dx * dx + dz * dz) <= radius;
   }
 
-  function getGuardAnchor(troop, barracks) {
-    var groupSize = Math.max(1, troop.groupSize || 1);
-    var ringIndex = Math.floor(troop.slotIndex / 6);
-    var angle = ((troop.slotIndex % groupSize) / groupSize) * Math.PI * 2;
-    angle += (hashString(troop.barracksUid) % 360) * (Math.PI / 180);
-    var radius = getGuardBaseRadius() + (ringIndex * getGuardRingSpacing()) + (troop.unitType === 'archer' ? getGuardArcherOffset() : 0);
+  function getGuardAnchor(troop, barracks, watchtowers) {
+    if (troop.role === 'ranged') {
+      var watchtower = getNearestWatchtowerAnchor(barracks, watchtowers || []);
+      if (watchtower) {
+        return getWatchtowerGuardAnchor(troop, barracks, watchtower);
+      }
+    }
+
+    var roleSize = Math.max(1, troop.roleGroupSize || troop.groupSize || 1);
+    var roleIndex = troop.roleIndex || 0;
+    var ringCapacity = troop.role === 'ranged' ? 5 : 6;
+    var ringIndex = Math.floor(roleIndex / ringCapacity);
+    var ringCount = Math.min(ringCapacity, Math.max(1, roleSize - (ringIndex * ringCapacity)));
+    var ringSlot = roleIndex % ringCapacity;
+    var angle = (ringSlot / ringCount) * Math.PI * 2;
+    angle += (hashString(troop.barracksUid + ':' + troop.role) % 360) * (Math.PI / 180);
+    var radius = getGuardBaseRadius() + (ringIndex * getGuardRingSpacing());
+    if (troop.role === 'ranged') {
+      radius += getGuardArcherOffset() + getGuardRearSpacing();
+    }
 
     return resolveStandPosition(
       barracks.x + Math.cos(angle) * radius,
@@ -679,14 +772,36 @@ window.BarracksTroopSystem = (function () {
     );
   }
 
-  function getFollowAnchor(troop, playerPos) {
-    var seed = hashString(troop.uid + ':' + troop.barracksUid);
-    var angle = ((seed % 360) * (Math.PI / 180)) + ((troop.slotIndex % 5) * getFollowAngleStep());
-    var radius = getFollowBaseRadius() + (Math.floor(troop.slotIndex / 5) * getFollowRingSpacing()) + (troop.unitType === 'archer' ? getFollowArcherOffset() : 0);
+  function getFollowAnchor(troop, playerPos, playerDir) {
+    var dir = normalizeVector(playerDir && isFinite(playerDir.x) && isFinite(playerDir.z)
+      ? { x: playerDir.x, z: playerDir.z }
+      : { x: 0, z: 1 });
+    var right = { x: dir.z, z: -dir.x };
+    var rowSize = 3;
+
+    if (troop.role === 'ranged') {
+      var rangedIndex = troop.roleIndex || 0;
+      var rangedRow = Math.floor(rangedIndex / rowSize);
+      var rangedRowCount = Math.min(rowSize, Math.max(1, (troop.roleGroupSize || 1) - (rangedRow * rowSize)));
+      var rangedColumn = (rangedIndex % rowSize) - ((rangedRowCount - 1) / 2);
+      var rearDistance = getFollowRearOffset() + (rangedRow * getFollowRingSpacing()) + getFollowArcherOffset();
+      return resolveStandPosition(
+        playerPos.x - (dir.x * rearDistance) + (right.x * rangedColumn * getFollowSideSpacing()),
+        playerPos.z - (dir.z * rearDistance) + (right.z * rangedColumn * getFollowSideSpacing()),
+        playerPos,
+        4
+      );
+    }
+
+    var meleeIndex = troop.roleIndex || 0;
+    var meleeRow = Math.floor(meleeIndex / rowSize);
+    var meleeRowCount = Math.min(rowSize, Math.max(1, (troop.roleGroupSize || 1) - (meleeRow * rowSize)));
+    var meleeColumn = (meleeIndex % rowSize) - ((meleeRowCount - 1) / 2);
+    var frontDistance = getFollowFrontOffset() + (meleeRow * getFollowRingSpacing());
 
     return resolveStandPosition(
-      playerPos.x + Math.cos(angle) * radius,
-      playerPos.z + Math.sin(angle) * radius,
+      playerPos.x + (dir.x * frontDistance) + (right.x * meleeColumn * getFollowSideSpacing()),
+      playerPos.z + (dir.z * frontDistance) + (right.z * meleeColumn * getFollowSideSpacing()),
       playerPos,
       4
     );
@@ -703,6 +818,46 @@ window.BarracksTroopSystem = (function () {
       { x: target.worldX, z: target.worldZ },
       3
     );
+  }
+
+  function getNearestWatchtowerAnchor(barracks, watchtowers) {
+    if (!barracks || !watchtowers || !watchtowers.length) return null;
+
+    var best = null;
+    var bestDistance = Infinity;
+    var guardRadius = getBarracksGuardRadius(barracks);
+
+    for (var index = 0; index < watchtowers.length; index++) {
+      var tower = watchtowers[index];
+      if (!tower) continue;
+
+      var distance = distanceBetween({ x: barracks.x, z: barracks.z }, { x: tower.x, z: tower.z });
+      if (distance > guardRadius || distance >= bestDistance) continue;
+      bestDistance = distance;
+      best = tower;
+    }
+
+    return best;
+  }
+
+  function getWatchtowerGuardAnchor(troop, barracks, watchtower) {
+    var rangedIndex = troop.roleIndex || 0;
+    var rangedCount = Math.max(1, troop.roleGroupSize || 1);
+    var angle = ((rangedIndex / rangedCount) * Math.PI * 2) + ((hashString(troop.uid + ':tower') % 360) * (Math.PI / 180));
+    var radius = getGuardWatchtowerRadius() + (Math.floor(rangedIndex / 4) * getGuardRearSpacing());
+
+    return resolveStandPosition(
+      watchtower.x + Math.cos(angle) * radius,
+      watchtower.z + Math.sin(angle) * radius,
+      { x: barracks.x, z: barracks.z },
+      4
+    );
+  }
+
+  function normalizeVector(vec) {
+    var length = Math.sqrt((vec.x * vec.x) + (vec.z * vec.z));
+    if (!(length > 0.0001)) return { x: 0, z: 1 };
+    return { x: vec.x / length, z: vec.z / length };
   }
 
   function resolveStandPosition(targetX, targetZ, fallback, maxRadius) {
@@ -773,6 +928,9 @@ window.BarracksTroopSystem = (function () {
     if (window.GameEntities && GameEntities.hideObject) {
       GameEntities.hideObject(target);
     }
+    if (window.GameTerrain && GameTerrain.persistObjectState) {
+      GameTerrain.persistObjectState(target);
+    }
     if (window.ParticleSystem && ParticleSystem.emit) {
       ParticleSystem.emit('deathBurst', { x: target.worldX, y: 0.5, z: target.worldZ });
       ParticleSystem.emit('loot', { x: target.worldX, y: 0.9, z: target.worldZ });
@@ -833,6 +991,35 @@ window.BarracksTroopSystem = (function () {
     return getLevelConfigValue(balance.guardRadius, level, 0);
   }
 
+  function getTroopResearchBonuses() {
+    var bonuses = (window.ResearchSystem && ResearchSystem.getGlobalBonuses)
+      ? (ResearchSystem.getGlobalBonuses() || {})
+      : {};
+    var merged = {};
+    for (var key in bonuses) {
+      merged[key] = bonuses[key];
+    }
+
+    var armoryCount = 0;
+    var instances = (window.GameState && GameState.getAllInstancesLive)
+      ? GameState.getAllInstancesLive()
+      : null;
+    if (instances) {
+      for (var uid in instances) {
+        if (instances[uid] && instances[uid].entityId === 'building.armory') armoryCount++;
+      }
+    }
+
+    if (armoryCount > 0) {
+      var support = (GameRegistry.getBalance('building.armory') || {}).armorySupport || {};
+      merged.troopDamageFlatBonus = (Number(merged.troopDamageFlatBonus) || 0) + armoryCount * (Number(support.troopDamageFlatBonus) || 0);
+      merged.troopAttackSpeedBonus = (Number(merged.troopAttackSpeedBonus) || 0) + armoryCount * (Number(support.troopAttackSpeedBonus) || 0);
+      merged.troopMoveSpeedBonus = (Number(merged.troopMoveSpeedBonus) || 0) + armoryCount * (Number(support.troopMoveSpeedBonus) || 0);
+    }
+
+    return merged;
+  }
+
   function getLevelConfigValue(value, level, fallback) {
     if (value === undefined || value === null) return fallback;
     if (typeof value !== 'object') return value;
@@ -841,20 +1028,27 @@ window.BarracksTroopSystem = (function () {
     return fallback;
   }
 
-  function getUnitMoveSpeed(unitConfig) {
-    return Number(unitConfig && unitConfig.moveSpeed) || 0;
+  function getUnitMoveSpeed(unitConfig, troopBonuses) {
+    var baseValue = Number(unitConfig && unitConfig.moveSpeed) || 0;
+    var moveSpeedBonus = Math.max(0, Number(troopBonuses && troopBonuses.troopMoveSpeedBonus) || 0);
+    return baseValue * (1 + moveSpeedBonus);
   }
 
   function getUnitAttackRange(unitConfig) {
     return Number(unitConfig && unitConfig.attackRange) || 0;
   }
 
-  function getUnitAttackDamage(unitConfig) {
-    return Number(unitConfig && unitConfig.attackDamage) || getMinimumDamage();
+  function getUnitAttackDamage(unitConfig, troopBonuses) {
+    var baseValue = Number(unitConfig && unitConfig.attackDamage) || getMinimumDamage();
+    var flatBonus = Math.max(0, Number(troopBonuses && troopBonuses.troopDamageFlatBonus) || 0);
+    return baseValue + flatBonus;
   }
 
-  function getUnitAttackInterval(unitConfig) {
-    return Number(unitConfig && unitConfig.attackIntervalSeconds) || 0;
+  function getUnitAttackInterval(unitConfig, troopBonuses) {
+    var baseValue = Number(unitConfig && unitConfig.attackIntervalSeconds) || 0;
+    var attackSpeedBonus = Math.max(0, Number(troopBonuses && troopBonuses.troopAttackSpeedBonus) || 0);
+    if (baseValue <= 0) return 0;
+    return baseValue / (1 + attackSpeedBonus);
   }
 
   function distanceBetween(a, b) {
@@ -875,15 +1069,53 @@ window.BarracksTroopSystem = (function () {
 
   function getBarracksCommandMode(uid) {
     var state = getBarracksStateLive(uid);
-    return state && state.commandMode === 'follow' ? 'follow' : 'guard';
+    if (!state) return 'guard';
+    if (state.commandMode === 'follow') return 'follow';
+    if (state.commandMode === 'attack') return 'attack';
+    return 'guard';
   }
 
   function setBarracksCommandMode(uid, mode) {
     var state = getBarracksStateLive(uid);
     if (!state) return false;
 
-    state.commandMode = mode === 'follow' ? 'follow' : 'guard';
+    if (mode === 'follow') state.commandMode = 'follow';
+    else if (mode === 'attack') state.commandMode = 'attack';
+    else state.commandMode = 'guard';
 
+    if (state.commandMode !== 'attack') {
+      state.attackTargetId = null;
+      state.attackTargetName = '';
+    }
+
+    resetTroopsForBarracks(uid);
+    return true;
+  }
+
+  function setBarracksAttackTarget(uid, targetId, targetName) {
+    var state = getBarracksStateLive(uid);
+    if (!state) return false;
+
+    state.commandMode = 'attack';
+    state.attackTargetId = targetId || null;
+    state.attackTargetName = targetName || '';
+
+    resetTroopsForBarracks(uid);
+    return true;
+  }
+
+  function clearBarracksAttackTarget(uid) {
+    var state = getBarracksStateLive(uid);
+    if (!state) return false;
+
+    state.attackTargetId = null;
+    state.attackTargetName = '';
+
+    resetTroopsForBarracks(uid);
+    return true;
+  }
+
+  function resetTroopsForBarracks(uid) {
     for (var i = 0; i < _troops.length; i++) {
       var troop = _troops[i];
       if (troop.barracksUid !== uid) continue;
@@ -894,8 +1126,6 @@ window.BarracksTroopSystem = (function () {
       troop.repathCooldown = 0;
       troop.status = 'idle';
     }
-
-    return true;
   }
 
   function getBarracksTroopSummary(uid) {
@@ -907,6 +1137,8 @@ window.BarracksTroopSystem = (function () {
     var troopCount = 0;
     var engagedCount = 0;
     var instance = window.GameState && GameState.getInstance ? GameState.getInstance(uid) : null;
+    var barracksState = getBarracksStateLive(uid);
+    var attackTargetName = barracksState && barracksState.attackTargetName ? barracksState.attackTargetName : '';
 
     for (var i = 0; i < _troops.length; i++) {
       var troop = _troops[i];
@@ -928,6 +1160,12 @@ window.BarracksTroopSystem = (function () {
       statusText = 'Train units to deploy them around this barracks.';
     } else if (mode === 'follow') {
       statusText = engagedCount > 0 ? 'Units are supporting the player in combat.' : 'Units are marching with the player.';
+    } else if (mode === 'attack') {
+      if (!attackTargetName) {
+        statusText = 'Select an animal to order an attack.';
+      } else {
+        statusText = engagedCount > 0 ? ('Units are attacking ' + attackTargetName + '.') : ('Units are tracking ' + attackTargetName + '.');
+      }
     } else {
       statusText = engagedCount > 0 ? 'Units are intercepting nearby animals.' : 'Units are holding around the barracks.';
     }
@@ -937,6 +1175,7 @@ window.BarracksTroopSystem = (function () {
       engagedCount: engagedCount,
       mode: mode,
       modeLabel: modeLabel,
+      attackTargetName: attackTargetName,
       unitSummaryText: typeSummary.length ? typeSummary.join(' | ') : 'No deployed troops',
       statusText: statusText
     };
@@ -947,6 +1186,8 @@ window.BarracksTroopSystem = (function () {
     update: update,
     getBarracksCommandMode: getBarracksCommandMode,
     setBarracksCommandMode: setBarracksCommandMode,
+    setBarracksAttackTarget: setBarracksAttackTarget,
+    clearBarracksAttackTarget: clearBarracksAttackTarget,
     getBarracksTroopSummary: getBarracksTroopSummary
   };
 })();

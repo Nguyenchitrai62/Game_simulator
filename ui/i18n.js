@@ -24,6 +24,7 @@ window.GameI18n = window.GameI18n || (function () {
         },
         mapTitle: 'WORLD MAP',
         modalTab: {
+          bag: 'Bag',
           resources: 'Resources',
           build: 'Build',
           craft: 'Craft',
@@ -64,6 +65,11 @@ window.GameI18n = window.GameI18n || (function () {
         },
         modal: {
           header: {
+            bag: {
+              kicker: 'Loadout',
+              title: 'Bag',
+              subtitle: 'Organize loadout, curate the Q weapon cycle, and find gear fast with focused sub-tabs.'
+            },
             resources: {
               kicker: 'Economy',
               title: 'Stockpile',
@@ -110,7 +116,10 @@ window.GameI18n = window.GameI18n || (function () {
             blocks: {
               constructionCost: 'Construction Cost',
               produces: 'Produces',
-              consumes: 'Consumes'
+              consumes: 'Consumes',
+              constructionCostShort: 'Cost',
+              producesShort: 'Gain',
+              consumesShort: 'Use'
             },
             action: {
               locked: 'Locked',
@@ -151,16 +160,27 @@ window.GameI18n = window.GameI18n || (function () {
               yield: 'Yield',
               recipe: 'Recipe'
             },
+            materialsShort: 'Cost',
+            groups: {
+              readyCount: 'Ready {count}',
+              waitingCount: 'Waiting {count}',
+              equippedCount: 'Equipped {count}',
+              lockedCount: 'Locked {count}'
+            },
             action: {
               locked: 'Locked',
               equipped: 'Equipped',
               useItem: 'Use item',
               craft: 'Craft'
             },
+            lockedHint: 'Meet the unlock requirements to craft this item.',
+            showing: 'Showing {shown}/{total}',
+            emptyFilter: 'No recipes match this filter.',
             sections: {
               workshopKicker: 'Workshop Flow',
               workshopTitle: 'Crafting Queue',
               workshopCopy: 'Review what can be crafted now, what is waiting on materials, and which upgrades are already equipped.',
+              groupedKicker: 'Grouped By Type',
               readyCount: 'Ready now',
               waitingCount: 'Need materials',
               equippedCount: 'Already equipped',
@@ -177,6 +197,128 @@ window.GameI18n = window.GameI18n || (function () {
               lockedTitle: 'Locked Crafting',
               lockedCopy: 'Unlock new recipes by reaching the next age and settlement milestones.',
               empty: 'No crafting recipes are available yet.'
+            }
+          },
+          common: {
+            anyAge: 'Any Age'
+          },
+          filters: {
+            all: 'All',
+            type: 'Type',
+            age: 'Age'
+          },
+          category: {
+            consumables: 'Consumables',
+            consumablesCopy: 'Food and one-shot support items kept separate from equipment.',
+            weapons: 'Weapons',
+            weaponsCopy: 'Blades, spears, bows, and relic weapons grouped together.',
+            offhand: 'Shields',
+            offhandCopy: 'Shield and offhand upgrades for survivability.',
+            armor: 'Armor',
+            armorCopy: 'Body armor grouped separately so it is easier to find.',
+            boots: 'Boots',
+            bootsCopy: 'Movement gear and footwear upgrades.',
+            utility: 'Utility',
+            utilityCopy: 'Recipes and items that are not wearable gear.'
+          },
+          inventory: {
+            equipped: 'Equipped',
+            itemsCount: '{count} items',
+            showing: 'Showing {shown}/{total}',
+            consumable: 'Consumable',
+            emptyFilter: 'No matching items for this filter.'
+          },
+          bag: {
+            toolbar: {
+              kicker: 'Backpack Workbench',
+              title: 'Bag Control Center',
+              stacks: '{count} stacks',
+              totalItems: '{count} total items'
+            },
+            sections: {
+              all: 'All Items',
+              allCopy: 'Browse every carried item with a fixed filter rail.',
+              loadout: 'Loadout',
+              loadoutCopy: 'Manage equipped slots and swap gear by slot.',
+              weapons: 'Weapons',
+              weaponsCopy: 'Equip a weapon now and decide whether Q should cycle through it.',
+              consumables: 'Consumables',
+              consumablesCopy: 'Find food and one-use survival items quickly.'
+            },
+            filters: {
+              loadoutLabel: 'Slot',
+              loadoutSummary: 'Filter the slot cards without leaving the player view.',
+              weaponsLabel: 'Class',
+              weaponsSummary: 'Filter the weapon cards while keeping the Q-cycle state visible.',
+              consumablesLabel: 'Age',
+              consumablesSummary: 'Keep the consumable list fixed while narrowing it by age.'
+            },
+            counts: {
+              loadout: '{current}/{total} equipped',
+              weapons: '{enabled}/{total} on Q',
+              consumables: '{stacks} stacks • {total} total',
+              all: '{stacks} stacks • {total} total'
+            },
+            summary: {
+              loadout: 'Loadout',
+              loadoutTitle: 'Equipped Slots',
+              loadoutCopy: 'Check every equipped slot before heading back into combat.',
+              openLoadout: 'Open loadout',
+              weapons: 'Weapons',
+              noWeapon: 'No weapon equipped',
+              weaponsCopy: 'These are the weapons currently allowed in the Q quick cycle.',
+              manageWeapons: 'Manage weapons',
+              consumables: 'Consumables',
+              noConsumables: 'No consumables carried',
+              consumablesCopy: 'Food and one-use recovery items are separated for faster access.',
+              openConsumables: 'Open consumables',
+              backpack: 'Backpack',
+              backpackTitle: 'Carried Stacks',
+              backpackCopy: 'Use the all-items sub-tab when you need full filtering and category browsing.',
+              openAll: 'Browse all items'
+            },
+            overview: {
+              currentLoadout: 'Current Loadout',
+              currentLoadoutCopy: 'See exactly what is active on each slot right now.',
+              noLoadout: 'No gear is equipped yet.',
+              cycleTitle: 'Weapon Cycle Snapshot',
+              cycleCopy: 'Disabled weapons stay out of Q until you tick them back on.',
+              inCycle: 'In Q cycle',
+              skippedCycle: 'Skipped by Q',
+              noWeapons: 'No carried weapons yet.',
+              consumablesTitle: 'Consumables Ready',
+              consumablesCopy: 'This keeps your recovery items separate from gear so they are easier to scan.',
+              noConsumables: 'No consumables in the backpack right now.'
+            },
+            loadout: {
+              kicker: 'Slot Control',
+              title: 'Loadout By Slot',
+              copy: 'Each slot shows what is equipped now and what can replace it immediately from the backpack.',
+              filledCount: '{current}/{total} filled',
+              unequip: 'Unequip',
+              equippedNow: 'Currently active in this slot.',
+              emptySlot: 'Nothing equipped in this slot yet.',
+              noCandidates: 'No matching gear in your backpack yet.',
+              emptyFilter: 'No loadout slot matches this filter.'
+            },
+            weapons: {
+              kicker: 'Cycle Control',
+              title: 'Weapon Loadout',
+              copy: 'Untick any weapon you do not want to appear when you press Q, then equip the one you need right away.',
+              enabledCount: '{enabled}/{total} in Q',
+              equippedNow: 'Equipped: {name}',
+              useInCycle: 'Include in Q cycle',
+              equipped: 'Equipped',
+              equipNow: 'Equip now',
+              empty: 'Carry or equip at least one weapon to manage the quick cycle here.',
+              emptyFilter: 'No weapon matches this filter.'
+            },
+            consumables: {
+              kicker: 'Recovery',
+              title: 'Consumables',
+              copy: 'Food and one-shot supplies are separated here so you can find them without scanning through weapons and armor.',
+              totalCount: '{stacks} stacks • {total} total',
+              emptyFilter: 'No consumable matches this filter.'
             }
           }
         },
@@ -396,7 +538,26 @@ window.GameI18n = window.GameI18n || (function () {
         },
         resourceBar: {
           showRates: 'Show rates',
-          hideRates: 'Hide rates'
+          hideRates: 'Hide rates',
+          tooltip: {
+            amount: 'Stock: {amount}'
+          }
+        },
+        weaponSwitch: {
+          toggleTitle: 'Quick weapon cycle: {enabled}/{total} active',
+          toggleEmpty: 'No weapons available yet',
+          toggleLabel: 'Weapons',
+          title: 'Quick Weapon Cycle',
+          dropdownCopy: 'Tick weapons to include when pressing Q. Click a row to equip it now.',
+          checkboxHint: 'Include in the Q quick cycle',
+          equipped: 'Equipped',
+          useNow: 'Use',
+          profile: {
+            sword: 'Melee',
+            spear: 'Reach',
+            bow: 'Ranged',
+            special: 'Special'
+          }
         },
         hunger: {
           foodLine: '{hunger}/{max} Food:{food}',
@@ -514,7 +675,11 @@ window.GameI18n = window.GameI18n || (function () {
           harvestSpeed: 'Harvest speed +{percent}%',
           production: 'Production +{percent}%',
           storage: 'Storage +{percent}%',
-          npcSpeed: 'Worker speed +{percent}%'
+          npcSpeed: 'Worker speed +{percent}%',
+          troopDamage: 'Troop damage +{amount}',
+          troopMoveSpeed: 'Troop move speed +{percent}%',
+          troopAttackSpeed: 'Troop attack rate +{percent}%',
+          barracksTraining: 'Barracks training speed +{percent}%'
         },
         nodes: {
           hpShort: 'HP',
@@ -613,12 +778,25 @@ window.GameI18n = window.GameI18n || (function () {
           saveUnavailable: 'Barracks save state unavailable.',
           dataUnavailable: 'Barracks data unavailable.',
           followSuccess: 'Barracks troops are now following the player.',
-          guardSuccess: 'Barracks troops are guarding nearby animals.',
+          guardSuccess: 'Barracks troops are holding position near the barracks.',
+          attackModeReady: 'Attack mode ready. Click an animal to assign the target.',
+          attackTargetAssigned: 'Barracks target assigned: {name}.',
+          attackTargetCleared: 'Barracks attack target cleared.',
+          invalidAttackTarget: 'Pick a living animal as the attack target.',
+          selectAttackTarget: 'Select an animal to order an attack.',
+          attackingTarget: 'Units are attacking {name}.',
+          trackingTarget: 'Units are tracking {name}.',
           unlocksAtLevel: '{label} unlocks at Barracks level {level}.',
           queueFull: 'Training queue is full.',
           reserveFull: 'Barracks reserve is full. Upgrade to support more units.',
           notEnoughResourcesTrain: 'Not enough resources to train {label}.',
-          queuedTraining: 'Queued {label} training.'
+          queuedTraining: 'Queued {label} training.',
+          upgrades: {
+            damage: 'Troop damage +{amount}',
+            moveSpeed: 'Move speed +{percent}%',
+            attackSpeed: 'Attack rate +{percent}%',
+            training: 'Training speed +{percent}%'
+          }
         },
         watchtower: {
           scanningForThreats: 'Scanning for threats',
@@ -691,6 +869,8 @@ window.GameI18n = window.GameI18n || (function () {
           actions: {
             research: 'Research'
           },
+          lockedHint: 'Meet the unlock requirements to access this research.',
+          prerequisiteHint: 'Complete the required research first.',
           sections: {
             overviewKicker: 'Knowledge Track',
             overviewTitle: 'Research Overview',
@@ -743,14 +923,20 @@ window.GameI18n = window.GameI18n || (function () {
           workers: 'Workers: {current}/{target}',
           queueEmpty: 'Queue empty',
           noTrainedReserves: 'No trained reserves',
+          holdPosition: 'Hold Position',
           guardNearby: 'Guard Nearby',
           followPlayer: 'Follow Player',
+          attackTarget: 'Attack Target',
           towerSupport: 'Tower support',
           towerSupportPaused: '(paused while following)',
           trainingQueue: 'Training queue',
           reserveSummary: 'Reserve {current}/{capacity} • Queue {used}/{queue}',
           commandRadius: 'Command radius: {range} • Training speed x{speed}',
+          activeUpgrades: 'Active upgrades: {text}',
           mode: 'Mode: {mode}',
+          attackTargetSummary: 'Attack target: {name}',
+          clickToChooseTarget: 'Click an animal to choose the target',
+          clearAttackTarget: 'Clear target',
           deployed: 'Deployed: {deployed} • Engaged: {engaged}',
           reserves: 'Reserves: {text}',
           nextUnlock: 'Next unlock: {label} at Lv.{level}',
@@ -783,6 +969,104 @@ window.GameI18n = window.GameI18n || (function () {
         threatTaunt: {
           first: 'Come on then, take a swing at me.',
           idleNudge: 'Why are you hesitating? Fight it.'
+        }
+      },
+      world: {
+        combat: {
+          bareHands: 'Bare Hands',
+          blocked: 'BLOCKED',
+          bossDefeated: 'Boss defeated! Reward claimed: {rewards}.{equipText}',
+          victoryLoot: 'Victory! Loot collected: {rewards}',
+          victory: 'Victory!',
+          equippedRewards: ' Equipped: {items}.',
+          relicClaimed: 'Relic claimed',
+          died: 'You died! Lost {percent}% resources. Respawned at home.',
+          rewardPrefix: 'Reward: {reward}',
+          weaponProfiles: {
+            unarmed: 'Bare Hands',
+            sword: 'Sword',
+            spear: 'Spear',
+            bow: 'Bow',
+            special: 'Relic'
+          }
+        },
+        barracks: {
+          units: {
+            swordsman: {
+              label: 'Swordsman',
+              role: 'Melee reserve',
+              towerSupport: 'Reserve screen'
+            },
+            spearman: {
+              label: 'Spearman',
+              role: 'Reach guard'
+            },
+            archer: {
+              label: 'Archer',
+              role: 'Ranged reserve',
+              towerSupport: 'Archer overwatch'
+            }
+          }
+        },
+        bossZones: {
+          moonfang: {
+            label: 'Moonfang Den'
+          },
+          sunscale: {
+            label: 'Sunscale Pride'
+          },
+          stormhide: {
+            label: 'Stormhide Lair'
+          }
+        },
+        ruinedOutposts: {
+          hunterCamp: {
+            label: 'Collapsed Hunter Camp',
+            rewardLabel: 'Early salvage and travel supplies'
+          },
+          bronzeOutpost: {
+            label: 'Ruined Bronze Outpost',
+            rewardLabel: 'Bronze stock and marching rations'
+          },
+          frontierHold: {
+            label: 'Ruined Frontier Hold',
+            rewardLabel: 'Iron caches and preserved supplies'
+          }
+        },
+        minimap: {
+          controls: 'Scroll: Zoom | Drag: Move | [M] Close',
+          bossZone: 'Boss Zone',
+          ruinedOutpost: 'Ruined Outpost',
+          reward: 'reward',
+          cleared: 'cleared',
+          looted: 'looted',
+          dangerHigh: 'High danger zone',
+          dangerMedium: 'Medium danger zone',
+          dangerLow: 'Low danger zone',
+          predatorZone: 'Predator Zone',
+          predatorNest: 'Predator Nest',
+          threatOne: '1 threat',
+          threatMany: '{count} threats',
+          respawnHotspot: 'respawn hotspot',
+          workersUnderAttack: 'workers under attack',
+          legend: {
+            trees: 'Trees',
+            ore: 'Ore',
+            berry: 'Berry',
+            prey: 'Prey',
+            threat: 'Threat',
+            bossZone: 'Boss zone',
+            ruinedOutpost: 'Ruined outpost',
+            danger: 'Danger',
+            lightCover: 'Light cover',
+            defenseCover: 'Defense cover',
+            buildings: 'Buildings',
+            water: 'Water'
+          }
+        },
+        player: {
+          ruinedOutpostSalvaged: '{name} salvaged: {rewards}',
+          suppliesRecovered: 'Supplies recovered.'
         }
       },
       entities: {
@@ -830,6 +1114,7 @@ window.GameI18n = window.GameI18n || (function () {
         },
         mapTitle: 'BẢN ĐỒ THẾ GIỚI',
         modalTab: {
+          bag: 'Túi',
           resources: 'Tài nguyên',
           build: 'Xây dựng',
           craft: 'Chế tạo',
@@ -870,6 +1155,11 @@ window.GameI18n = window.GameI18n || (function () {
         },
         modal: {
           header: {
+            bag: {
+              kicker: 'Trang bị',
+              title: 'Túi đồ',
+              subtitle: 'Sắp xếp loadout, lọc vòng đổi vũ khí bằng Q và tìm đồ nhanh hơn bằng các tab con chuyên biệt.'
+            },
             resources: {
               kicker: 'Kinh tế',
               title: 'Kho dự trữ',
@@ -916,7 +1206,10 @@ window.GameI18n = window.GameI18n || (function () {
             blocks: {
               constructionCost: 'Chi phí xây',
               produces: 'Tạo ra',
-              consumes: 'Tiêu hao'
+              consumes: 'Tiêu hao',
+              constructionCostShort: 'Phí',
+              producesShort: 'Tạo',
+              consumesShort: 'Dùng'
             },
             action: {
               locked: 'Bị khóa',
@@ -957,16 +1250,27 @@ window.GameI18n = window.GameI18n || (function () {
               yield: 'Sản lượng',
               recipe: 'Công thức'
             },
+            materialsShort: 'Phí',
+            groups: {
+              readyCount: 'Sẵn {count}',
+              waitingCount: 'Chờ {count}',
+              equippedCount: 'Đang dùng {count}',
+              lockedCount: 'Khóa {count}'
+            },
             action: {
               locked: 'Bị khóa',
               equipped: 'Đang mặc',
               useItem: 'Dùng đồ',
               craft: 'Chế tạo'
             },
+            lockedHint: 'Đạt điều kiện mở khóa để chế món này.',
+            showing: 'Hiện {shown}/{total}',
+            emptyFilter: 'Không có công thức nào khớp bộ lọc này.',
             sections: {
               workshopKicker: 'Xưởng',
               workshopTitle: 'Hàng đợi chế tạo',
               workshopCopy: 'Xem món nào chế được ngay, món nào còn thiếu nguyên liệu và món nào đang được trang bị.',
+              groupedKicker: 'Nhóm theo loại',
               readyCount: 'Làm được ngay',
               waitingCount: 'Thiếu nguyên liệu',
               equippedCount: 'Đang trang bị',
@@ -983,6 +1287,128 @@ window.GameI18n = window.GameI18n || (function () {
               lockedTitle: 'Công thức bị khóa',
               lockedCopy: 'Mở thêm công thức bằng cách tiến lên thời đại mới và đạt các mốc khu định cư.',
               empty: 'Chưa có công thức chế tạo nào khả dụng.'
+            }
+          },
+          common: {
+            anyAge: 'Mọi thời đại'
+          },
+          filters: {
+            all: 'Tất cả',
+            type: 'Loại',
+            age: 'Thời đại'
+          },
+          category: {
+            consumables: 'Đồ tiêu hao',
+            consumablesCopy: 'Đồ ăn và vật phẩm hỗ trợ dùng một lần được tách riêng khỏi trang bị.',
+            weapons: 'Vũ khí',
+            weaponsCopy: 'Kiếm, giáo, cung và vũ khí di vật được gom cùng một nhóm.',
+            offhand: 'Khiên',
+            offhandCopy: 'Khiên và đồ cầm tay phụ để tăng độ sống sót.',
+            armor: 'Giáp',
+            armorCopy: 'Giáp thân được tách riêng để dễ tìm hơn.',
+            boots: 'Giày',
+            bootsCopy: 'Trang bị di chuyển và giày dép.',
+            utility: 'Tiện ích',
+            utilityCopy: 'Công thức và vật phẩm không phải đồ mặc trên người.'
+          },
+          inventory: {
+            equipped: 'Đang trang bị',
+            itemsCount: '{count} món',
+            showing: 'Hiện {shown}/{total}',
+            consumable: 'Tiêu hao',
+            emptyFilter: 'Không có vật phẩm nào khớp bộ lọc này.'
+          },
+          bag: {
+            toolbar: {
+              kicker: 'Điều phối balo',
+              title: 'Trung tâm điều khiển túi',
+              stacks: '{count} chồng',
+              totalItems: '{count} tổng vật phẩm'
+            },
+            sections: {
+              all: 'Toàn bộ vật phẩm',
+              allCopy: 'Duyệt mọi món đang mang với thanh lọc cố định.',
+              loadout: 'Trang bị',
+              loadoutCopy: 'Quản lý các ô đang mặc và đổi đồ theo từng ô.',
+              weapons: 'Vũ khí',
+              weaponsCopy: 'Trang bị vũ khí ngay và quyết định có cho Q chuyển qua nó hay không.',
+              consumables: 'Tiêu hao',
+              consumablesCopy: 'Tìm nhanh đồ ăn và vật phẩm sinh tồn dùng một lần.'
+            },
+            filters: {
+              loadoutLabel: 'Ô',
+              loadoutSummary: 'Lọc các ô trang bị mà không rời khỏi màn hình nhân vật.',
+              weaponsLabel: 'Nhóm',
+              weaponsSummary: 'Lọc thẻ vũ khí trong khi vẫn thấy trạng thái vòng Q.',
+              consumablesLabel: 'Thời đại',
+              consumablesSummary: 'Giữ danh sách đồ tiêu hao cố định trong khi thu hẹp theo thời đại.'
+            },
+            counts: {
+              loadout: '{current}/{total} ô đã trang bị',
+              weapons: '{enabled}/{total} trong Q',
+              consumables: '{stacks} chồng • {total} tổng',
+              all: '{stacks} chồng • {total} tổng'
+            },
+            summary: {
+              loadout: 'Trang bị',
+              loadoutTitle: 'Các ô đang mặc',
+              loadoutCopy: 'Kiểm tra mọi ô đang dùng trước khi quay lại chiến đấu.',
+              openLoadout: 'Mở trang bị',
+              weapons: 'Vũ khí',
+              noWeapon: 'Chưa có vũ khí nào được trang bị',
+              weaponsCopy: 'Đây là các vũ khí hiện được phép xuất hiện trong vòng đổi Q.',
+              manageWeapons: 'Quản lý vũ khí',
+              consumables: 'Tiêu hao',
+              noConsumables: 'Không mang đồ tiêu hao nào',
+              consumablesCopy: 'Đồ ăn và vật phẩm hồi phục dùng một lần được tách riêng để truy cập nhanh hơn.',
+              openConsumables: 'Mở đồ tiêu hao',
+              backpack: 'Ba lô',
+              backpackTitle: 'Các chồng đang mang',
+              backpackCopy: 'Dùng tab toàn bộ vật phẩm khi cần lọc đầy đủ và duyệt theo nhóm.',
+              openAll: 'Duyệt mọi vật phẩm'
+            },
+            overview: {
+              currentLoadout: 'Trang bị hiện tại',
+              currentLoadoutCopy: 'Xem chính xác món nào đang hoạt động trên từng ô.',
+              noLoadout: 'Chưa có món nào được trang bị.',
+              cycleTitle: 'Tóm tắt vòng đổi vũ khí',
+              cycleCopy: 'Vũ khí bị tắt sẽ không xuất hiện trong Q cho tới khi bạn bật lại.',
+              inCycle: 'Có trong vòng Q',
+              skippedCycle: 'Bị Q bỏ qua',
+              noWeapons: 'Chưa mang vũ khí nào.',
+              consumablesTitle: 'Đồ tiêu hao sẵn sàng',
+              consumablesCopy: 'Mục này tách đồ hồi phục khỏi trang bị để bạn quét nhanh hơn.',
+              noConsumables: 'Hiện không có đồ tiêu hao nào trong ba lô.'
+            },
+            loadout: {
+              kicker: 'Điều khiển ô',
+              title: 'Trang bị theo ô',
+              copy: 'Mỗi ô cho biết món nào đang mặc và món nào trong ba lô có thể thay ngay lập tức.',
+              filledCount: '{current}/{total} ô đã lấp',
+              unequip: 'Tháo ra',
+              equippedNow: 'Đang hoạt động ở ô này.',
+              emptySlot: 'Ô này hiện chưa trang bị gì.',
+              noCandidates: 'Chưa có món phù hợp nào trong ba lô.',
+              emptyFilter: 'Không có ô trang bị nào khớp bộ lọc này.'
+            },
+            weapons: {
+              kicker: 'Điều khiển vòng đổi',
+              title: 'Bộ vũ khí',
+              copy: 'Bỏ chọn những vũ khí bạn không muốn xuất hiện khi bấm Q, rồi trang bị ngay món bạn cần.',
+              enabledCount: '{enabled}/{total} trong Q',
+              equippedNow: 'Đang dùng: {name}',
+              useInCycle: 'Cho vào vòng Q',
+              equipped: 'Đang dùng',
+              equipNow: 'Trang bị ngay',
+              empty: 'Hãy mang hoặc trang bị ít nhất một vũ khí để quản lý vòng đổi tại đây.',
+              emptyFilter: 'Không có vũ khí nào khớp bộ lọc này.'
+            },
+            consumables: {
+              kicker: 'Hồi phục',
+              title: 'Đồ tiêu hao',
+              copy: 'Đồ ăn và nhu yếu phẩm dùng một lần được tách riêng ở đây để bạn không phải quét lẫn với vũ khí và giáp.',
+              totalCount: '{stacks} chồng • {total} tổng',
+              emptyFilter: 'Không có món tiêu hao nào khớp bộ lọc này.'
             }
           }
         },
@@ -1202,7 +1628,26 @@ window.GameI18n = window.GameI18n || (function () {
         },
         resourceBar: {
           showRates: 'Hiện tốc độ',
-          hideRates: 'Ẩn tốc độ'
+          hideRates: 'Ẩn tốc độ',
+          tooltip: {
+            amount: 'Tồn kho: {amount}'
+          }
+        },
+        weaponSwitch: {
+          toggleTitle: 'Vòng đổi vũ khí nhanh: {enabled}/{total} đang bật',
+          toggleEmpty: 'Chưa có vũ khí nào',
+          toggleLabel: 'Vũ khí',
+          title: 'Vòng đổi vũ khí nhanh',
+          dropdownCopy: 'Tích các vũ khí muốn đưa vào khi bấm Q. Bấm vào từng hàng để trang bị ngay.',
+          checkboxHint: 'Đưa vào vòng đổi nhanh bằng Q',
+          equipped: 'Đang dùng',
+          useNow: 'Dùng',
+          profile: {
+            sword: 'Cận chiến',
+            spear: 'Tầm giáo',
+            bow: 'Tầm xa',
+            special: 'Đặc biệt'
+          }
         },
         hunger: {
           foodLine: '{hunger}/{max} Thức ăn:{food}',
@@ -1320,7 +1765,11 @@ window.GameI18n = window.GameI18n || (function () {
           harvestSpeed: 'Tốc độ thu hoạch +{percent}%',
           production: 'Sản xuất +{percent}%',
           storage: 'Kho chứa +{percent}%',
-          npcSpeed: 'Tốc độ worker +{percent}%'
+          npcSpeed: 'Tốc độ worker +{percent}%',
+          troopDamage: 'Sát thương quân +{amount}',
+          troopMoveSpeed: 'Tốc độ di chuyển quân +{percent}%',
+          troopAttackSpeed: 'Nhịp đánh quân +{percent}%',
+          barracksTraining: 'Tốc độ huấn luyện doanh trại +{percent}%'
         },
         nodes: {
           hpShort: 'HP',
@@ -1419,12 +1868,25 @@ window.GameI18n = window.GameI18n || (function () {
           saveUnavailable: 'Không có trạng thái lưu của doanh trại.',
           dataUnavailable: 'Không có dữ liệu doanh trại.',
           followSuccess: 'Quân doanh trại giờ sẽ đi theo người chơi.',
-          guardSuccess: 'Quân doanh trại giờ sẽ canh các thú gần đó.',
+          guardSuccess: 'Quân doanh trại giờ sẽ giữ vị trí quanh doanh trại.',
+          attackModeReady: 'Chế độ tấn công đã sẵn sàng. Hãy bấm vào một con vật để gán mục tiêu.',
+          attackTargetAssigned: 'Đã giao mục tiêu cho doanh trại: {name}.',
+          attackTargetCleared: 'Đã xóa mục tiêu tấn công của doanh trại.',
+          invalidAttackTarget: 'Hãy chọn một con vật còn sống làm mục tiêu tấn công.',
+          selectAttackTarget: 'Chọn một con vật để ra lệnh tấn công.',
+          attackingTarget: 'Quân đang tấn công {name}.',
+          trackingTarget: 'Quân đang truy đuổi {name}.',
           unlocksAtLevel: '{label} mở ở cấp doanh trại {level}.',
           queueFull: 'Hàng đợi huấn luyện đã đầy.',
           reserveFull: 'Kho quân dự bị đã đầy. Hãy nâng cấp để chứa thêm quân.',
           notEnoughResourcesTrain: 'Không đủ tài nguyên để huấn luyện {label}.',
-          queuedTraining: 'Đã xếp hàng huấn luyện {label}.'
+          queuedTraining: 'Đã xếp hàng huấn luyện {label}.',
+          upgrades: {
+            damage: 'Sát thương quân +{amount}',
+            moveSpeed: 'Tốc độ di chuyển +{percent}%',
+            attackSpeed: 'Nhịp đánh +{percent}%',
+            training: 'Tốc độ huấn luyện +{percent}%'
+          }
         },
         watchtower: {
           scanningForThreats: 'Đang quét mối đe dọa',
@@ -1497,6 +1959,8 @@ window.GameI18n = window.GameI18n || (function () {
           actions: {
             research: 'Nghiên cứu'
           },
+          lockedHint: 'Đạt các điều kiện mở khóa để truy cập nghiên cứu này.',
+          prerequisiteHint: 'Hãy hoàn thành công nghệ tiên quyết trước.',
           sections: {
             overviewKicker: 'Lộ trình tri thức',
             overviewTitle: 'Tổng quan nghiên cứu',
@@ -1549,14 +2013,20 @@ window.GameI18n = window.GameI18n || (function () {
           workers: 'Worker: {current}/{target}',
           queueEmpty: 'Hàng đợi trống',
           noTrainedReserves: 'Chưa có quân dự bị',
+          holdPosition: 'Giữ vị trí',
           guardNearby: 'Giữ gần',
           followPlayer: 'Theo người chơi',
+          attackTarget: 'Tấn công mục tiêu',
           towerSupport: 'Hỗ trợ tháp',
           towerSupportPaused: '(tạm dừng khi đi theo)',
           trainingQueue: 'Hàng đợi huấn luyện',
           reserveSummary: 'Dự bị {current}/{capacity} • Hàng đợi {used}/{queue}',
           commandRadius: 'Bán kính chỉ huy: {range} • Tốc độ huấn luyện x{speed}',
+          activeUpgrades: 'Nâng cấp đang hoạt động: {text}',
           mode: 'Chế độ: {mode}',
+          attackTargetSummary: 'Mục tiêu tấn công: {name}',
+          clickToChooseTarget: 'Bấm vào một con vật để chọn mục tiêu',
+          clearAttackTarget: 'Xóa mục tiêu',
           deployed: 'Đã triển khai: {deployed} • Đang giao chiến: {engaged}',
           reserves: 'Quân dự bị: {text}',
           nextUnlock: 'Mở tiếp: {label} ở Lv.{level}',
@@ -1589,6 +2059,104 @@ window.GameI18n = window.GameI18n || (function () {
         threatTaunt: {
           first: 'Mày ngon vào ăn tao đi này',
           idleNudge: 'Mày sợ con kia à, đánh nó đi'
+        }
+      },
+      world: {
+        combat: {
+          bareHands: 'Tay không',
+          blocked: 'CHẶN',
+          bossDefeated: 'Đã hạ boss! Nhận thưởng: {rewards}.{equipText}',
+          victoryLoot: 'Chiến thắng! Đã thu loot: {rewards}',
+          victory: 'Chiến thắng!',
+          equippedRewards: ' Tự trang bị: {items}.',
+          relicClaimed: 'Đã nhận di vật',
+          died: 'Bạn đã chết! Mất {percent}% tài nguyên. Hồi sinh tại nhà.',
+          rewardPrefix: 'Thưởng: {reward}',
+          weaponProfiles: {
+            unarmed: 'Tay không',
+            sword: 'Kiếm',
+            spear: 'Giáo',
+            bow: 'Cung',
+            special: 'Di vật'
+          }
+        },
+        barracks: {
+          units: {
+            swordsman: {
+              label: 'Kiếm binh',
+              role: 'Dự bị cận chiến',
+              towerSupport: 'Tuyến chắn dự bị'
+            },
+            spearman: {
+              label: 'Lính giáo',
+              role: 'Giữ tầm giáo'
+            },
+            archer: {
+              label: 'Cung thủ',
+              role: 'Dự bị tầm xa',
+              towerSupport: 'Hỏa lực cung thủ'
+            }
+          }
+        },
+        bossZones: {
+          moonfang: {
+            label: 'Hang Moonfang'
+          },
+          sunscale: {
+            label: 'Lãnh địa Sunscale'
+          },
+          stormhide: {
+            label: 'Ổ Stormhide'
+          }
+        },
+        ruinedOutposts: {
+          hunterCamp: {
+            label: 'Trại săn sụp đổ',
+            rewardLabel: 'Đồ cứu vãn đầu kỳ và nhu yếu phẩm đường xa'
+          },
+          bronzeOutpost: {
+            label: 'Tiền đồn đồng đổ nát',
+            rewardLabel: 'Kho đồng và khẩu phần hành quân'
+          },
+          frontierHold: {
+            label: 'Đồn biên ải đổ nát',
+            rewardLabel: 'Kho sắt và nhu yếu phẩm còn lại'
+          }
+        },
+        minimap: {
+          controls: 'Cuộn: Zoom | Kéo: Di chuyển | [M] Đóng',
+          bossZone: 'Vùng boss',
+          ruinedOutpost: 'Tiền đồn đổ nát',
+          reward: 'thưởng',
+          cleared: 'đã dọn',
+          looted: 'đã vét',
+          dangerHigh: 'Vùng nguy hiểm cao',
+          dangerMedium: 'Vùng nguy hiểm vừa',
+          dangerLow: 'Vùng nguy hiểm thấp',
+          predatorZone: 'Vùng thú dữ',
+          predatorNest: 'Ổ thú dữ',
+          threatOne: '1 mối đe dọa',
+          threatMany: '{count} mối đe dọa',
+          respawnHotspot: 'điểm tái sinh dày',
+          workersUnderAttack: 'công nhân bị tấn công',
+          legend: {
+            trees: 'Cây',
+            ore: 'Quặng',
+            berry: 'Dâu',
+            prey: 'Con mồi',
+            threat: 'Đe dọa',
+            bossZone: 'Vùng boss',
+            ruinedOutpost: 'Tiền đồn đổ nát',
+            danger: 'Nguy hiểm',
+            lightCover: 'Vùng sáng',
+            defenseCover: 'Vùng thủ',
+            buildings: 'Công trình',
+            water: 'Nước'
+          }
+        },
+        player: {
+          ruinedOutpostSalvaged: '{name} đã được vét: {rewards}',
+          suppliesRecovered: 'Đã thu hồi nhu yếu phẩm.'
         }
       },
       entities: {
@@ -1685,9 +2253,25 @@ window.GameI18n = window.GameI18n || (function () {
           name: 'Lò rèn',
           description: 'Chế tạo trang bị sắt cấp cao.'
         },
+        'building.armory': {
+          name: 'Nhà quân nhu',
+          description: 'Nhà hỗ trợ quân sự tùy chọn giúp cải thiện huấn luyện dự bị và độ sẵn sàng ngoài chiến trường.'
+        },
         'building.campfire': {
           name: 'Đống lửa',
           description: 'Chiếu sáng rộng ban đêm. Cần nhiều Gỗ và Đá lửa để chế tạo, chỉ cần Gỗ để nạp thêm.'
+        },
+        'animal.moonfang_alpha': {
+          name: 'Sói chúa Moonfang',
+          description: 'Con sói huyền thoại thống trị một bãi săn dưới trăng.'
+        },
+        'animal.sunscale_lion': {
+          name: 'Sư tử Sunscale',
+          description: 'Mãnh thú đỉnh chuỗi thời đại đồng, canh giữ lãnh địa cháy rực.'
+        },
+        'animal.stormhide_sabertooth': {
+          name: 'Hổ răng kiếm Stormhide',
+          description: 'Con quái thú hung bạo canh một sào huyệt chứa vũ khí di vật.'
         },
         'equipment.wooden_sword': { name: 'Kiếm gỗ' },
         'equipment.stone_spear': { name: 'Giáo đá' },
@@ -1695,12 +2279,18 @@ window.GameI18n = window.GameI18n || (function () {
         'equipment.leather_armor': { name: 'Giáp da' },
         'equipment.leather_boots': { name: 'Giày da' },
         'equipment.bronze_sword': { name: 'Kiếm đồng' },
+        'equipment.hunting_bow': { name: 'Cung săn' },
         'equipment.bronze_shield': { name: 'Khiên đồng' },
+        'equipment.bronze_bow': { name: 'Cung đồng' },
         'equipment.bronze_armor': { name: 'Giáp đồng' },
         'equipment.iron_sword': { name: 'Kiếm sắt' },
+        'equipment.iron_longbow': { name: 'Cung dài sắt' },
         'equipment.iron_shield': { name: 'Khiên sắt' },
         'equipment.iron_armor': { name: 'Giáp sắt' },
         'equipment.iron_boots': { name: 'Giày sắt' },
+        'equipment.moonfang_blade': { name: 'Kiếm Moonfang' },
+        'equipment.sunpiercer_bow': { name: 'Cung Sunpiercer' },
+        'equipment.stormspine_glaive': { name: 'Kích Stormspine' },
         'item.handheld_torch': {
           name: 'Đuốc tay',
           description: 'Đuốc cầm tay chiếu sáng khi đi đêm. Tự cháy hết sau một lúc.'
@@ -1709,57 +2299,28 @@ window.GameI18n = window.GameI18n || (function () {
           name: 'Công cụ đá',
           description: 'Chế tạo một công cụ cơ bản để lao động hiệu quả hơn.'
         },
-        'recipe.wooden_sword': {
-          name: 'Kiếm gỗ',
-          description: 'Chế tạo kiếm gỗ. +3 Công.'
-        },
-        'recipe.stone_spear': {
-          name: 'Giáo đá',
-          description: 'Chế tạo giáo đá. +6 Công.'
-        },
-        'recipe.stone_shield': {
-          name: 'Khiên đá',
-          description: 'Chế tạo khiên đá. +3 Thủ.'
-        },
-        'recipe.leather_armor': {
-          name: 'Giáp da',
-          description: 'Chế tạo giáp da. +5 Thủ, +10 HP.'
-        },
-        'recipe.leather_boots': {
-          name: 'Giày da',
-          description: 'Chế tạo giày da. +2 Tốc.'
-        },
-        'recipe.bronze_sword': {
-          name: 'Kiếm đồng',
-          description: 'Rèn kiếm đồng. +10 Công.'
-        },
-        'recipe.bronze_shield': {
-          name: 'Khiên đồng',
-          description: 'Rèn khiên đồng. +6 Thủ.'
-        },
-        'recipe.bronze_armor': {
-          name: 'Giáp đồng',
-          description: 'Rèn giáp đồng. +10 Thủ, +20 HP.'
-        },
-        'recipe.iron_sword': {
-          name: 'Kiếm sắt',
-          description: 'Rèn kiếm sắt. +15 Công.'
-        },
-        'recipe.iron_shield': {
-          name: 'Khiên sắt',
-          description: 'Rèn khiên sắt. +10 Thủ.'
-        },
-        'recipe.iron_armor': {
-          name: 'Giáp sắt',
-          description: 'Rèn giáp sắt. +15 Thủ, +30 HP.'
-        },
-        'recipe.iron_boots': {
-          name: 'Giày sắt',
-          description: 'Rèn giày sắt. +3 Tốc, +3 Thủ.'
-        },
+        'recipe.wooden_sword': { name: 'Kiếm gỗ' },
+        'recipe.stone_spear': { name: 'Giáo đá' },
+        'recipe.stone_shield': { name: 'Khiên đá' },
+        'recipe.leather_armor': { name: 'Giáp da' },
+        'recipe.leather_boots': { name: 'Giày da' },
+        'recipe.bronze_sword': { name: 'Kiếm đồng' },
+        'recipe.hunting_bow': { name: 'Cung săn' },
+        'recipe.bronze_shield': { name: 'Khiên đồng' },
+        'recipe.bronze_bow': { name: 'Cung đồng' },
+        'recipe.bronze_armor': { name: 'Giáp đồng' },
+        'recipe.iron_sword': { name: 'Kiếm sắt' },
+        'recipe.iron_longbow': { name: 'Cung dài sắt' },
+        'recipe.iron_shield': { name: 'Khiên sắt' },
+        'recipe.iron_armor': { name: 'Giáp sắt' },
+        'recipe.iron_boots': { name: 'Giày sắt' },
         'recipe.handheld_torch': {
           name: 'Đuốc tay',
           description: 'Chế tạo đuốc cầm tay. Sáng 60s khi trời tối.'
+        },
+        'site.ruined_outpost': {
+          name: 'Tiền đồn đổ nát',
+          description: 'Một tiền đồn biên cũ đã sụp đổ, còn lại nhu yếu phẩm có thể vét ngay.'
         },
         'tech.advanced_tools': { name: 'Công cụ nâng cao' },
         'tech.efficient_gathering': { name: 'Thu thập hiệu quả' },
@@ -1767,7 +2328,15 @@ window.GameI18n = window.GameI18n || (function () {
         'tech.swift_workers': { name: 'Công nhân nhanh nhẹn' },
         'tech.iron_working': { name: 'Luyện sắt' },
         'tech.coal_power': { name: 'Sức mạnh than đá' },
-        'tech.fortification': { name: 'Củng cố phòng tuyến' }
+        'tech.fortification': { name: 'Củng cố phòng tuyến' },
+        'tech.military_drills': {
+          name: 'Huấn luyện quân sự',
+          description: 'Quân doanh trại đánh đau hơn và di chuyển nhanh hơn.'
+        },
+        'tech.barracks_logistics': {
+          name: 'Hậu cần doanh trại',
+          description: 'Doanh trại huấn luyện quân nhanh hơn và lực lượng triển khai ra đòn dồn dập hơn.'
+        }
       },
       registry: {
         stats: {
@@ -1791,7 +2360,37 @@ window.GameI18n = window.GameI18n || (function () {
     'settings.speechOverlay.fireAction.text': 'speech.fireAction',
     'settings.speechOverlay.resourceDiscovery.text': 'speech.resourceDiscovery',
     'settings.speechOverlay.threatTaunt.first.text': 'speech.threatTaunt.first',
-    'settings.speechOverlay.threatTaunt.idleNudge.text': 'speech.threatTaunt.idleNudge'
+    'settings.speechOverlay.threatTaunt.idleNudge.text': 'speech.threatTaunt.idleNudge',
+    'building.barracks.military.units.swordsman.label': 'world.barracks.units.swordsman.label',
+    'building.barracks.military.units.swordsman.role': 'world.barracks.units.swordsman.role',
+    'building.barracks.military.units.swordsman.towerSupport.label': 'world.barracks.units.swordsman.towerSupport',
+    'building.barracks.military.units.spearman.label': 'world.barracks.units.spearman.label',
+    'building.barracks.military.units.spearman.role': 'world.barracks.units.spearman.role',
+    'building.barracks.military.units.archer.label': 'world.barracks.units.archer.label',
+    'building.barracks.military.units.archer.role': 'world.barracks.units.archer.role',
+    'building.barracks.military.units.archer.towerSupport.label': 'world.barracks.units.archer.towerSupport',
+    'animal.moonfang_alpha.bossRewardLabel': 'entities.equipment.moonfang_blade.name',
+    'animal.sunscale_lion.bossRewardLabel': 'entities.equipment.sunpiercer_bow.name',
+    'animal.stormhide_sabertooth.bossRewardLabel': 'entities.equipment.stormspine_glaive.name',
+    'combat.weaponProfiles.unarmed.label': 'world.combat.weaponProfiles.unarmed',
+    'combat.weaponProfiles.sword.label': 'world.combat.weaponProfiles.sword',
+    'combat.weaponProfiles.spear.label': 'world.combat.weaponProfiles.spear',
+    'combat.weaponProfiles.bow.label': 'world.combat.weaponProfiles.bow',
+    'combat.weaponProfiles.special.label': 'world.combat.weaponProfiles.special',
+    'terrain.predatorZones.levels.medium.label': 'world.minimap.predatorZone',
+    'terrain.predatorZones.levels.high.label': 'world.minimap.predatorNest',
+    'terrain.bossZones.candidates.0.label': 'world.bossZones.stormhide.label',
+    'terrain.bossZones.candidates.0.rewardLabel': 'entities.equipment.stormspine_glaive.name',
+    'terrain.bossZones.candidates.1.label': 'world.bossZones.sunscale.label',
+    'terrain.bossZones.candidates.1.rewardLabel': 'entities.equipment.sunpiercer_bow.name',
+    'terrain.bossZones.candidates.2.label': 'world.bossZones.moonfang.label',
+    'terrain.bossZones.candidates.2.rewardLabel': 'entities.equipment.moonfang_blade.name',
+    'terrain.ruinedOutposts.tiers.0.label': 'world.ruinedOutposts.frontierHold.label',
+    'terrain.ruinedOutposts.tiers.0.rewardLabel': 'world.ruinedOutposts.frontierHold.rewardLabel',
+    'terrain.ruinedOutposts.tiers.1.label': 'world.ruinedOutposts.bronzeOutpost.label',
+    'terrain.ruinedOutposts.tiers.1.rewardLabel': 'world.ruinedOutposts.bronzeOutpost.rewardLabel',
+    'terrain.ruinedOutposts.tiers.2.label': 'world.ruinedOutposts.hunterCamp.label',
+    'terrain.ruinedOutposts.tiers.2.rewardLabel': 'world.ruinedOutposts.hunterCamp.rewardLabel'
   };
 
   function loadLanguage() {
@@ -1849,15 +2448,42 @@ window.GameI18n = window.GameI18n || (function () {
   function setNestedValue(target, path, value) {
     if (!target || !path) return;
     var segments = String(path).split('.');
-    var cursor = target;
-    for (var i = 0; i < segments.length - 1; i++) {
-      var segment = segments[i];
-      if (!cursor[segment] || typeof cursor[segment] !== 'object') {
-        cursor[segment] = {};
+    assignNestedValue(target, segments, 0, value);
+  }
+
+  function assignNestedValue(target, segments, startIndex, value) {
+    if (!target) return false;
+    if (startIndex >= segments.length) return false;
+
+    for (var end = segments.length; end > startIndex; end--) {
+      var literalKey = segments.slice(startIndex, end).join('.');
+      if (!Object.prototype.hasOwnProperty.call(target, literalKey)) continue;
+
+      if (end === segments.length) {
+        target[literalKey] = value;
+        return true;
       }
-      cursor = cursor[segment];
+
+      if (!target[literalKey] || typeof target[literalKey] !== 'object') {
+        target[literalKey] = {};
+      }
+
+      if (assignNestedValue(target[literalKey], segments, end, value)) {
+        return true;
+      }
     }
-    cursor[segments[segments.length - 1]] = value;
+
+    var segment = segments[startIndex];
+    if (startIndex === segments.length - 1) {
+      target[segment] = value;
+      return true;
+    }
+
+    if (!target[segment] || typeof target[segment] !== 'object') {
+      target[segment] = {};
+    }
+
+    return assignNestedValue(target[segment], segments, startIndex + 1, value);
   }
 
   function formatTemplate(value, tokens) {

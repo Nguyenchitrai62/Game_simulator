@@ -219,6 +219,7 @@
   </div>
 
   <div class="quickbar" id="quickbar">
+    <div class="quickbar-weapon-toggle-slot" id="quickbar-weapon-toggle"></div>
     <div class="quickbar-switch" id="quickbar-switch">
       <button class="quickbar-toggle build" id="quickbar-toggle" onclick="GameHUD.toggleQuickbarMode()">
         <span class="quickbar-toggle-label" data-i18n="hud.quickbar.mode.build">Build</span>
@@ -226,7 +227,7 @@
       </button>
     </div>
     <div class="quickbar-slots" id="quickbar-slots"></div>
-    <button class="quickbar-backpack" id="quickbar-backpack" onclick="if (GameHUD.isModalActive()) { GameHUD.closeModal(); } else { GameHUD.openModal(); }">
+    <button class="quickbar-backpack" id="quickbar-backpack" onclick="if (GameHUD.isModalActive()) { GameHUD.closeModal(); } else { GameHUD.openModal({ tab: 'resources' }); }">
       <span class="quickbar-backpack-icon">🎒</span>
       <span class="quickbar-backpack-copy">
         <span class="quickbar-backpack-label" data-i18n="dom.quickbarBagLabel">Bag</span>
@@ -235,24 +236,22 @@
     </button>
   </div>
 
+  <div class="weapon-switchbar" id="weapon-switchbar" style="display:none"></div>
+
   <!-- Character Modal -->
   <div class="modal-overlay" id="modal-overlay" onclick="GameHUD.closeModal()">
     <div class="modal-container" onclick="event.stopPropagation()">
-      <!-- Left Side: Character + Equipment + Inventory -->
+      <!-- Left Side: Player -->
       <div class="modal-left">
-        <div class="character-preview" id="character-preview">
-          <canvas id="character-canvas" width="300" height="400"></canvas>
-        </div>
-        <div class="character-name" data-i18n="dom.playerName">Player</div>
-        
-        <div class="equipment-section">
-          <h3 data-i18n="dom.equipment">Equipment</h3>
-          <div class="equipment-slots" id="modal-equipment-slots"></div>
-        </div>
-        
-        <div class="inventory-section">
-          <h3 data-i18n="dom.inventory">Inventory</h3>
-          <div class="inventory-grid" id="modal-inventory-grid"></div>
+        <div class="modal-player-card">
+          <div class="character-preview" id="character-preview">
+            <canvas id="character-canvas" width="320" height="400"></canvas>
+            <div class="equipment-slots-overlay" id="modal-equipment-slots"></div>
+          </div>
+          <div class="modal-player-meta">
+            <div class="character-name" data-i18n="dom.playerName">Player</div>
+            <div class="bag-stat-chips" id="modal-player-quickstats"></div>
+          </div>
         </div>
       </div>
 
@@ -262,26 +261,26 @@
           <div class="modal-header-top">
             <div class="modal-context">
               <div class="modal-kicker" id="modal-kicker" data-i18n="hud.modal.header.resources.kicker">Economy</div>
-              <div class="modal-title" id="modal-title" data-i18n="hud.modal.header.resources.title">Resources</div>
-              <div class="modal-subtitle" id="modal-subtitle" data-i18n="hud.modal.header.resources.subtitle">Track your stockpile and current economy flow.</div>
+              <div class="modal-title" id="modal-title" data-i18n="hud.modal.header.resources.title">Stockpile</div>
+              <div class="modal-subtitle" id="modal-subtitle" data-i18n="hud.modal.header.resources.subtitle">Track reserves, monitor income, and spot shortages before they hurt momentum.</div>
             </div>
             <button class="modal-close" onclick="GameHUD.closeModal()">✕</button>
           </div>
           <div class="modal-tabs">
-            <button class="modal-tab active" data-tab="resources" onclick="GameHUD.switchModalTab('resources')">
-              <span class="tab-icon">💰</span> <span data-i18n="dom.modalTab.resources">Resources</span>
+            <button class="modal-tab active" data-tab="resources" type="button" onclick="GameHUD.switchModalTab('resources')">
+              <span class="tab-icon">💰</span><span class="tab-label" data-i18n="dom.modalTab.resources">Resources</span>
             </button>
-            <button class="modal-tab" data-tab="build" onclick="GameHUD.switchModalTab('build')">
-              <span class="tab-icon">🏗️</span> <span data-i18n="dom.modalTab.build">Build</span>
+            <button class="modal-tab" data-tab="build" type="button" onclick="GameHUD.switchModalTab('build')">
+              <span class="tab-icon">🏗️</span><span class="tab-label" data-i18n="dom.modalTab.build">Build</span>
             </button>
-            <button class="modal-tab" data-tab="craft" onclick="GameHUD.switchModalTab('craft')">
-              <span class="tab-icon">⚒️</span> <span data-i18n="dom.modalTab.craft">Craft</span>
+            <button class="modal-tab" data-tab="craft" type="button" onclick="GameHUD.switchModalTab('craft')">
+              <span class="tab-icon">⚒️</span><span class="tab-label" data-i18n="dom.modalTab.craft">Craft</span>
             </button>
-            <button class="modal-tab" data-tab="stats" onclick="GameHUD.switchModalTab('stats')">
-              <span class="tab-icon">📊</span> <span data-i18n="dom.modalTab.stats">Stats</span>
+            <button class="modal-tab" data-tab="stats" type="button" onclick="GameHUD.switchModalTab('stats')">
+              <span class="tab-icon">📊</span><span class="tab-label" data-i18n="dom.modalTab.stats">Stats</span>
             </button>
-            <button class="modal-tab" data-tab="research" onclick="GameHUD.switchModalTab('research')">
-              <span class="tab-icon">🔬</span> <span data-i18n="dom.modalTab.research">Research</span>
+            <button class="modal-tab" data-tab="research" type="button" onclick="GameHUD.switchModalTab('research')">
+              <span class="tab-icon">🔬</span><span class="tab-label" data-i18n="dom.modalTab.research">Research</span>
             </button>
           </div>
         </div>
@@ -337,6 +336,9 @@
   <script src="content/expansion_water.js"></script>
   <script src="content/expansion_military_defense.js"></script>
   <script src="content/expansion_hunt_prey.js"></script>
+  <script src="content/expansion_military_upgrades.js"></script>
+  <script src="content/expansion_ranged_weapons.js"></script>
+  <script src="content/expansion_boss_frontier.js"></script>
   <script src="balance/balance.js"></script>
   <script src="ui/i18n.js"></script>
 
@@ -386,5 +388,6 @@
 
   <!-- Entry Point -->
   <script src="main.js"></script>
+  <script src="dev/localCheatLoader.js"></script>
 </body>
 </html>

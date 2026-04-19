@@ -34,6 +34,104 @@ window.MiniMap = (function () {
     return settings.fullMap || {};
   }
 
+  function formatLocalizedText(text, tokens) {
+    var output = String(text == null ? '' : text);
+    if (!tokens) return output;
+
+    for (var tokenName in tokens) {
+      if (!Object.prototype.hasOwnProperty.call(tokens, tokenName)) continue;
+      output = output.split('{' + tokenName + '}').join(String(tokens[tokenName]));
+    }
+
+    return output;
+  }
+
+  function t(path, tokens, fallback) {
+    if (window.GameI18n && GameI18n.t) {
+      return GameI18n.t(path, tokens, fallback);
+    }
+    if (fallback !== undefined) return formatLocalizedText(fallback, tokens);
+    return formatLocalizedText(path, tokens);
+  }
+
+  function getEntityName(entityId, fallback) {
+    var entity = (window.GameRegistry && GameRegistry.getEntity) ? GameRegistry.getEntity(entityId) : null;
+    return entity && entity.name ? entity.name : (fallback || entityId || '');
+  }
+
+  function getBossZoneKey(source) {
+    var bossType = source && source.bossType ? source.bossType : '';
+    var rewardId = source && source.rewardId ? source.rewardId : '';
+    if (bossType === 'animal.stormhide_sabertooth' || rewardId === 'equipment.stormspine_glaive') return 'stormhide';
+    if (bossType === 'animal.sunscale_lion' || rewardId === 'equipment.sunpiercer_bow') return 'sunscale';
+    if (bossType === 'animal.moonfang_alpha' || rewardId === 'equipment.moonfang_blade') return 'moonfang';
+    return '';
+  }
+
+  function getLocalizedBossZoneLabel(source) {
+    var bossZoneKey = getBossZoneKey(source);
+    if (bossZoneKey) {
+      return t('world.bossZones.' + bossZoneKey + '.label', null, source && source.label ? source.label : t('world.minimap.bossZone', null, 'Boss Zone'));
+    }
+    return source && source.label ? source.label : t('world.minimap.bossZone', null, 'Boss Zone');
+  }
+
+  function getLocalizedBossRewardLabel(source) {
+    if (source && source.rewardId) {
+      return getEntityName(source.rewardId, source.rewardLabel || '');
+    }
+    return source && source.rewardLabel ? source.rewardLabel : '';
+  }
+
+  function getRuinedOutpostKey(source) {
+    var rewards = source && source.rewards ? source.rewards : null;
+    if (rewards) {
+      if (rewards['resource.iron'] || rewards['resource.coal']) return 'frontierHold';
+      if (rewards['resource.bronze']) return 'bronzeOutpost';
+      if (rewards['resource.flint'] || rewards['resource.wood']) return 'hunterCamp';
+    }
+
+    var label = source && source.label ? String(source.label) : '';
+    if (label === 'Ruined Frontier Hold') return 'frontierHold';
+    if (label === 'Ruined Bronze Outpost') return 'bronzeOutpost';
+    if (label === 'Collapsed Hunter Camp') return 'hunterCamp';
+    return '';
+  }
+
+  function getLocalizedRuinedOutpostLabel(source) {
+    var outpostKey = getRuinedOutpostKey(source);
+    if (outpostKey) {
+      return t('world.ruinedOutposts.' + outpostKey + '.label', null, source && source.label ? source.label : t('world.minimap.ruinedOutpost', null, 'Ruined Outpost'));
+    }
+    return source && source.label ? source.label : t('world.minimap.ruinedOutpost', null, 'Ruined Outpost');
+  }
+
+  function getLocalizedRuinedOutpostRewardLabel(source) {
+    var outpostKey = getRuinedOutpostKey(source);
+    if (outpostKey) {
+      return t('world.ruinedOutposts.' + outpostKey + '.rewardLabel', null, source && source.rewardLabel ? source.rewardLabel : '');
+    }
+    return source && source.rewardLabel ? source.rewardLabel : '';
+  }
+
+  function getPredatorZoneLabel(level, fallbackLabel) {
+    if (level === 'high') return t('world.minimap.predatorNest', null, fallbackLabel || 'Predator Nest');
+    if (level === 'medium') return t('world.minimap.predatorZone', null, fallbackLabel || 'Predator Zone');
+    return fallbackLabel || '';
+  }
+
+  function getDangerLevelLabel(level, fallbackLabel) {
+    if (level === 'high') return t('world.minimap.dangerHigh', null, fallbackLabel || 'High danger zone');
+    if (level === 'medium') return t('world.minimap.dangerMedium', null, fallbackLabel || 'Medium danger zone');
+    return t('world.minimap.dangerLow', null, fallbackLabel || 'Low danger zone');
+  }
+
+  function getThreatCountText(count) {
+    return count === 1
+      ? t('world.minimap.threatOne', null, '1 threat')
+      : t('world.minimap.threatMany', { count: count }, '{count} threats');
+  }
+
   // Camera at (20,20,20) looking at origin = 45deg isometric.
   // Screen right = world (+1, -1). Screen up = world (-1, -1).
   // To match camera view on minimap, rotate canvas by +45deg (CCW).
@@ -51,6 +149,7 @@ window.MiniMap = (function () {
     tin:    { c: '#bbbbdd', s: 'rect' },
     iron:   { c: '#cc9966', s: 'rect' },
     coal:   { c: '#555577', s: 'rect' },
+    site:   { c: '#caa36b', s: 'diamond' },
     prey:   { c: '#d8cbb5', s: 'circle' },
     threat: { c: '#ff3344', s: 'tri' }
   };
@@ -61,8 +160,85 @@ window.MiniMap = (function () {
       if (window.GameRegistry && GameRegistry.isAnimalPrey && GameRegistry.isAnimalPrey(type)) return ICON.prey;
       return ICON.threat;
     }
+    if (type && type.indexOf('site.') === 0) return ICON.site;
     for (var k in ICON) { if (type.indexOf(k) >= 0) return ICON[k]; }
     return null;
+  }
+
+  function getSavedChunkData(key) {
+    return (window.GameState && GameState.getChunkData) ? GameState.getChunkData(key) : null;
+  }
+
+  function getStateValue(data, longKey, shortKey) {
+    if (!data) return undefined;
+    if (Object.prototype.hasOwnProperty.call(data, longKey)) return data[longKey];
+    if (shortKey && Object.prototype.hasOwnProperty.call(data, shortKey)) return data[shortKey];
+    return undefined;
+  }
+
+  function findChunkObjectState(chunkData, objectId) {
+    if (!chunkData || !chunkData.objects || !objectId) return null;
+    for (var index = 0; index < chunkData.objects.length; index++) {
+      var obj = chunkData.objects[index];
+      var candidateId = obj && obj.id !== undefined ? obj.id : getStateValue(obj, 'id', 'i');
+      if (candidateId === objectId) return obj;
+    }
+    return null;
+  }
+
+  function isChunkObjectCleared(obj) {
+    if (!obj) return false;
+    var destroyed = !!getStateValue(obj, '_destroyed', 'd');
+    var hp = getStateValue(obj, 'hp', 'h');
+    return destroyed || (typeof hp === 'number' && hp <= 0);
+  }
+
+  function getChunkFeatureSource(key, activeChunk) {
+    return activeChunk || getSavedChunkData(key);
+  }
+
+  function getBossZoneInfoForChunk(cx, cz, activeChunk) {
+    var key = cx + ',' + cz;
+    var source = getChunkFeatureSource(key, activeChunk);
+    if (!source || !source.bossZone) return null;
+
+    var bossState = findChunkObjectState(source, source.bossZone.objectId);
+    return {
+      label: getLocalizedBossZoneLabel(source.bossZone),
+      rewardLabel: getLocalizedBossRewardLabel(source.bossZone),
+      markerColor: source.bossZone.markerColor || '#ffd166',
+      overlayFill: source.bossZone.overlayFill || 'rgba(255, 209, 102, 0.12)',
+      overlayStroke: source.bossZone.overlayStroke || 'rgba(255, 209, 102, 0.55)',
+      cleared: isChunkObjectCleared(bossState)
+    };
+  }
+
+  function getRuinedOutpostInfoForChunk(cx, cz, activeChunk) {
+    var key = cx + ',' + cz;
+    var source = getChunkFeatureSource(key, activeChunk);
+    if (!source || !source.ruinedOutpost) return null;
+
+    var outpostState = findChunkObjectState(source, source.ruinedOutpost.objectId);
+    return {
+      label: getLocalizedRuinedOutpostLabel(source.ruinedOutpost),
+      rewardLabel: getLocalizedRuinedOutpostRewardLabel(source.ruinedOutpost),
+      looted: isChunkObjectCleared(outpostState)
+    };
+  }
+
+  function getChunkFeatureHoverInfo(cx, cz, activeChunk) {
+    var parts = [];
+    var bossInfo = getBossZoneInfoForChunk(cx, cz, activeChunk);
+    if (bossInfo) {
+      parts.push(bossInfo.label + (bossInfo.rewardLabel ? (' • ' + t('world.minimap.reward', null, 'reward') + ': ' + bossInfo.rewardLabel) : '') + (bossInfo.cleared ? (' • ' + t('world.minimap.cleared', null, 'cleared')) : ''));
+    }
+
+    var outpostInfo = getRuinedOutpostInfoForChunk(cx, cz, activeChunk);
+    if (outpostInfo) {
+      parts.push(outpostInfo.label + (outpostInfo.rewardLabel ? (' • ' + outpostInfo.rewardLabel) : '') + (outpostInfo.looted ? (' • ' + t('world.minimap.looted', null, 'looted')) : ''));
+    }
+
+    return parts.join(' • ');
   }
 
   function getActiveThreatSources() {
@@ -169,7 +345,7 @@ window.MiniMap = (function () {
         activePressure: 0,
         strongestThreat: '',
         strongestWeight: Number(chunk.predatorZone.dangerBonus) || 0,
-        zoneLabel: chunk.predatorZone.label || 'Predator Zone',
+        zoneLabel: getPredatorZoneLabel(chunk.predatorZone.level, chunk.predatorZone.label),
         level: chunk.predatorZone.level || null
       } : null;
 
@@ -223,16 +399,16 @@ window.MiniMap = (function () {
     var entry = _dangerMap[cx + ',' + cz];
     if (!entry) return '';
 
-    var label = entry.zoneLabel || (entry.level === 'high' ? 'High danger zone' : (entry.level === 'medium' ? 'Medium danger zone' : 'Low danger zone'));
+    var label = entry.zoneLabel || getDangerLevelLabel(entry.level);
     var detail = label;
     if (entry.threatCount > 0) {
-      detail += ' • ' + entry.threatCount + ' threat' + (entry.threatCount === 1 ? '' : 's');
+      detail += ' • ' + getThreatCountText(entry.threatCount);
     } else if (entry.zoneLabel) {
-      detail += ' • respawn hotspot';
+      detail += ' • ' + t('world.minimap.respawnHotspot', null, 'respawn hotspot');
     }
 
     if (entry.activePressure > 0) {
-      detail += ' • workers under attack';
+      detail += ' • ' + t('world.minimap.workersUnderAttack', null, 'workers under attack');
     } else if (entry.strongestThreat) {
       detail += ' • ' + entry.strongestThreat;
     }
@@ -410,6 +586,11 @@ window.MiniMap = (function () {
       _hoverInfo = _hoverInfo ? (_hoverInfo + ' • ' + dangerInfo) : dangerInfo;
     }
 
+    var featureInfo = getChunkFeatureHoverInfo(Math.floor(worldMX / CHUNK), Math.floor(worldMZ / CHUNK), null);
+    if (featureInfo) {
+      _hoverInfo = _hoverInfo ? (_hoverInfo + ' • ' + featureInfo) : featureInfo;
+    }
+
     _hoverX = mx; _hoverY = my;
     _fullMapDirty = true;
   }
@@ -513,6 +694,12 @@ window.MiniMap = (function () {
         }
       }
 
+      var miniBossInfo = getBossZoneInfoForChunk(ch.cx, ch.cz, ch);
+      if (miniBossInfo) {
+        _miniCtx.fillStyle = miniBossInfo.overlayFill;
+        _miniCtx.fillRect(x0, y0, cs, cs);
+      }
+
       if (ch.objects) {
         for (var i = 0; i < ch.objects.length; i++) {
           var obj = ch.objects[i];
@@ -524,6 +711,15 @@ window.MiniMap = (function () {
           _miniCtx.fillStyle = ic.c;
           _miniCtx.fillRect(ox - 1, oy - 1, 2, 2);
         }
+      }
+
+      if (miniBossInfo) {
+        drawBossMarker(_miniCtx, x0 + cs / 2, y0 + cs / 2, Math.max(2.6, cs * 0.12), miniBossInfo.markerColor, miniBossInfo.cleared);
+      }
+
+      var miniOutpostInfo = getRuinedOutpostInfoForChunk(ch.cx, ch.cz, ch);
+      if (miniOutpostInfo) {
+        drawOutpostMarker(_miniCtx, x0 + cs * 0.72, y0 + cs * 0.34, Math.max(2.2, cs * 0.08), miniOutpostInfo.looted);
       }
     }
 
@@ -700,6 +896,11 @@ window.MiniMap = (function () {
 
       // Draw objects only for active (loaded) chunks
       var activeCh = activeChunks[expKey];
+      var bossInfo = getBossZoneInfoForChunk(ecx, ecz, activeCh);
+      if (bossInfo) {
+        drawChunkQuad(ecx, ecz, bossInfo.overlayFill, bossInfo.overlayStroke);
+      }
+
       if (activeCh && activeCh.objects) {
         for (var i = 0; i < activeCh.objects.length; i++) {
           var obj = activeCh.objects[i];
@@ -718,6 +919,21 @@ window.MiniMap = (function () {
         var dp = w2s(ecx * CHUNK + CHUNK / 2, ecz * CHUNK + CHUNK / 2);
         if (dp.x > -20 && dp.x < w + 20 && dp.y > -20 && dp.y < h + 20) {
           drawDangerBadge(dp.x, dp.y, Math.max(4, scale * 0.45), dangerEntry.activePressure > 0);
+        }
+      }
+
+      if (bossInfo) {
+        var bossMarker = w2s(ecx * CHUNK + CHUNK / 2, ecz * CHUNK + CHUNK / 2);
+        if (bossMarker.x > -24 && bossMarker.x < w + 24 && bossMarker.y > -24 && bossMarker.y < h + 24) {
+          drawBossMarker(_mapCtx, bossMarker.x, bossMarker.y, Math.max(5, scale * 0.48), bossInfo.markerColor, bossInfo.cleared);
+        }
+      }
+
+      var outpostInfo = getRuinedOutpostInfoForChunk(ecx, ecz, activeCh);
+      if (outpostInfo) {
+        var outpostMarker = w2s(ecx * CHUNK + CHUNK * 0.72, ecz * CHUNK + CHUNK * 0.34);
+        if (outpostMarker.x > -20 && outpostMarker.x < w + 20 && outpostMarker.y > -20 && outpostMarker.y < h + 20) {
+          drawOutpostMarker(_mapCtx, outpostMarker.x, outpostMarker.y, Math.max(4, scale * 0.36), outpostInfo.looted);
         }
       }
     }
@@ -899,6 +1115,49 @@ window.MiniMap = (function () {
     _mapCtx.fillText('!', x, y + s * 0.15);
   }
 
+  function drawBossMarker(ctx, x, y, size, color, cleared) {
+    ctx.save();
+    ctx.strokeStyle = cleared ? 'rgba(190, 190, 190, 0.65)' : color;
+    ctx.fillStyle = 'rgba(120, 120, 120, 0.14)';
+    if (!cleared) {
+      var parsed = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(color || '#ffd166');
+      ctx.fillStyle = parsed
+        ? ('rgba(' + parseInt(parsed[1], 16) + ',' + parseInt(parsed[2], 16) + ',' + parseInt(parsed[3], 16) + ',0.18)')
+        : 'rgba(255, 209, 102, 0.18)';
+    }
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    for (var pointIndex = 0; pointIndex < 8; pointIndex++) {
+      var outer = pointIndex % 2 === 0;
+      var radius = outer ? size : size * 0.45;
+      var angle = -Math.PI / 2 + pointIndex * (Math.PI / 4);
+      var px = x + Math.cos(angle) * radius;
+      var py = y + Math.sin(angle) * radius;
+      if (pointIndex === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawOutpostMarker(ctx, x, y, size, looted) {
+    ctx.save();
+    ctx.strokeStyle = looted ? 'rgba(170, 170, 170, 0.7)' : 'rgba(222, 194, 134, 0.95)';
+    ctx.fillStyle = looted ? 'rgba(90, 90, 90, 0.18)' : 'rgba(202, 163, 107, 0.2)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.rect(x - size, y - size * 0.7, size * 2, size * 1.4);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x - size * 0.8, y + size * 0.7);
+    ctx.lineTo(x + size * 0.8, y - size * 0.7);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   function getMapCoverageSpecs(instance, balance, level) {
     var specs = [];
     if (!instance || !balance) return specs;
@@ -956,20 +1215,22 @@ window.MiniMap = (function () {
     _mapCtx.fillText('Zoom: ' + _zoom.toFixed(1) + 'x', w / 2, h - 8);
     _mapCtx.textAlign = 'right';
     _mapCtx.fillStyle = '#666';
-    _mapCtx.fillText('Cuon: Zoom | Keo: Di chuyen | [M] Dong', w - 10, h - 8);
+    _mapCtx.fillText(t('world.minimap.controls', null, 'Scroll: Zoom | Drag: Move | [M] Close'), w - 10, h - 8);
 
     // Legend top-right
     var items = [
-      { c: '#3aaa3a', l: 'Trees' },
-      { c: '#9999bb', l: 'Ore' },
-      { c: '#ff5577', l: 'Berry' },
-      { c: '#d8cbb5', l: 'Prey' },
-      { c: '#ff3344', l: 'Threat' },
-      { c: '#ff8a4a', l: 'Danger' },
-      { c: '#ffb047', l: 'Light cover' },
-      { c: '#e76f51', l: 'Defense cover' },
-      { c: '#ffcc33', l: 'Buildings' },
-      { c: '#3388cc', l: 'Water' }
+      { c: '#3aaa3a', l: t('world.minimap.legend.trees', null, 'Trees') },
+      { c: '#9999bb', l: t('world.minimap.legend.ore', null, 'Ore') },
+      { c: '#ff5577', l: t('world.minimap.legend.berry', null, 'Berry') },
+      { c: '#d8cbb5', l: t('world.minimap.legend.prey', null, 'Prey') },
+      { c: '#ff3344', l: t('world.minimap.legend.threat', null, 'Threat') },
+      { c: '#ffd166', l: t('world.minimap.legend.bossZone', null, 'Boss zone') },
+      { c: '#caa36b', l: t('world.minimap.legend.ruinedOutpost', null, 'Ruined outpost') },
+      { c: '#ff8a4a', l: t('world.minimap.legend.danger', null, 'Danger') },
+      { c: '#ffb047', l: t('world.minimap.legend.lightCover', null, 'Light cover') },
+      { c: '#e76f51', l: t('world.minimap.legend.defenseCover', null, 'Defense cover') },
+      { c: '#ffcc33', l: t('world.minimap.legend.buildings', null, 'Buildings') },
+      { c: '#3388cc', l: t('world.minimap.legend.water', null, 'Water') }
     ];
     var lx = w - 126, ly = 8;
     _mapCtx.fillStyle = 'rgba(0,0,0,0.75)';

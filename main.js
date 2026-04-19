@@ -218,6 +218,24 @@ window.GameActions = (function () {
     };
   }
 
+  function getLoadedWorldObjectById(objectId) {
+    if (!objectId || !window.GameTerrain || !GameTerrain.getAllChunks) return null;
+
+    var chunks = GameTerrain.getAllChunks();
+    for (var key in chunks) {
+      var chunk = chunks[key];
+      if (!chunk || !chunk.objects) continue;
+      for (var index = 0; index < chunk.objects.length; index++) {
+        var obj = chunk.objects[index];
+        if (obj && obj.id === objectId) {
+          return obj;
+        }
+      }
+    }
+
+    return null;
+  }
+
   function getBarracksStatus(instanceUid) {
     var instance = GameState.getInstance(instanceUid);
     if (!instance || instance.entityId !== 'building.barracks') return null;
@@ -225,17 +243,32 @@ window.GameActions = (function () {
     var balance = GameRegistry.getBalance(instance.entityId) || {};
     var military = balance.military || {};
     var level = instance.level || 1;
+    var researchBonuses = (window.ResearchSystem && ResearchSystem.getGlobalBonuses)
+      ? (ResearchSystem.getGlobalBonuses() || {})
+      : {};
     var state = GameState.getBarracksState ? GameState.getBarracksState(instanceUid) : null;
     var queue = state && Array.isArray(state.queue) ? state.queue : [];
     var reserves = state && state.reserves ? state.reserves : {};
     var queueCapacity = getLevelConfigValue(military.queueSize, level, 1) || 1;
     var trainingSpeed = getLevelConfigValue(military.trainingSpeed, level, 1) || 1;
+    trainingSpeed *= (1 + Math.max(0, Number(researchBonuses.barracksTrainingSpeedBonus) || 0));
     var reserveCapacity = getLevelConfigValue(balance.guardCount, level, Infinity);
     var supportRange = getLevelConfigValue(balance.guardRadius, level, 0) || 0;
-    var commandMode = state && state.commandMode === 'follow' ? 'follow' : 'guard';
+    var commandMode = state && state.commandMode === 'follow'
+      ? 'follow'
+      : (state && state.commandMode === 'attack' ? 'attack' : 'guard');
     var troopSummary = (window.BarracksTroopSystem && BarracksTroopSystem.getBarracksTroopSummary)
       ? BarracksTroopSystem.getBarracksTroopSummary(instanceUid)
       : null;
+    var attackTarget = state && state.attackTargetId ? getLoadedWorldObjectById(state.attackTargetId) : null;
+    var attackTargetLabel = '';
+    if (attackTarget) {
+      var attackTargetEntity = GameRegistry.getEntity(attackTarget.type);
+      attackTargetLabel = attackTargetEntity ? attackTargetEntity.name : (state.attackTargetName || attackTarget.type);
+    } else if (state && state.attackTargetName) {
+      attackTargetLabel = state.attackTargetName;
+    }
+    var upgradeSummaryText = buildBarracksUpgradeSummaryText(researchBonuses);
     var reserveCount = 0;
     var reserveEntries = [];
     var availableUnits = [];
@@ -298,16 +331,18 @@ window.GameActions = (function () {
       instanceUid: instanceUid,
       level: level,
       commandMode: commandMode,
-      commandModeLabel: localizeBarracksModeLabel(troopSummary ? troopSummary.modeLabel : (commandMode === 'follow' ? 'Follow Player' : 'Guard Nearby')),
+      commandModeLabel: localizeBarracksModeLabel(troopSummary ? troopSummary.modeLabel : (commandMode === 'follow' ? 'Follow Player' : (commandMode === 'attack' ? 'Attack Target' : 'Hold Position'))),
       queue: queueEntries,
       queueUsed: queueEntries.length,
       queueCapacity: queueCapacity,
       trainingSpeed: trainingSpeed,
       reserveCount: reserveCount,
       reserveCapacity: reserveCapacity,
+      attackTargetLabel: attackTargetLabel,
       reserves: reserveEntries,
       deployedCount: troopSummary ? troopSummary.troopCount : reserveCount,
       engagedCount: troopSummary ? troopSummary.engagedCount : 0,
+      upgradeSummaryText: upgradeSummaryText,
       troopSummaryText: troopSummary ? (troopSummary.unitSummaryText === 'No deployed troops' ? t('hud.barracks.noDeployedTroops', null, 'No deployed troops') : troopSummary.unitSummaryText) : (reserveEntries.length ? reserveEntries.map(function(entry) {
         return entry.label + ': ' + entry.amount;
       }).join(' | ') : t('hud.barracks.noDeployedTroops', null, 'No deployed troops')),
@@ -326,7 +361,7 @@ window.GameActions = (function () {
       return false;
     }
 
-    var nextMode = mode === 'follow' ? 'follow' : 'guard';
+    var nextMode = mode === 'follow' ? 'follow' : (mode === 'attack' ? 'attack' : 'guard');
     var state = GameState.getBarracksStateLive ? GameState.getBarracksStateLive(instanceUid) : GameState.getBarracksState(instanceUid);
     if (!state) {
       GameHUD.showError(t('hud.barracks.saveUnavailable', null, 'Barracks save state unavailable.'));
@@ -342,13 +377,86 @@ window.GameActions = (function () {
       BarracksTroopSystem.setBarracksCommandMode(instanceUid, nextMode);
     } else {
       state.commandMode = nextMode;
+      if (nextMode !== 'attack') {
+        state.attackTargetId = null;
+        state.attackTargetName = '';
+      }
       GameState.setBarracksState(instanceUid, state);
     }
 
     GameStorage.save();
     GameHUD.showSuccess(nextMode === 'follow'
       ? t('hud.barracks.followSuccess', null, 'Barracks troops are now following the player.')
-      : t('hud.barracks.guardSuccess', null, 'Barracks troops are guarding nearby animals.'));
+      : (nextMode === 'attack'
+        ? t('hud.barracks.attackModeReady', null, 'Attack mode ready. Click an animal to assign the target.')
+        : t('hud.barracks.guardSuccess', null, 'Barracks troops are holding position near the barracks.')));
+    GameHUD.renderAll();
+    GameHUD.selectInstance(instanceUid);
+    GameHUD.updateModal();
+    return true;
+  }
+
+  function setBarracksAttackTarget(instanceUid, targetId) {
+    var instance = GameState.getInstance(instanceUid);
+    if (!instance || instance.entityId !== 'building.barracks') {
+      GameHUD.showError(t('hud.barracks.notFound', null, 'Barracks not found.'));
+      return false;
+    }
+
+    var target = getLoadedWorldObjectById(targetId);
+    if (!target || !target.type || target.type.indexOf('animal.') !== 0 || target.hp <= 0 || target._destroyed) {
+      GameHUD.showError(t('hud.barracks.invalidAttackTarget', null, 'Pick a living animal as the attack target.'));
+      return false;
+    }
+
+    var targetEntity = GameRegistry.getEntity(target.type);
+    var targetName = targetEntity ? targetEntity.name : target.type;
+    var state = GameState.getBarracksStateLive ? GameState.getBarracksStateLive(instanceUid) : GameState.getBarracksState(instanceUid);
+    if (!state) {
+      GameHUD.showError(t('hud.barracks.saveUnavailable', null, 'Barracks save state unavailable.'));
+      return false;
+    }
+
+    if (window.BarracksTroopSystem && BarracksTroopSystem.setBarracksAttackTarget) {
+      BarracksTroopSystem.setBarracksAttackTarget(instanceUid, target.id, targetName);
+    } else {
+      state.commandMode = 'attack';
+      state.attackTargetId = target.id;
+      state.attackTargetName = targetName;
+      GameState.setBarracksState(instanceUid, state);
+    }
+
+    GameStorage.save();
+    GameHUD.showSuccess(t('hud.barracks.attackTargetAssigned', { name: targetName }, 'Barracks target assigned: {name}.'));
+    GameHUD.renderAll();
+    GameHUD.selectInstance(instanceUid);
+    GameHUD.updateModal();
+    return true;
+  }
+
+  function clearBarracksAttackTarget(instanceUid) {
+    var instance = GameState.getInstance(instanceUid);
+    if (!instance || instance.entityId !== 'building.barracks') {
+      GameHUD.showError(t('hud.barracks.notFound', null, 'Barracks not found.'));
+      return false;
+    }
+
+    var state = GameState.getBarracksStateLive ? GameState.getBarracksStateLive(instanceUid) : GameState.getBarracksState(instanceUid);
+    if (!state) {
+      GameHUD.showError(t('hud.barracks.saveUnavailable', null, 'Barracks save state unavailable.'));
+      return false;
+    }
+
+    if (window.BarracksTroopSystem && BarracksTroopSystem.clearBarracksAttackTarget) {
+      BarracksTroopSystem.clearBarracksAttackTarget(instanceUid);
+    } else {
+      state.attackTargetId = null;
+      state.attackTargetName = '';
+      GameState.setBarracksState(instanceUid, state);
+    }
+
+    GameStorage.save();
+    GameHUD.showNotification(t('hud.barracks.attackTargetCleared', null, 'Barracks attack target cleared.'));
     GameHUD.renderAll();
     GameHUD.selectInstance(instanceUid);
     GameHUD.updateModal();
@@ -787,8 +895,10 @@ window.GameActions = (function () {
   }
 
   function localizeBarracksModeLabel(label) {
+    if (label === 'Hold Position') return t('hud.inspector.holdPosition', null, 'Hold Position');
     if (label === 'Follow Player') return t('hud.inspector.followPlayer', null, 'Follow Player');
-    if (label === 'Guard Nearby') return t('hud.inspector.guardNearby', null, 'Guard Nearby');
+    if (label === 'Attack Target') return t('hud.inspector.attackTarget', null, 'Attack Target');
+    if (label === 'Guard Nearby') return t('hud.inspector.holdPosition', null, 'Hold Position');
     return label;
   }
 
@@ -799,7 +909,34 @@ window.GameActions = (function () {
     if (text === 'Units are marching with the player.') return t('hud.barracks.marchingWithPlayer', null, 'Units are marching with the player.');
     if (text === 'Units are intercepting nearby animals.') return t('hud.barracks.interceptingAnimals', null, 'Units are intercepting nearby animals.');
     if (text === 'Units are holding around the barracks.') return t('hud.barracks.holdingAroundBarracks', null, 'Units are holding around the barracks.');
+    if (text === 'Select an animal to order an attack.') return t('hud.barracks.selectAttackTarget', null, 'Select an animal to order an attack.');
+    if (text.indexOf('Units are attacking ') === 0) return t('hud.barracks.attackingTarget', { name: text.slice('Units are attacking '.length, -1) }, 'Units are attacking {name}.');
+    if (text.indexOf('Units are tracking ') === 0) return t('hud.barracks.trackingTarget', { name: text.slice('Units are tracking '.length, -1) }, 'Units are tracking {name}.');
     return text;
+  }
+
+  function buildBarracksUpgradeSummaryText(bonuses) {
+    bonuses = bonuses || {};
+    var parts = [];
+    var troopDamageFlatBonus = Math.max(0, Number(bonuses.troopDamageFlatBonus) || 0);
+    var troopMoveSpeedBonus = Math.max(0, Number(bonuses.troopMoveSpeedBonus) || 0);
+    var troopAttackSpeedBonus = Math.max(0, Number(bonuses.troopAttackSpeedBonus) || 0);
+    var barracksTrainingSpeedBonus = Math.max(0, Number(bonuses.barracksTrainingSpeedBonus) || 0);
+
+    if (troopDamageFlatBonus > 0) {
+      parts.push(t('hud.barracks.upgrades.damage', { amount: troopDamageFlatBonus }, 'Troop damage +{amount}'));
+    }
+    if (troopMoveSpeedBonus > 0) {
+      parts.push(t('hud.barracks.upgrades.moveSpeed', { percent: Math.round(troopMoveSpeedBonus * 100) }, 'Move speed +{percent}%'));
+    }
+    if (troopAttackSpeedBonus > 0) {
+      parts.push(t('hud.barracks.upgrades.attackSpeed', { percent: Math.round(troopAttackSpeedBonus * 100) }, 'Attack rate +{percent}%'));
+    }
+    if (barracksTrainingSpeedBonus > 0) {
+      parts.push(t('hud.barracks.upgrades.training', { percent: Math.round(barracksTrainingSpeedBonus * 100) }, 'Training speed +{percent}%'));
+    }
+
+    return parts.join(' • ');
   }
 
   function localizeWatchtowerStatusLabel(label) {
@@ -1255,6 +1392,8 @@ window.GameActions = (function () {
     refuel: refuel,
     getBarracksStatus: getBarracksStatus,
     setBarracksCommandMode: setBarracksCommandMode,
+    setBarracksAttackTarget: setBarracksAttackTarget,
+    clearBarracksAttackTarget: clearBarracksAttackTarget,
     queueBarracksTraining: queueBarracksTraining,
     getWatchtowerStatus: getWatchtowerStatus,
     getSettlementStatus: getSettlementStatus,

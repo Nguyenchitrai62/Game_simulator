@@ -674,8 +674,11 @@ window.GameState = (function () {
     if (!Array.isArray(instance.barracksState.queue)) instance.barracksState.queue = [];
     if (!instance.barracksState.reserves) instance.barracksState.reserves = {};
     if (instance.barracksState.reserves.swordsman === undefined) instance.barracksState.reserves.swordsman = 0;
+    if (instance.barracksState.reserves.spearman === undefined) instance.barracksState.reserves.spearman = 0;
     if (instance.barracksState.reserves.archer === undefined) instance.barracksState.reserves.archer = 0;
-    if (instance.barracksState.commandMode !== 'follow') instance.barracksState.commandMode = 'guard';
+    if (instance.barracksState.commandMode !== 'follow' && instance.barracksState.commandMode !== 'attack') instance.barracksState.commandMode = 'guard';
+    if (instance.barracksState.attackTargetId === undefined) instance.barracksState.attackTargetId = null;
+    if (instance.barracksState.attackTargetName === undefined) instance.barracksState.attackTargetName = '';
     if (instance.barracksState.totalTrained === undefined) instance.barracksState.totalTrained = 0;
     if (instance.barracksState.completedToday === undefined) instance.barracksState.completedToday = 0;
 
@@ -915,7 +918,9 @@ window.GameState = (function () {
 
   // === Chunks ===
   function saveChunkData(key, data) {
-    if (!data || !data.objects || !data.objects.length) {
+    var hasObjects = !!(data && data.objects && data.objects.length);
+    var hasMetadata = !!(data && (data.bossZone || data.ruinedOutpost));
+    if (!data || (!hasObjects && !hasMetadata)) {
       delete _state.chunks[key];
       markWorldStateDirty();
       return;

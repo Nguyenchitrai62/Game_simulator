@@ -65,6 +65,10 @@ try {
     var _characterCanvas = null;
     var _hoveredInstance = null;
     var _selectedInstance = null;
+    var _weaponCycleDropdownOpen = false;
+    var _weaponCycleSettingsLoaded = false;
+    var _weaponCycleDisabledMap = {};
+    var WEAPON_CYCLE_STORAGE_KEY = 'evolution_weapon_cycle_v1';
 
     function isDebugSettingEnabled(key) {
       return !window.GameDebugSettings || !GameDebugSettings.isEnabled || GameDebugSettings.isEnabled(key);
@@ -104,6 +108,28 @@ try {
 
     function getQuickbarModeLabel(mode) {
       return t('hud.quickbar.mode.' + mode, null, mode === 'craft' ? 'Craft' : 'Build');
+    }
+
+    function getWeaponProfileLabel(profileId) {
+      if (profileId === 'bow') return t('hud.weaponSwitch.profile.bow', null, 'Ranged');
+      if (profileId === 'spear') return t('hud.weaponSwitch.profile.spear', null, 'Reach');
+      if (profileId === 'special') return t('hud.weaponSwitch.profile.special', null, 'Special');
+      return t('hud.weaponSwitch.profile.sword', null, 'Melee');
+    }
+
+    function getWeaponProfileIcon(profileId) {
+      if (profileId === 'bow') return '🏹';
+      if (profileId === 'spear') return '🗡️';
+      if (profileId === 'special') return '✨';
+      return '⚔️';
+    }
+
+    function getWeaponProfileSortWeight(profileId) {
+      if (profileId === 'sword') return 0;
+      if (profileId === 'spear') return 1;
+      if (profileId === 'bow') return 2;
+      if (profileId === 'special') return 3;
+      return 4;
     }
 
     function getMissingResourceEntries(resourceMap) {
@@ -252,6 +278,79 @@ try {
       _objectiveTrackerCacheHtml = '';
     }
 
+    function loadWeaponCycleSettings() {
+      if (_weaponCycleSettingsLoaded) return;
+
+      _weaponCycleSettingsLoaded = true;
+      _weaponCycleDisabledMap = {};
+
+      try {
+        if (!window.localStorage) return;
+        var raw = window.localStorage.getItem(WEAPON_CYCLE_STORAGE_KEY);
+        if (!raw) return;
+
+        var parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object' || !parsed.disabled || typeof parsed.disabled !== 'object') {
+          return;
+        }
+
+        for (var weaponId in parsed.disabled) {
+          if (!parsed.disabled.hasOwnProperty(weaponId)) continue;
+          if (parsed.disabled[weaponId]) {
+            _weaponCycleDisabledMap[weaponId] = true;
+          }
+        }
+      } catch (error) {
+        _weaponCycleDisabledMap = {};
+      }
+    }
+
+    function saveWeaponCycleSettings() {
+      loadWeaponCycleSettings();
+
+      try {
+        if (!window.localStorage) return;
+        window.localStorage.setItem(WEAPON_CYCLE_STORAGE_KEY, JSON.stringify({
+          disabled: _weaponCycleDisabledMap
+        }));
+      } catch (error) {}
+    }
+
+    function isWeaponCycleEnabled(weaponId) {
+      loadWeaponCycleSettings();
+      return !_weaponCycleDisabledMap[weaponId];
+    }
+
+    function setWeaponCycleDropdownOpen(isOpen) {
+      var nextState = !!isOpen;
+      if (_weaponCycleDropdownOpen === nextState) {
+        renderQuickbar();
+        renderWeaponSwitchBar();
+        return;
+      }
+
+      _weaponCycleDropdownOpen = nextState;
+      renderQuickbar();
+      renderWeaponSwitchBar();
+    }
+
+    function toggleWeaponCycleDropdown() {
+      if (!getWeaponSwitchItems().length) return;
+      setWeaponCycleDropdownOpen(!_weaponCycleDropdownOpen);
+    }
+
+    function setWeaponCycleEnabled(weaponId, enabled) {
+      if (!weaponId) return;
+
+      loadWeaponCycleSettings();
+      if (enabled) delete _weaponCycleDisabledMap[weaponId];
+      else _weaponCycleDisabledMap[weaponId] = true;
+
+      saveWeaponCycleSettings();
+      renderQuickbar();
+      renderWeaponSwitchBar();
+    }
+
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Delete' && _hoveredInstance && !BuildingSystem.isBuildMode()) {
         confirmDestroy(_hoveredInstance);
@@ -260,6 +359,12 @@ try {
 
     document.addEventListener('keydown', function(e) {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      if ((e.key === 'q' || e.key === 'Q') && !_modalActive) {
+        e.preventDefault();
+        cycleWeaponSlot(1);
+        return;
+      }
 
       if (e.key === 'Tab') {
         e.preventDefault();
@@ -277,6 +382,12 @@ try {
     document.addEventListener('keydown', function(e) {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
 
+      if (e.key === 'Escape' && _weaponCycleDropdownOpen) {
+        e.preventDefault();
+        setWeaponCycleDropdownOpen(false);
+        return;
+      }
+
       if (e.key === 'F9') {
         e.preventDefault();
         toggleQualitySettingsPanel();
@@ -287,6 +398,27 @@ try {
         if (_settingsUiState.panelOpen) {
           toggleQualitySettingsPanel(false);
         }
+      }
+    });
+
+    document.addEventListener('click', function(e) {
+      if (!_weaponCycleDropdownOpen) return;
+
+      var switchEl = document.getElementById('quickbar-switch');
+      var weaponToggleEl = document.getElementById('quickbar-weapon-toggle');
+      var dropdownEl = document.getElementById('weapon-switchbar');
+      var target = e.target;
+
+      if ((switchEl && switchEl.contains(target)) || (weaponToggleEl && weaponToggleEl.contains(target)) || (dropdownEl && dropdownEl.contains(target))) {
+        return;
+      }
+
+      setWeaponCycleDropdownOpen(false);
+    });
+
+    window.addEventListener('resize', function() {
+      if (_weaponCycleDropdownOpen) {
+        renderWeaponSwitchBar();
       }
     });
 
@@ -461,10 +593,16 @@ try {
     }
 
     function toggleModal() {
+      if (!_modalActive && _weaponCycleDropdownOpen) {
+        setWeaponCycleDropdownOpen(false);
+      }
       _modalPanelsModule.toggleModal();
     }
 
     function openModal(options) {
+      if (_weaponCycleDropdownOpen) {
+        setWeaponCycleDropdownOpen(false);
+      }
       _modalPanelsModule.openModal(options);
     }
 
@@ -529,6 +667,8 @@ try {
       escapeHtml: escapeHtml,
       getResourceIcon: getResourceIcon,
       getNextAgeObjective: getNextAgeObjective,
+      getWeaponSwitchItems: getWeaponSwitchItems,
+      getWeaponCycleSummary: getWeaponCycleSummary,
       isHudVisible: isHudVisible,
       setModalFocusTarget: setModalFocusTarget,
       clearModalFocusHighlight: clearModalFocusHighlight,
@@ -625,11 +765,13 @@ try {
     if (window.GameQualitySettings && GameQualitySettings.syncRuntime) {
       GameQualitySettings.syncRuntime('hud-init', { syncDebug: true });
     }
+    loadWeaponCycleSettings();
     bindQualitySettingsUi();
     if (!_languageUnsubscribe && window.GameI18n && GameI18n.subscribe) {
       _languageUnsubscribe = GameI18n.subscribe(function() {
         invalidateLocalizedCaches();
         renderResources();
+        renderWeaponSwitchBar();
         renderQuickbar();
         renderObjectiveTracker();
         renderModalHeader();
@@ -643,6 +785,7 @@ try {
     renderQualityPrompt();
     applyDebugSettingsState('init');
     applyQualitySettingsState();
+    renderWeaponSwitchBar();
     renderQuickbar();
   }
 
@@ -655,6 +798,7 @@ try {
     renderDayNightClock();
     renderObjectiveTracker();
     renderActivePanel();
+    renderWeaponSwitchBar();
     renderQuickbar();
 
     if (_selectedInstance && GameState.getInstance && GameState.getInstance(_selectedInstance)) {
@@ -1125,7 +1269,7 @@ try {
     return storagePct >= BUILDING_LABEL_STORAGE_WARNING_PCT;
   }
 
-  var _showProductionPanel = true;
+  var _showProductionPanel = false;
   
   function toggleProductionPanel() {
     _showProductionPanel = !_showProductionPanel;
@@ -1154,47 +1298,25 @@ try {
     if (!container) return;
 
     var resources = GameRegistry.getEntitiesByType("resource");
-    var stats = TickSystem.getResourceStats();
-    var html = "";
-    
-    html += '<div style="display:flex;align-items:center;gap:8px;">';
-    html += '<div style="display:flex;gap:12px;">';
+    var unlockedResources = resources.filter(function(res) {
+      return GameState.isUnlocked(res.id);
+    });
 
-    resources.forEach(function (res) {
-      if (!GameState.isUnlocked(res.id)) return;
+    var html = '<div class="resource-bar-list-wrap">';
+    html += '<div class="resource-bar-list compact">';
+
+    unlockedResources.forEach(function (res) {
       var localizedResource = GameRegistry.getEntity(res.id) || res;
-      var amount = GameState.getSpendableResource(res.id);
-      var net = stats.net ? stats.net[res.id] : 0;
-      
-      html += '<div class="resource-item" style="min-width:110px;">';
+      var amount = Math.floor(GameState.getSpendableResource(res.id));
+      var tooltipText = localizedResource.name + ' • ' + t('hud.resourceBar.tooltip.amount', { amount: amount }, 'Stock: {amount}');
+
+      html += '<div class="resource-item icon-only" title="' + escapeHtml(tooltipText) + '">';
       html += '<span class="resource-icon">' + getResourceIcon(res.id) + '</span>';
-      html += '<span class="resource-amount">' + Math.floor(amount) + '</span>';
-      html += ' <span class="resource-name">' + escapeHtml(localizedResource.name) + '</span>';
-      
-      if (_showProductionPanel) {
-        var netStr = "", netColor = "#888";
-        if (net > 0.001) {
-          netStr = "+" + net.toFixed(1) + "/s";
-          netColor = "#4ecca3";
-        } else if (net < -0.001) {
-          netStr = net.toFixed(1) + "/s";
-          netColor = "#e94560";
-          if (stats.timeLeft && stats.timeLeft[res.id] && stats.timeLeft[res.id] < 60) {
-            netStr += " [" + stats.timeLeft[res.id] + "s]";
-          }
-        } else {
-          netStr = "~0";
-          netColor = "#888";
-        }
-        
-        html += '<span style="color:' + netColor + ';font-size:11px;margin-left:4px;">' + netStr + '</span>';
-      }
-      
+      html += '<span class="resource-amount">' + amount + '</span>';
       html += '</div>';
     });
     
     html += '</div>';
-    html += '<button class="btn btn-small" onclick="GameHUD.toggleProductionPanel()" style="padding:2px 6px;font-size:11px;">' + escapeHtml(_showProductionPanel ? t('hud.resourceBar.hideRates', null, 'Hide rates') : t('hud.resourceBar.showRates', null, 'Show rates')) + '</button>';
     html += '</div>';
 
     setInnerHtmlIfChanged(container, html);
@@ -1596,20 +1718,230 @@ try {
       .slice(0, 9);
   }
 
-  function renderQuickbar() {
-    var toggleButton = document.getElementById('quickbar-toggle');
-    var slots = document.getElementById('quickbar-slots');
-    if (!toggleButton || !slots) return;
-    if (!isHudVisible()) return;
+  function getWeaponSwitchItems() {
+    var items = [];
+    var seen = {};
+    var player = GameState.getPlayer ? GameState.getPlayer() : null;
+    var equippedWeaponId = player && player.equipped ? player.equipped.weapon : null;
+    var equipmentEntities = GameRegistry.getEntitiesByType ? GameRegistry.getEntitiesByType('equipment') : [];
 
-    _quickbarItems = _quickbarMode === 'craft' ? getQuickbarCraftItems() : getQuickbarBuildItems();
+    equipmentEntities.forEach(function(entity) {
+      if (!entity || entity.slot !== 'weapon' || seen[entity.id]) return;
+
+      var inventoryCount = GameState.getInventoryCount ? GameState.getInventoryCount(entity.id) : 0;
+      var isEquipped = equippedWeaponId === entity.id;
+      if (!isEquipped && inventoryCount <= 0) return;
+
+      var balance = GameRegistry.getBalance(entity.id) || {};
+      var profileId = balance.weaponProfile || 'sword';
+      var statsText = GameRegistry.getStatSummary ? GameRegistry.getStatSummary(balance.stats || {}, { shortLabels: true, joiner: ' • ' }) : '';
+      var icon = (_modalPanelsModule && _modalPanelsModule.getEntityIcon) ? _modalPanelsModule.getEntityIcon(entity) : getWeaponProfileIcon(profileId);
+      seen[entity.id] = true;
+      items.push({
+        weaponId: entity.id,
+        icon: icon,
+        name: entity.name,
+        profileId: profileId,
+        profileLabel: getWeaponProfileLabel(profileId),
+        statsText: statsText,
+        isEquipped: isEquipped,
+        attackValue: Number(balance.stats && balance.stats.attack) || 0,
+        cycleEnabled: isWeaponCycleEnabled(entity.id)
+      });
+    });
+
+    items.sort(function(a, b) {
+      var weightDiff = getWeaponProfileSortWeight(a.profileId) - getWeaponProfileSortWeight(b.profileId);
+      if (weightDiff !== 0) return weightDiff;
+      if (a.attackValue !== b.attackValue) return b.attackValue - a.attackValue;
+      return a.name.localeCompare(b.name);
+    });
+
+    return items;
+  }
+
+  function getWeaponCycleSummary(items) {
+    var summary = {
+      equipped: null,
+      enabledCount: 0,
+      totalCount: items ? items.length : 0
+    };
+
+    if (!items) return summary;
+
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].cycleEnabled) summary.enabledCount++;
+      if (items[i].isEquipped) summary.equipped = items[i];
+    }
+
+    return summary;
+  }
+
+  function renderQuickbarSwitch() {
+    var container = document.getElementById('quickbar-switch');
+    if (!container) return;
 
     var toggleClassName = 'quickbar-toggle ' + (_quickbarMode === 'craft' ? 'craft' : 'build');
-    if (toggleButton.className !== toggleClassName) {
-      toggleButton.className = toggleClassName;
+    var html = '';
+
+    html += '<button class="' + toggleClassName + '" id="quickbar-toggle" type="button" onclick="GameHUD.toggleQuickbarMode()">';
+    html += '<span class="quickbar-toggle-label">' + escapeHtml(getQuickbarModeLabel(_quickbarMode)) + '</span>';
+    html += '<span class="quickbar-toggle-hint">Tab</span>';
+    html += '</button>';
+
+    setInnerHtmlIfChanged(container, html);
+  }
+
+  function renderWeaponCycleToggle() {
+    var container = document.getElementById('quickbar-weapon-toggle');
+    if (!container) return;
+
+    var items = getWeaponSwitchItems();
+    var summary = getWeaponCycleSummary(items);
+    var weaponToggleClassName = 'weapon-cycle-toggle' + (_weaponCycleDropdownOpen ? ' active' : '');
+    var weaponTitle = items.length
+      ? t('hud.weaponSwitch.toggleTitle', { enabled: summary.enabledCount, total: summary.totalCount }, 'Quick weapon cycle: {enabled}/{total} active')
+      : t('hud.weaponSwitch.toggleEmpty', null, 'No weapons available yet');
+    var weaponIcon = summary.equipped ? summary.equipped.icon : '⚔️';
+    var weaponCountText = items.length ? (summary.enabledCount + '/' + summary.totalCount) : '--';
+    var html = '';
+
+    html += '<button class="' + weaponToggleClassName + '" type="button" onclick="event.stopPropagation(); GameHUD.toggleWeaponCycleDropdown()" title="' + escapeHtml(weaponTitle) + '"' + (items.length ? '' : ' disabled') + '>';
+    html += '<span class="weapon-cycle-toggle-icon">' + escapeHtml(weaponIcon) + '</span>';
+    html += '<span class="weapon-cycle-toggle-label">' + escapeHtml(t('hud.weaponSwitch.toggleLabel', null, 'Weapons')) + '</span>';
+    html += '<span class="weapon-cycle-toggle-meta">Q ' + escapeHtml(weaponCountText) + '</span>';
+    html += '</button>';
+
+    setInnerHtmlIfChanged(container, html);
+  }
+
+  function positionWeaponSwitchBar(container) {
+    if (!container) return;
+
+    var weaponToggleHost = document.getElementById('quickbar-weapon-toggle');
+    var weaponToggleButton = weaponToggleHost ? weaponToggleHost.querySelector('.weapon-cycle-toggle') : null;
+    if (!weaponToggleButton) return;
+
+    var toggleRect = weaponToggleButton.getBoundingClientRect();
+    var containerWidth = container.offsetWidth || 320;
+    var viewportWidth = window.innerWidth || document.documentElement.clientWidth || containerWidth;
+    var left = toggleRect.right - containerWidth;
+    left = Math.max(12, Math.min(left, viewportWidth - containerWidth - 12));
+
+    container.style.left = Math.round(left) + 'px';
+    container.style.right = 'auto';
+    container.style.top = 'auto';
+    container.style.bottom = Math.round((window.innerHeight || 0) - toggleRect.top + 10) + 'px';
+    container.style.transform = 'none';
+  }
+
+  function renderWeaponSwitchBar() {
+    var container = document.getElementById('weapon-switchbar');
+    if (!container) return;
+
+    var items = getWeaponSwitchItems();
+    if (!isHudVisible() || !items.length || !_weaponCycleDropdownOpen) {
+      if (!items.length) _weaponCycleDropdownOpen = false;
+      setNodeDisplay(container, false);
+      return;
     }
-    setInnerHtmlIfChanged(toggleButton, '<span class="quickbar-toggle-label">' + escapeHtml(getQuickbarModeLabel(_quickbarMode)) + '</span>' +
-      '<span class="quickbar-toggle-hint">Tab</span>');
+
+    var summary = getWeaponCycleSummary(items);
+    var html = '<div class="weapon-switchbar-header">';
+    html += '<div>';
+    html += '<div class="weapon-switchbar-title">' + escapeHtml(t('hud.weaponSwitch.title', null, 'Quick Weapon Cycle')) + '</div>';
+    html += '<div class="weapon-switchbar-copy">' + escapeHtml(t('hud.weaponSwitch.dropdownCopy', null, 'Tick weapons to include when pressing Q. Click a row to equip it now.')) + '</div>';
+    html += '</div>';
+    html += '<span class="weapon-switchbar-summary">' + escapeHtml(summary.enabledCount + '/' + summary.totalCount) + '</span>';
+    html += '</div>';
+    html += '<div class="weapon-switchbar-list">';
+
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var tooltip = [item.name, item.profileLabel, item.statsText].filter(function(part) {
+        return !!part;
+      }).join(' • ');
+      html += '<div class="weapon-switch-option' + (item.isEquipped ? ' active' : '') + (item.cycleEnabled ? '' : ' muted') + '" onclick="event.stopPropagation()">';
+      html += '<label class="weapon-switch-checkbox" onclick="event.stopPropagation()" title="' + escapeHtml(t('hud.weaponSwitch.checkboxHint', null, 'Include in the Q quick cycle')) + '">';
+      html += '<input type="checkbox" ' + (item.cycleEnabled ? 'checked ' : '') + 'onclick="event.stopPropagation()" onchange="GameHUD.setWeaponCycleEnabled(\'' + item.weaponId + '\', this.checked)">';
+      html += '<span class="weapon-switch-checkbox-mark"></span>';
+      html += '</label>';
+      html += '<button class="weapon-switch-option-button" type="button" title="' + escapeHtml(tooltip) + '" onclick="event.stopPropagation(); GameHUD.activateWeaponById(\'' + item.weaponId + '\')">';
+      html += '<span class="weapon-switch-option-icon">' + escapeHtml(item.icon) + '</span>';
+      html += '<span class="weapon-switch-option-info">';
+      html += '<span class="weapon-switch-option-top">';
+      html += '<span class="weapon-switch-option-name">' + escapeHtml(item.name) + '</span>';
+      html += '<span class="weapon-switch-option-stat">ATK ' + escapeHtml(String(item.attackValue)) + '</span>';
+      html += '</span>';
+      html += '<span class="weapon-switch-option-meta">' + escapeHtml(item.profileLabel + (item.statsText ? ' • ' + item.statsText : '')) + '</span>';
+      html += '</span>';
+      html += '<span class="weapon-switch-option-state' + (item.isEquipped ? '' : ' muted') + '">' + escapeHtml(item.isEquipped ? t('hud.weaponSwitch.equipped', null, 'Equipped') : t('hud.weaponSwitch.useNow', null, 'Use')) + '</span>';
+      html += '</button>';
+      html += '</div>';
+    }
+
+    html += '</div>';
+
+    setInnerHtmlIfChanged(container, html);
+    setNodeDisplay(container, true);
+    positionWeaponSwitchBar(container);
+  }
+
+  function activateWeaponById(weaponId) {
+    if (!weaponId || !window.GameActions || !GameActions.equip) return;
+
+    var player = GameState.getPlayer ? GameState.getPlayer() : null;
+    var equippedWeaponId = player && player.equipped ? player.equipped.weapon : null;
+    if (equippedWeaponId === weaponId) return;
+
+    GameActions.equip(weaponId);
+    renderQuickbar();
+    renderWeaponSwitchBar();
+  }
+
+  function activateWeaponSlot(index) {
+    var items = getWeaponSwitchItems();
+    var item = items[index];
+    if (!item || item.isEquipped) return;
+    activateWeaponById(item.weaponId);
+  }
+
+  function cycleWeaponSlot(direction) {
+    var allItems = getWeaponSwitchItems();
+    var items = allItems.filter(function(item) {
+      return item.cycleEnabled;
+    });
+    if (!items.length) return;
+    if (items.length === 1 && items[0].isEquipped) return;
+
+    var currentIndex = -1;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].isEquipped) {
+        currentIndex = i;
+        break;
+      }
+    }
+
+    var step = direction < 0 ? -1 : 1;
+    if (currentIndex === -1) {
+      activateWeaponById(step < 0 ? items[items.length - 1].weaponId : items[0].weaponId);
+      return;
+    }
+
+    var nextIndex = (currentIndex + step + items.length) % items.length;
+    activateWeaponById(items[nextIndex].weaponId);
+  }
+
+  function renderQuickbar() {
+    var switchEl = document.getElementById('quickbar-switch');
+    var weaponToggleEl = document.getElementById('quickbar-weapon-toggle');
+    var slots = document.getElementById('quickbar-slots');
+    if (!switchEl || !weaponToggleEl || !slots) return;
+    if (!isHudVisible()) return;
+
+    renderQuickbarSwitch();
+    renderWeaponCycleToggle();
+    _quickbarItems = _quickbarMode === 'craft' ? getQuickbarCraftItems() : getQuickbarBuildItems();
 
     var selectedId = _quickbarSelected[_quickbarMode];
     var html = '';
@@ -1733,7 +2065,7 @@ try {
     }
 
     var modalTab = tabName;
-    if (modalTab === 'inventory') modalTab = 'resources';
+    if (modalTab === 'inventory' || modalTab === 'bag') modalTab = 'resources';
     if (modalTab === 'none') {
       closePanels();
       return;
@@ -1751,6 +2083,48 @@ try {
     _activeTab = null;
     if (_modalActive) {
       closeModal();
+    }
+  }
+
+  function setInventoryFilterMode(mode) {
+    if (_modalPanelsModule && _modalPanelsModule.setInventoryFilterMode) {
+      _modalPanelsModule.setInventoryFilterMode(mode);
+    }
+  }
+
+  function setInventoryFilterValue(value) {
+    if (_modalPanelsModule && _modalPanelsModule.setInventoryFilterValue) {
+      _modalPanelsModule.setInventoryFilterValue(value);
+    }
+  }
+
+  function setBagSection(sectionId) {
+    if (_modalPanelsModule && _modalPanelsModule.setBagSection) {
+      _modalPanelsModule.setBagSection(sectionId);
+    }
+  }
+
+  function setBagFilterValue(value) {
+    if (_modalPanelsModule && _modalPanelsModule.setBagFilterValue) {
+      _modalPanelsModule.setBagFilterValue(value);
+    }
+  }
+
+  function openCraftForEquipmentSlot(slotId) {
+    if (_modalPanelsModule && _modalPanelsModule.openCraftForEquipmentSlot) {
+      _modalPanelsModule.openCraftForEquipmentSlot(slotId);
+    }
+  }
+
+  function setCraftFilterMode(mode) {
+    if (_modalPanelsModule && _modalPanelsModule.setCraftFilterMode) {
+      _modalPanelsModule.setCraftFilterMode(mode);
+    }
+  }
+
+  function setCraftFilterValue(value) {
+    if (_modalPanelsModule && _modalPanelsModule.setCraftFilterValue) {
+      _modalPanelsModule.setCraftFilterValue(value);
     }
   }
 
@@ -2181,8 +2555,19 @@ try {
     isModalActive: function() { return _modalActive; },
     switchModalTab: switchModalTab,
     updateModal: updateModal,
+    activateWeaponById: activateWeaponById,
+    activateWeaponSlot: activateWeaponSlot,
     renderQuickbar: renderQuickbar,
     toggleQuickbarMode: toggleQuickbarMode,
+    toggleWeaponCycleDropdown: toggleWeaponCycleDropdown,
+    setWeaponCycleEnabled: setWeaponCycleEnabled,
+    openCraftForEquipmentSlot: openCraftForEquipmentSlot,
+    setBagSection: setBagSection,
+    setBagFilterValue: setBagFilterValue,
+    setInventoryFilterMode: setInventoryFilterMode,
+    setInventoryFilterValue: setInventoryFilterValue,
+    setCraftFilterMode: setCraftFilterMode,
+    setCraftFilterValue: setCraftFilterValue,
     activateQuickbarSlot: activateQuickbarSlot,
     applyQualityPreset: applyQualityPreset,
     acceptQualitySuggestion: acceptQualitySuggestion,

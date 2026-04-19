@@ -68,14 +68,18 @@ window.ResearchSystem = (function() {
 
   /**
    * Get all global bonuses from researched technologies
-   * @returns {object} - { productionBonus, harvestSpeedBonus, npcSpeedBonus, ... }
+   * @returns {object} - { productionBonus, harvestSpeedBonus, npcSpeedBonus, troopDamageFlatBonus, ... }
    */
   function getGlobalBonuses() {
     var bonuses = {
       productionBonus: 0,
       harvestSpeedBonus: 0,
       npcSpeedBonus: 0,
-      storageBonus: 0
+      storageBonus: 0,
+      troopDamageFlatBonus: 0,
+      troopMoveSpeedBonus: 0,
+      troopAttackSpeedBonus: 0,
+      barracksTrainingSpeedBonus: 0
     };
 
     var researched = GameState.getResearched();
@@ -96,6 +100,18 @@ window.ResearchSystem = (function() {
       }
       if (balance.effects.storageBonus) {
         bonuses.storageBonus += balance.effects.storageBonus;
+      }
+      if (balance.effects.troopDamageFlatBonus) {
+        bonuses.troopDamageFlatBonus += balance.effects.troopDamageFlatBonus;
+      }
+      if (balance.effects.troopMoveSpeedBonus) {
+        bonuses.troopMoveSpeedBonus += balance.effects.troopMoveSpeedBonus;
+      }
+      if (balance.effects.troopAttackSpeedBonus) {
+        bonuses.troopAttackSpeedBonus += balance.effects.troopAttackSpeedBonus;
+      }
+      if (balance.effects.barracksTrainingSpeedBonus) {
+        bonuses.barracksTrainingSpeedBonus += balance.effects.barracksTrainingSpeedBonus;
       }
     });
 

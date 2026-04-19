@@ -1,5 +1,47 @@
 window.UnlockSystem = (function () {
   var _newlyUnlocked = [];
+  var _ageRankCache = {};
+
+  function getAgeRank(ageId, visiting) {
+    if (!ageId) return -1;
+    if (_ageRankCache.hasOwnProperty(ageId)) {
+      return _ageRankCache[ageId];
+    }
+
+    var seen = visiting || {};
+    if (seen[ageId]) return 0;
+    seen[ageId] = true;
+
+    var rank = null;
+    var balance = GameRegistry.getBalance(ageId);
+    if (balance && balance.advanceFrom && balance.advanceFrom.age) {
+      rank = getAgeRank(balance.advanceFrom.age, seen) + 1;
+    }
+
+    if (rank === null || !isFinite(rank)) {
+      var ages = GameRegistry.getEntitiesByType('age');
+      rank = 0;
+      for (var i = 0; i < ages.length; i++) {
+        if (ages[i].id === ageId) {
+          rank = i;
+          break;
+        }
+      }
+    }
+
+    _ageRankCache[ageId] = rank;
+    delete seen[ageId];
+    return rank;
+  }
+
+  function isAgeRequirementMet(requiredAgeId) {
+    if (!requiredAgeId) return true;
+
+    var currentAgeId = GameState.getAge();
+    if (currentAgeId === requiredAgeId) return true;
+
+    return getAgeRank(currentAgeId) >= getAgeRank(requiredAgeId);
+  }
 
   function checkAll() {
     _newlyUnlocked = [];
@@ -31,7 +73,7 @@ window.UnlockSystem = (function () {
   }
 
   function checkConditions(conditions) {
-    if (conditions.age && GameState.getAge() !== conditions.age) {
+    if (conditions.age && !isAgeRequirementMet(conditions.age)) {
       return false;
     }
 
@@ -100,11 +142,12 @@ window.UnlockSystem = (function () {
 
     if (conditions.age) {
       total++;
-      if (GameState.getAge() === conditions.age) met++;
+      var ageMet = isAgeRequirementMet(conditions.age);
+      if (ageMet) met++;
       details.push({
         type: "age",
         target: conditions.age,
-        met: GameState.getAge() === conditions.age
+        met: ageMet
       });
     }
 

@@ -127,7 +127,15 @@ window.GameEntities = (function () {
     addAnimalSphere(group, eyeMat, size, x, y, -zOffset, 1, 1, 1);
   }
 
+  function resolveAnimalMeshType(type) {
+    if (type === 'animal.moonfang_alpha') return 'animal.wolf';
+    if (type === 'animal.sunscale_lion') return 'animal.lion';
+    if (type === 'animal.stormhide_sabertooth') return 'animal.sabertooth';
+    return type;
+  }
+
   function buildAnimalMesh(group, type, mainColor, scale) {
+    var archetype = resolveAnimalMeshType(type);
     var speciesDefaults = {
       'animal.wolf': 0x808080,
       'animal.boar': 0x8B6914,
@@ -136,6 +144,9 @@ window.GameEntities = (function () {
       'animal.bandit': 0x8B4513,
       'animal.sabertooth': 0xF4A460,
       'animal.deer': 0xA66B3D,
+      'animal.moonfang_alpha': 0x9bbcff,
+      'animal.sunscale_lion': 0xd9a24e,
+      'animal.stormhide_sabertooth': 0x79d6c5,
       'animal.rabbit': 0xD8CBB5
     };
     var baseColor = new THREE.Color(mainColor || speciesDefaults[type] || 0x808080);
@@ -148,13 +159,13 @@ window.GameEntities = (function () {
     var furLightMat = new THREE.MeshLambertMaterial({ color: lightColor });
     var hornMat = new THREE.MeshLambertMaterial({ color: 0xf1e3c6 });
     var ivoryMat = new THREE.MeshLambertMaterial({ color: 0xf9f0dd });
-    var maneMat = new THREE.MeshLambertMaterial({ color: type === 'animal.lion' ? 0x8f5d1e : 0x8c5a2b });
+    var maneMat = new THREE.MeshLambertMaterial({ color: archetype === 'animal.lion' ? 0x8f5d1e : 0x8c5a2b });
     var skinMat = new THREE.MeshLambertMaterial({ color: 0xd7b089 });
     var clothMat = new THREE.MeshLambertMaterial({ color: 0x2f3d54 });
     var clothDarkMat = new THREE.MeshLambertMaterial({ color: 0x202737 });
     var metalMat = new THREE.MeshLambertMaterial({ color: 0xa7adb8 });
 
-    if (type === 'animal.wolf') {
+    if (archetype === 'animal.wolf') {
       addAnimalCylinderX(group, furMat, 0.18, 0.2, 0.94, 0, 0.36, 0, 0);
       addAnimalSphere(group, furLightMat, 0.17, 0.2, 0.39, 0, 1.05, 1.1, 0.95);
       addAnimalSphere(group, furDarkMat, 0.17, -0.2, 0.34, 0, 1, 0.95, 1);
@@ -169,7 +180,7 @@ window.GameEntities = (function () {
       addAnimalLeg(group, furDarkMat, 0.08, 0.36, 0.08, 0.22, 0.18, 0.11);
       addAnimalLeg(group, furDarkMat, 0.08, 0.36, 0.08, 0.22, 0.18, -0.11);
       addAnimalEyePair(group, 0x1a120f, 0.017, 0.75, 0.5, 0.05);
-    } else if (type === 'animal.boar') {
+    } else if (archetype === 'animal.boar') {
       addAnimalCylinderX(group, furMat, 0.24, 0.27, 1.02, 0, 0.34, 0, 0.02);
       addAnimalSphere(group, furDarkMat, 0.19, 0.12, 0.47, 0, 1.12, 1.05, 1.08);
       addAnimalBox(group, furMat, 0.34, 0.22, 0.22, 0.63, 0.34, 0, 0, 0, -0.08);
@@ -185,7 +196,7 @@ window.GameEntities = (function () {
       addAnimalLeg(group, furDarkerMat, 0.1, 0.28, 0.1, 0.22, 0.14, 0.13);
       addAnimalLeg(group, furDarkerMat, 0.1, 0.28, 0.1, 0.22, 0.14, -0.13);
       addAnimalEyePair(group, 0x20140d, 0.016, 0.76, 0.37, 0.06);
-    } else if (type === 'animal.bear') {
+    } else if (archetype === 'animal.bear') {
       addAnimalCylinderX(group, furMat, 0.3, 0.32, 1.14, 0, 0.44, 0, 0);
       addAnimalSphere(group, furDarkMat, 0.24, 0.12, 0.56, 0, 1.18, 1.1, 1.05);
       addAnimalSphere(group, furMat, 0.24, 0.7, 0.56, 0, 1, 0.96, 1);
@@ -200,16 +211,16 @@ window.GameEntities = (function () {
       addAnimalLeg(group, furDarkerMat, 0.12, 0.44, 0.12, 0.27, 0.22, 0.14);
       addAnimalLeg(group, furDarkerMat, 0.12, 0.44, 0.12, 0.27, 0.22, -0.14);
       addAnimalEyePair(group, 0x20140d, 0.018, 0.86, 0.58, 0.06);
-    } else if (type === 'animal.lion' || type === 'animal.sabertooth') {
+    } else if (archetype === 'animal.lion' || archetype === 'animal.sabertooth') {
       addAnimalCylinderX(group, furMat, 0.22, 0.24, 1.04, 0, 0.39, 0, 0);
       addAnimalSphere(group, furLightMat, 0.18, 0.18, 0.42, 0, 1.05, 1.08, 0.95);
       addAnimalSphere(group, furDarkMat, 0.17, -0.18, 0.35, 0, 0.98, 0.95, 1);
       addAnimalCylinderX(group, furMat, 0.08, 0.1, 0.22, 0.44, 0.48, 0, -0.35);
-      addAnimalSphere(group, furMat, type === 'animal.sabertooth' ? 0.2 : 0.18, 0.67, 0.51, 0, 1, 0.95, 0.95);
+      addAnimalSphere(group, furMat, archetype === 'animal.sabertooth' ? 0.2 : 0.18, 0.67, 0.51, 0, 1, 0.95, 0.95);
       addAnimalBox(group, furLightMat, 0.18, 0.1, 0.11, 0.84, 0.44, 0, 0, 0, -0.06);
       addAnimalConeX(group, furDarkMat, 0.045, 0.12, 0.61, 0.63, 0.09, -0.15);
       addAnimalConeX(group, furDarkMat, 0.045, 0.12, 0.61, 0.63, -0.09, -0.15);
-      if (type === 'animal.lion') {
+      if (archetype === 'animal.lion') {
         addAnimalSphere(group, maneMat, 0.24, 0.6, 0.5, 0, 1.2, 1.15, 1.15);
       } else {
         addAnimalSphere(group, furDarkMat, 0.21, 0.58, 0.52, 0, 1.12, 1.05, 1.05);
@@ -217,8 +228,8 @@ window.GameEntities = (function () {
         addAnimalPart(group, new THREE.ConeGeometry(0.025, 0.16, 8), ivoryMat, 0.86, 0.29, 0.055, Math.PI, 0, 0, 1, 1, 1);
         addAnimalPart(group, new THREE.ConeGeometry(0.025, 0.16, 8), ivoryMat, 0.86, 0.29, -0.055, Math.PI, 0, 0, 1, 1, 1);
       }
-      addAnimalTail(group, furDarkMat, 0.026, type === 'animal.sabertooth' ? 0.34 : 0.42, -0.58, 0.46, 0, 0.58);
-      if (type === 'animal.lion') {
+      addAnimalTail(group, furDarkMat, 0.026, archetype === 'animal.sabertooth' ? 0.34 : 0.42, -0.58, 0.46, 0, 0.58);
+      if (archetype === 'animal.lion') {
         addAnimalSphere(group, maneMat, 0.05, -0.77, 0.49, 0, 1, 1, 1);
       }
       addAnimalLeg(group, furDarkMat, 0.1, 0.4, 0.1, -0.22, 0.2, 0.12);
@@ -226,7 +237,7 @@ window.GameEntities = (function () {
       addAnimalLeg(group, furDarkMat, 0.09, 0.42, 0.09, 0.24, 0.21, 0.11);
       addAnimalLeg(group, furDarkMat, 0.09, 0.42, 0.09, 0.24, 0.21, -0.11);
       addAnimalEyePair(group, 0x20140d, 0.017, 0.76, 0.52, 0.05);
-    } else if (type === 'animal.deer') {
+    } else if (archetype === 'animal.deer') {
       addAnimalCylinderX(group, furMat, 0.16, 0.18, 0.98, 0, 0.47, 0, 0);
       addAnimalSphere(group, furLightMat, 0.15, 0.18, 0.49, 0, 1.02, 1.08, 0.9);
       addAnimalCylinderX(group, furLightMat, 0.07, 0.08, 0.28, 0.46, 0.65, 0, -0.72);
@@ -244,7 +255,7 @@ window.GameEntities = (function () {
       addAnimalLeg(group, furDarkMat, 0.055, 0.62, 0.055, 0.22, 0.23, 0.09);
       addAnimalLeg(group, furDarkMat, 0.055, 0.62, 0.055, 0.22, 0.23, -0.09);
       addAnimalEyePair(group, 0x20140d, 0.014, 0.82, 0.78, 0.04);
-    } else if (type === 'animal.rabbit') {
+    } else if (archetype === 'animal.rabbit') {
       addAnimalSphere(group, furMat, 0.24, -0.03, 0.24, 0, 1.2, 0.9, 1);
       addAnimalSphere(group, furLightMat, 0.16, 0.2, 0.25, 0, 1, 0.92, 0.95);
       addAnimalSphere(group, furMat, 0.15, 0.36, 0.31, 0, 1, 1, 0.96);
@@ -259,7 +270,7 @@ window.GameEntities = (function () {
       addAnimalLeg(group, furDarkMat, 0.08, 0.22, 0.08, -0.14, 0.11, 0.09);
       addAnimalLeg(group, furDarkMat, 0.08, 0.22, 0.08, -0.14, 0.11, -0.09);
       addAnimalEyePair(group, 0x1a120f, 0.016, 0.44, 0.34, 0.05);
-    } else if (type === 'animal.bandit') {
+    } else if (archetype === 'animal.bandit') {
       addAnimalBox(group, clothMat, 0.34, 0.48, 0.2, 0, 0.54, 0, 0, 0, 0.02);
       addAnimalBox(group, clothDarkMat, 0.4, 0.16, 0.24, 0, 0.76, 0, 0, 0, 0.04);
       addAnimalSphere(group, skinMat, 0.14, 0, 0.93, 0, 1, 1.02, 0.98);
@@ -280,6 +291,20 @@ window.GameEntities = (function () {
       addAnimalLeg(group, furDarkMat, 0.08, 0.34, 0.08, 0.22, 0.17, 0.11);
       addAnimalLeg(group, furDarkMat, 0.08, 0.34, 0.08, 0.22, 0.17, -0.11);
       addAnimalEyePair(group, 0x1a120f, 0.016, 0.76, 0.46, 0.05);
+    }
+
+    if (type === 'animal.moonfang_alpha') {
+      addAnimalSphere(group, new THREE.MeshLambertMaterial({ color: 0xdce9ff }), 0.06, 0.08, 0.78, 0, 1, 1, 1);
+      addAnimalConeX(group, new THREE.MeshLambertMaterial({ color: 0xc8ddff }), 0.05, 0.18, 0.38, 0.78, 0.11, -0.22);
+      addAnimalConeX(group, new THREE.MeshLambertMaterial({ color: 0xc8ddff }), 0.05, 0.18, 0.38, 0.78, -0.11, -0.22);
+    } else if (type === 'animal.sunscale_lion') {
+      addAnimalSphere(group, new THREE.MeshLambertMaterial({ color: 0xffd98c }), 0.11, 0.62, 0.82, 0, 1.2, 1.08, 1.08);
+      addAnimalSphere(group, new THREE.MeshLambertMaterial({ color: 0xffb347 }), 0.08, -0.1, 0.62, 0.18, 1, 1, 1);
+      addAnimalSphere(group, new THREE.MeshLambertMaterial({ color: 0xffb347 }), 0.08, -0.1, 0.62, -0.18, 1, 1, 1);
+    } else if (type === 'animal.stormhide_sabertooth') {
+      addAnimalBox(group, new THREE.MeshLambertMaterial({ color: 0x84f4dd }), 0.28, 0.06, 0.22, 0.22, 0.78, 0, 0, 0, 0.04);
+      addAnimalConeX(group, new THREE.MeshLambertMaterial({ color: 0xaaf9ec }), 0.035, 0.2, 0.74, 0.82, 0.08, -0.25);
+      addAnimalConeX(group, new THREE.MeshLambertMaterial({ color: 0xaaf9ec }), 0.035, 0.2, 0.74, 0.82, -0.08, -0.25);
     }
 
     group.scale.set(scale, scale, scale);
@@ -610,7 +635,49 @@ window.GameEntities = (function () {
       addOreSpikes(group, 0x6A6A6A, 1, nodeInfo && nodeInfo.shardCount ? nodeInfo.shardCount : 2, nodeInfo && nodeInfo.shardHeight ? nodeInfo.shardHeight : 0.22);
       group.scale.set(scale, scale, scale);
 
-    } else if (type === "animal.wolf" || type === "animal.boar" || type === "animal.bear" || type === "animal.lion" || type === "animal.bandit" || type === "animal.sabertooth" || type === "animal.deer" || type === "animal.rabbit") {
+    } else if (type === 'site.ruined_outpost') {
+      var ruinBaseMat = new THREE.MeshLambertMaterial({ color: 0x7b6144 });
+      var ruinWoodMat = new THREE.MeshLambertMaterial({ color: 0x9b7b53 });
+      var canvasMat = new THREE.MeshLambertMaterial({ color: 0xc9b38a });
+
+      var ruinBase = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.18, 0.7), ruinBaseMat);
+      ruinBase.position.y = 0.09;
+      ruinBase.castShadow = true;
+      group.add(ruinBase);
+
+      var wallA = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.48, 0.62), ruinBaseMat);
+      wallA.position.set(-0.28, 0.33, 0);
+      wallA.rotation.z = -0.08;
+      wallA.castShadow = true;
+      group.add(wallA);
+
+      var wallB = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.42, 0.52), ruinBaseMat);
+      wallB.position.set(0.3, 0.28, -0.04);
+      wallB.rotation.z = 0.14;
+      wallB.castShadow = true;
+      group.add(wallB);
+
+      var beam = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.09, 0.08), ruinWoodMat);
+      beam.position.set(0.02, 0.52, 0.08);
+      beam.rotation.z = -0.18;
+      beam.castShadow = true;
+      group.add(beam);
+
+      var crate = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.2, 0.24), ruinWoodMat);
+      crate.position.set(0.26, 0.12, 0.21);
+      crate.castShadow = true;
+      group.add(crate);
+
+      var tarp = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.03, 0.28), canvasMat);
+      tarp.position.set(0.02, 0.45, -0.02);
+      tarp.rotation.z = -0.18;
+      tarp.rotation.x = 0.12;
+      tarp.castShadow = true;
+      group.add(tarp);
+
+      group.scale.set(scale, scale, scale);
+
+    } else if (type === "animal.wolf" || type === "animal.boar" || type === "animal.bear" || type === "animal.lion" || type === "animal.bandit" || type === "animal.sabertooth" || type === "animal.deer" || type === "animal.rabbit" || type === 'animal.moonfang_alpha' || type === 'animal.sunscale_lion' || type === 'animal.stormhide_sabertooth') {
       buildAnimalMesh(group, type, mainColor, scale);
 
     } else {

@@ -345,10 +345,26 @@ for (var resId in building.balance.consumesPerSecond) {
     return fallbackValue;
   }
 
+  function getArmoryTrainingBonus(instances) {
+    var armoryCount = 0;
+    for (var uid in instances) {
+      if (instances[uid] && instances[uid].entityId === 'building.armory') armoryCount++;
+    }
+
+    if (armoryCount <= 0) return 0;
+    var support = (GameRegistry.getBalance('building.armory') || {}).armorySupport || {};
+    return armoryCount * (Number(support.barracksTrainingSpeedBonus) || 0);
+  }
+
   function applyBarracksTraining(instances) {
     if (!GameState.getBarracksState || !GameState.setBarracksState || !GameState.addBarracksReserve) return;
 
     instances = instances || getLiveInstances();
+    var researchBonuses = (window.ResearchSystem && ResearchSystem.getGlobalBonuses)
+      ? (ResearchSystem.getGlobalBonuses() || {})
+      : {};
+    var trainingSpeedBonus = Math.max(0, Number(researchBonuses.barracksTrainingSpeedBonus) || 0);
+    trainingSpeedBonus += Math.max(0, getArmoryTrainingBonus(instances));
     for (var uid in instances) {
       var instance = instances[uid];
       if (!instance || instance.entityId !== 'building.barracks') continue;
@@ -359,6 +375,7 @@ for (var resId in building.balance.consumesPerSecond) {
 
       var level = instance.level || 1;
       var trainingSpeed = getLevelConfigValue(military.trainingSpeed, level, 1) || 1;
+      trainingSpeed *= (1 + trainingSpeedBonus);
       var state = GameState.getBarracksState(uid);
       if (!state || !state.queue || !state.queue.length) continue;
 
