@@ -51,12 +51,6 @@ window.GameActions = (function () {
     }
   }
 
-  function saveGame() {
-    if (GameStorage.saveNow) GameStorage.saveNow();
-    else GameStorage.save();
-    GameHUD.showNotification(t('hud.actions.savedNow', null, 'Saved now. Autosave remains active.'));
-  }
-
   function resetGame() {
     if (!confirm(t('hud.actions.resetConfirm', null, 'Reset all progress?'))) return;
     if (window.GameStorage && GameStorage.suspendPersistence) {
@@ -1383,7 +1377,6 @@ window.GameActions = (function () {
     craft: craft,
     equip: equip,
     unequip: unequip,
-    saveGame: saveGame,
     resetGame: resetGame,
     resetAllGameData: resetAllGameData,
     advanceAge: advanceAge,

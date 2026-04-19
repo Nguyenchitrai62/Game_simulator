@@ -1,0 +1,483 @@
+@media (max-width: 1100px) {
+  .modal-container {
+    width: 95vw;
+    height: 90vh;
+  }
+
+  .craft-compact-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .modal-left {
+    width: 380px;
+  }
+
+  .modal-left.compact-only {
+    width: 276px;
+  }
+}
+
+@media (max-width: 900px) {
+  .perf-tools {
+    right: 12px;
+    gap: 6px;
+  }
+
+  .quality-settings-toggle {
+    min-width: 88px;
+  }
+
+  .quality-popup-content {
+    width: min(760px, calc(100vw - 24px));
+    padding: 16px;
+  }
+
+  .quality-settings-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .quality-settings-sidebar {
+    position: static;
+  }
+
+  .quality-settings-tab-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .quality-settings-stage {
+    max-height: none;
+    overflow-y: visible;
+    padding-right: 0;
+  }
+
+  .quality-settings-body-graphics,
+  .quality-settings-toggle-list {
+    grid-template-columns: 1fr;
+  }
+
+  .quality-prompt {
+    top: 112px;
+    right: 12px;
+    width: min(336px, calc(100vw - 24px));
+  }
+
+  #notification {
+    left: 12px;
+    bottom: 98px;
+    top: auto;
+    right: auto;
+    min-width: 0;
+    max-width: 172px;
+    transform: translateY(12px);
+  }
+
+  #notification.show {
+    transform: translateY(0);
+  }
+
+  .player-basic-panel {
+    left: 12px;
+    bottom: 12px;
+    width: 184px;
+  }
+
+
+  .quickbar {
+    left: 202px;
+    right: 12px;
+    bottom: 12px;
+    transform: none;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .quickbar-backpack {
+    width: 58px;
+    min-height: 58px;
+    align-self: flex-end;
+  }
+
+  .quickbar-switch,
+  .quickbar-weapon-toggle-slot {
+    width: auto;
+    justify-content: center;
+  }
+
+  .quickbar-toggle,
+  .weapon-cycle-toggle {
+    width: 50px;
+    min-height: 50px;
+  }
+
+  .quickbar-slots {
+    width: 100%;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    min-width: 0;
+    grid-auto-rows: 58px;
+  }
+
+  .quickbar-slot {
+    width: auto;
+    height: auto;
+    min-height: 58px;
+  }
+
+  .weapon-switchbar {
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-width: none;
+    bottom: 156px;
+    transform: none;
+  }
+
+  .weapon-switch-option-button {
+    padding: 8px 10px;
+  }
+
+  .context-action {
+    right: 12px;
+    bottom: 176px;
+    max-width: 220px;
+  }
+
+  .modal-container {
+    width: 96vw;
+    height: 92vh;
+    max-height: none;
+    flex-direction: column;
+  }
+
+  .modal-left {
+    width: 100%;
+    max-height: none;
+    border-right: none;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+
+  .modal-left.compact-only {
+    width: 100%;
+  }
+
+  .modal-player-card {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .modal-player-meta {
+    gap: 10px;
+  }
+
+  .character-preview {
+    flex: 0 0 280px;
+    min-height: 250px;
+    height: 250px;
+    padding: 16px 64px 14px;
+  }
+
+  .equipment-overlay-slot {
+    width: 58px;
+    min-height: 58px;
+    padding: 6px 5px 5px;
+  }
+
+  .modal-header-top {
+    align-items: center;
+  }
+
+  .modal-subtitle {
+    max-width: none;
+  }
+
+  .bag-side-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bag-summary-grid,
+  .bag-detail-grid,
+  .loadout-grid,
+  .bag-weapon-grid,
+  .bag-consumable-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .management-grid,
+  .management-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .management-card-top {
+    flex-direction: column;
+  }
+
+  .management-badges {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .craft-compact-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .perf-tools {
+    right: 6px;
+    gap: 4px;
+  }
+
+  .fps-panel,
+  .quality-settings-toggle {
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+
+  .quality-popup-content {
+    width: calc(100vw - 24px);
+    overflow-y: auto;
+  }
+
+  .quality-settings-inline-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .quality-settings-tab-nav {
+    grid-template-columns: 1fr;
+  }
+
+  .quality-settings-stage-title {
+    font-size: 22px;
+  }
+
+  .quality-prompt {
+    top: 160px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+  }
+
+  .resource-bar {
+    gap: 6px;
+  }
+
+  .hud-top {
+    padding-right: 120px;
+  }
+
+  .resource-item {
+    padding: 4px 8px;
+  }
+
+  .resource-bar-toggle {
+    padding: 2px 5px;
+    font-size: 10px;
+  }
+
+  .day-night-clock {
+    top: 58px;
+    right: 12px;
+  }
+
+  .objective-tracker {
+    top: 118px;
+  }
+
+  .player-basic-panel {
+    width: calc(100vw - 24px);
+    bottom: 12px;
+  }
+
+  .player-basic-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .modal-content {
+    padding: 16px;
+  }
+
+  .map-popup {
+    width: calc(100vw - 20px);
+    height: calc(100vh - 20px);
+    border-radius: 18px;
+  }
+
+  .map-popup-bar {
+    padding: 0 12px;
+    border-radius: 18px 18px 0 0;
+  }
+
+  .modal-tabs {
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
+  }
+
+  .modal-tab {
+    flex: 0 0 124px;
+  }
+
+  .bag-stat-chips {
+    gap: 6px;
+  }
+
+  .bag-stat-chip {
+    padding: 5px 8px;
+    font-size: 10px;
+  }
+
+  .modal-left {
+    padding: 12px;
+  }
+
+  .modal-player-card,
+  .inventory-section {
+    padding: 12px;
+  }
+
+  .modal-player-card {
+    flex-direction: column;
+  }
+
+  .character-name {
+    font-size: 22px;
+  }
+
+  .character-preview {
+    flex: none;
+    min-height: 250px;
+    height: 250px;
+  }
+
+  .bag-sidebar-block-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .bag-side-nav {
+    grid-template-columns: 1fr;
+  }
+
+  .bag-subtab-bar {
+    gap: 6px;
+  }
+
+  .bag-panel-toolbar,
+  .bag-summary-card,
+  .bag-detail-card,
+  .loadout-slot-card,
+  .bag-weapon-card {
+    padding: 12px;
+  }
+
+  .resources-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .quickbar {
+    left: 12px;
+    right: 12px;
+    bottom: 94px;
+    gap: 6px;
+    width: auto;
+    max-width: none;
+    transform: none;
+  }
+
+  .quickbar-switch,
+  .quickbar-weapon-toggle-slot,
+  .quickbar-backpack {
+    width: auto;
+  }
+
+  .quickbar-backpack {
+    min-height: 56px;
+    align-self: flex-end;
+  }
+
+  .quickbar-toggle,
+  .weapon-cycle-toggle {
+    width: 48px;
+    min-height: 48px;
+  }
+
+  .quickbar-slots {
+    gap: 6px;
+    padding: 6px;
+    min-width: 0;
+  }
+
+  .quickbar-slot {
+    min-height: 54px;
+    padding: 5px;
+    border-radius: 12px;
+  }
+
+  .character-preview {
+    padding: 12px 56px 10px;
+  }
+
+  .equipment-slots-overlay {
+    inset: 10px;
+  }
+
+  .equipment-overlay-slot {
+    width: 52px;
+    min-height: 52px;
+    padding: 5px 4px 4px;
+    border-radius: 14px;
+  }
+
+  .equipment-overlay-slot-badge {
+    width: 16px;
+    height: 16px;
+    font-size: 10px;
+  }
+
+  .equipment-overlay-slot-icon {
+    font-size: 18px;
+  }
+
+  .equipment-overlay-slot-label {
+    font-size: 6.5px;
+  }
+
+  .weapon-switchbar {
+    left: 12px;
+    right: 12px;
+    bottom: 162px;
+    transform: none;
+    min-width: 0;
+    width: auto;
+    max-width: none;
+    padding: 8px;
+  }
+
+  .quickbar-slot-icon {
+    font-size: 17px;
+  }
+
+  .context-action {
+    left: 12px;
+    right: 12px;
+    bottom: 148px;
+    max-width: none;
+  }
+
+  #notification {
+    bottom: 188px;
+    top: auto;
+    left: 12px;
+    right: auto;
+    max-width: min(180px, calc(100vw - 24px));
+    transform: translateY(12px);
+  }
+
+  #notification.show {
+    transform: translateY(0);
+  }
+}
+

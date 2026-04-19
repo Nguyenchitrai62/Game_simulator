@@ -1,0 +1,80 @@
+/* === PHASE 6: UI POLISH === */
+.modal-tab { transition: background var(--transition-speed) ease, color var(--transition-speed) ease, transform 0.1s ease; }
+.modal-tab:hover { transform: translateY(-1px); }
+.modal-tab.active { transform: translateY(0); }
+.modal-panel { animation: fadeInPanel 0.2s ease-out; }
+@keyframes fadeInPanel {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.modal-container { transition: opacity 0.3s ease, transform 0.3s ease; }
+.modal-overlay { transition: opacity 0.3s ease; }
+.notification { animation: slideInRight 0.3s ease-out; }
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.resource-item { transition: transform 0.15s ease; }
+.resource-item:hover { transform: scale(1.05); }
+.building-card { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+.building-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+
+/* Tooltip system */
+.tooltip-container { position: relative; }
+.quickbar-tooltip-container {
+  display: flex;
+}
+.tooltip-content {
+  display: none; position: absolute; z-index: 10000;
+  background: rgba(8, 12, 24, 0.96); border: 1px solid rgba(240, 165, 0, 0.55);
+  padding: 10px 12px; border-radius: 10px; font-size: 12px;
+  min-width: 190px; max-width: 240px; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  color: var(--text-primary);
+  line-height: 1.45;
+}
+.tooltip-content::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 8px solid rgba(8, 12, 24, 0.96);
+}
+.tooltip-container:hover .tooltip-content { display: block; }
+.tooltip-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-gold);
+  margin-bottom: 6px;
+}
+.tooltip-copy {
+  color: var(--text-secondary);
+}
+.tooltip-copy + .tooltip-copy {
+  margin-top: 6px;
+}
+.tooltip-resource-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.tooltip-resource-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-primary);
+}
+.tooltip-resource-row strong {
+  font-size: 11px;
+}
+.tooltip-resource-row span {
+  color: #ffb18f;
+  white-space: nowrap;
+}
+
