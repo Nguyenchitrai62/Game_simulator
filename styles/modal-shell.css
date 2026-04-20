@@ -861,6 +861,15 @@
   border-color: rgba(255, 160, 50, 0.3);
 }
 
+.inventory-item-card.quality-common,
+.inventory-item-card.quality-uncommon,
+.inventory-item-card.quality-rare,
+.inventory-item-card.quality-epic,
+.inventory-item-card.quality-relic {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.03), var(--quality-shadow);
+  border-color: var(--quality-border);
+}
+
 .inventory-item-icon {
   width: 34px;
   height: 34px;
@@ -871,6 +880,15 @@
   background: rgba(255,255,255,0.06);
   font-size: 16px;
   flex: 0 0 auto;
+}
+
+.inventory-item-card.quality-common .inventory-item-icon,
+.inventory-item-card.quality-uncommon .inventory-item-icon,
+.inventory-item-card.quality-rare .inventory-item-icon,
+.inventory-item-card.quality-epic .inventory-item-icon,
+.inventory-item-card.quality-relic .inventory-item-icon {
+  background: var(--quality-icon-surface);
+  box-shadow: 0 0 0 1px var(--quality-icon-ring), 0 0 16px var(--quality-glow);
 }
 
 .inventory-item-main {

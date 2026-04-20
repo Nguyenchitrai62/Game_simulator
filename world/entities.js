@@ -294,20 +294,335 @@ window.GameEntities = (function () {
     }
 
     if (type === 'animal.moonfang_alpha') {
-      addAnimalSphere(group, new THREE.MeshLambertMaterial({ color: 0xdce9ff }), 0.06, 0.08, 0.78, 0, 1, 1, 1);
-      addAnimalConeX(group, new THREE.MeshLambertMaterial({ color: 0xc8ddff }), 0.05, 0.18, 0.38, 0.78, 0.11, -0.22);
-      addAnimalConeX(group, new THREE.MeshLambertMaterial({ color: 0xc8ddff }), 0.05, 0.18, 0.38, 0.78, -0.11, -0.22);
+      var moonGlow = new THREE.MeshLambertMaterial({ color: 0xdce9ff });
+      var moonBright = new THREE.MeshLambertMaterial({ color: 0xc8ddff });
+      var moonCore = new THREE.MeshLambertMaterial({ color: 0x8cb8ff });
+      // Head crown gem
+      addAnimalSphere(group, moonGlow, 0.07, 0.08, 0.82, 0, 1.15, 1, 1);
+      // Large dramatic horns
+      addAnimalConeX(group, moonBright, 0.07, 0.26, 0.32, 0.76, 0.14, -0.28);
+      addAnimalConeX(group, moonBright, 0.07, 0.26, 0.32, 0.76, -0.14, -0.28);
+      // Spine ridge - 5 glowing orbs along the back
+      addAnimalSphere(group, moonCore, 0.04, 0.5, 0.66, 0, 1, 1, 1);
+      addAnimalSphere(group, moonCore, 0.04, 0.3, 0.6, 0, 1, 1, 1);
+      addAnimalSphere(group, moonCore, 0.04, 0.1, 0.56, 0, 1, 1, 1);
+      addAnimalSphere(group, moonCore, 0.04, -0.1, 0.52, 0, 1, 1, 1);
+      addAnimalSphere(group, moonCore, 0.04, -0.3, 0.5, 0, 1, 1, 1);
+      // Glowing eyes
+      addAnimalSphere(group, moonGlow, 0.03, 0.76, 0.5, 0.07, 1, 1, 1);
+      addAnimalSphere(group, moonGlow, 0.03, 0.76, 0.5, -0.07, 1, 1, 1);
+      // Chest emblem diamond
+      addAnimalPart(group, new THREE.BoxGeometry(0.08, 0.12, 0.04), moonGlow, 0.55, 0.38, 0, 0, 0, 0.4, 1, 1, 1);
+      // Shoulder moon plates
+      addAnimalPart(group, new THREE.TorusGeometry(0.11, 0.018, 6, 16, Math.PI), moonBright, 0.26, 0.6, 0.2, Math.PI / 2, 0.34, 0.22, 1, 1, 1);
+      addAnimalPart(group, new THREE.TorusGeometry(0.11, 0.018, 6, 16, Math.PI), moonBright, 0.26, 0.6, -0.2, Math.PI / 2, -0.34, -0.22, 1, 1, 1);
+      // Flank runes
+      addAnimalPart(group, new THREE.BoxGeometry(0.05, 0.09, 0.025), moonCore, 0.18, 0.48, 0.19, 0, 0, 0.46, 1, 1, 1);
+      addAnimalPart(group, new THREE.BoxGeometry(0.05, 0.09, 0.025), moonCore, 0.18, 0.48, -0.19, 0, 0, -0.46, 1, 1, 1);
+      // Lunar halo ring
+      addAnimalPart(group, new THREE.TorusGeometry(0.2, 0.012, 6, 18), moonGlow, 0.18, 0.66, 0, Math.PI / 2, 0, 0.2, 1, 1, 1);
+      // Tail tip glow
+      addAnimalSphere(group, moonGlow, 0.05, -0.62, 0.46, 0, 1, 1, 1);
     } else if (type === 'animal.sunscale_lion') {
-      addAnimalSphere(group, new THREE.MeshLambertMaterial({ color: 0xffd98c }), 0.11, 0.62, 0.82, 0, 1.2, 1.08, 1.08);
-      addAnimalSphere(group, new THREE.MeshLambertMaterial({ color: 0xffb347 }), 0.08, -0.1, 0.62, 0.18, 1, 1, 1);
-      addAnimalSphere(group, new THREE.MeshLambertMaterial({ color: 0xffb347 }), 0.08, -0.1, 0.62, -0.18, 1, 1, 1);
+      var sunGold = new THREE.MeshLambertMaterial({ color: 0xffd98c });
+      var sunOrange = new THREE.MeshLambertMaterial({ color: 0xffb347 });
+      var sunCore = new THREE.MeshLambertMaterial({ color: 0xff9f1c });
+      // Mane crown - larger
+      addAnimalSphere(group, sunGold, 0.14, 0.62, 0.86, 0, 1.25, 1.12, 1.12);
+      // Shoulder plates
+      addAnimalSphere(group, sunOrange, 0.1, -0.1, 0.66, 0.2, 1.05, 1, 1);
+      addAnimalSphere(group, sunOrange, 0.1, -0.1, 0.66, -0.2, 1.05, 1, 1);
+      // Sun rays around crown - 6 small cones
+      addAnimalConeX(group, sunOrange, 0.03, 0.1, 0.62, 0.78, 0.16, -0.35);
+      addAnimalConeX(group, sunOrange, 0.03, 0.1, 0.62, 0.78, -0.16, -0.35);
+      addAnimalConeX(group, sunOrange, 0.03, 0.08, 0.58, 0.82, 0.1, -0.5);
+      addAnimalConeX(group, sunOrange, 0.03, 0.08, 0.58, 0.82, -0.1, -0.5);
+      addAnimalConeX(group, sunOrange, 0.03, 0.06, 0.68, 0.7, 0.18, -0.1);
+      addAnimalConeX(group, sunOrange, 0.03, 0.06, 0.68, 0.7, -0.18, -0.1);
+      // Chest plate
+      addAnimalPart(group, new THREE.BoxGeometry(0.2, 0.16, 0.06), sunCore, 0.5, 0.42, 0, 0, 0, 0, 1, 1, 1);
+      addAnimalPart(group, new THREE.BoxGeometry(0.12, 0.08, 0.08), sunGold, 0.5, 0.42, 0, 0, 0, 0, 1, 1, 1);
+      // Solar halo and back fins
+      addAnimalPart(group, new THREE.TorusGeometry(0.18, 0.018, 6, 18), sunGold, 0.56, 0.9, 0, Math.PI / 2, 0, 0, 1, 1, 1);
+      addAnimalConeX(group, sunCore, 0.035, 0.12, 0.3, 0.78, 0, -0.2);
+      addAnimalConeX(group, sunCore, 0.03, 0.1, 0.08, 0.74, 0, -0.2);
+      addAnimalConeX(group, sunCore, 0.026, 0.08, -0.1, 0.7, 0, -0.2);
+      // Sun cuffs on forelegs
+      addAnimalBox(group, sunGold, 0.08, 0.04, 0.11, 0.36, 0.31, 0.16, 0, 0, 0);
+      addAnimalBox(group, sunGold, 0.08, 0.04, 0.11, 0.36, 0.31, -0.16, 0, 0, 0);
+      // Glowing eyes
+      addAnimalSphere(group, sunGold, 0.03, 0.76, 0.54, 0.06, 1, 1, 1);
+      addAnimalSphere(group, sunGold, 0.03, 0.76, 0.54, -0.06, 1, 1, 1);
+      // Tail tip flame
+      addAnimalSphere(group, sunOrange, 0.06, -0.64, 0.5, 0, 1, 1, 1);
+      addAnimalSphere(group, sunGold, 0.04, -0.68, 0.52, 0, 1, 1, 1);
     } else if (type === 'animal.stormhide_sabertooth') {
-      addAnimalBox(group, new THREE.MeshLambertMaterial({ color: 0x84f4dd }), 0.28, 0.06, 0.22, 0.22, 0.78, 0, 0, 0, 0.04);
-      addAnimalConeX(group, new THREE.MeshLambertMaterial({ color: 0xaaf9ec }), 0.035, 0.2, 0.74, 0.82, 0.08, -0.25);
-      addAnimalConeX(group, new THREE.MeshLambertMaterial({ color: 0xaaf9ec }), 0.035, 0.2, 0.74, 0.82, -0.08, -0.25);
+      var stormCyan = new THREE.MeshLambertMaterial({ color: 0x84f4dd });
+      var stormBright = new THREE.MeshLambertMaterial({ color: 0xaaf9ec });
+      var stormCore = new THREE.MeshLambertMaterial({ color: 0x5de8c8 });
+      // Multiple dorsal plates along the back
+      addAnimalBox(group, stormCyan, 0.24, 0.07, 0.18, 0.32, 0.74, 0, 0, 0, 0.04);
+      addAnimalBox(group, stormCyan, 0.2, 0.06, 0.16, 0.12, 0.7, 0, 0, 0, 0.04);
+      addAnimalBox(group, stormCyan, 0.16, 0.05, 0.14, -0.08, 0.66, 0, 0, 0, 0.04);
+      addAnimalBox(group, stormCyan, 0.12, 0.04, 0.12, -0.26, 0.62, 0, 0, 0, 0.04);
+      // Large dramatic tusks
+      addAnimalConeX(group, stormBright, 0.045, 0.28, 0.72, 0.84, 0.1, -0.3);
+      addAnimalConeX(group, stormBright, 0.045, 0.28, 0.72, 0.84, -0.1, -0.3);
+      // Crystal shoulder formations
+      addAnimalSphere(group, stormCore, 0.06, 0.2, 0.62, 0.16, 1, 1, 1);
+      addAnimalSphere(group, stormCore, 0.06, 0.2, 0.62, -0.16, 1, 1, 1);
+      addAnimalConeX(group, stormBright, 0.03, 0.12, 0.28, 0.26, 0.18, -0.15);
+      addAnimalConeX(group, stormBright, 0.03, 0.12, 0.28, 0.26, -0.18, -0.15);
+      // Body stripes (glowing lines)
+      addAnimalBox(group, stormBright, 0.15, 0.025, 0.03, 0.2, 0.55, 0.14, 0, 0, 0.1);
+      addAnimalBox(group, stormBright, 0.15, 0.025, 0.03, 0.2, 0.55, -0.14, 0, 0, -0.1);
+      addAnimalBox(group, stormBright, 0.12, 0.025, 0.03, -0.05, 0.52, 0.13, 0, 0, 0.1);
+      addAnimalBox(group, stormBright, 0.12, 0.025, 0.03, -0.05, 0.52, -0.13, 0, 0, -0.1);
+      // Brow horn and cheek crystals
+      addAnimalConeX(group, stormBright, 0.038, 0.15, 0.9, 0.72, 0, -0.02);
+      addAnimalConeX(group, stormCore, 0.028, 0.1, 0.58, 0.56, 0.17, -0.25);
+      addAnimalConeX(group, stormCore, 0.028, 0.1, 0.58, 0.56, -0.17, -0.25);
+      // Crystal braces on forelegs
+      addAnimalBox(group, stormCyan, 0.09, 0.04, 0.11, 0.32, 0.28, 0.15, 0, 0, 0);
+      addAnimalBox(group, stormCyan, 0.09, 0.04, 0.11, 0.32, 0.28, -0.15, 0, 0, 0);
+      // Glowing eyes
+      addAnimalSphere(group, stormBright, 0.035, 0.76, 0.54, 0.06, 1, 1, 1);
+      addAnimalSphere(group, stormBright, 0.035, 0.76, 0.54, -0.06, 1, 1, 1);
+      // Tail energy tip
+      addAnimalSphere(group, stormCyan, 0.06, -0.66, 0.5, 0, 1, 1, 1);
+      // Storm aura ring around torso
+      addAnimalPart(group, new THREE.TorusGeometry(0.28, 0.015, 6, 16), stormBright, 0.1, 0.58, 0, Math.PI / 2, 0, 0, 1, 1, 1);
+      addAnimalPart(group, new THREE.TorusGeometry(0.22, 0.012, 6, 14), stormCore, -0.02, 0.62, 0, Math.PI / 2, 0.5, 0.24, 1, 1, 1);
     }
 
     group.scale.set(scale, scale, scale);
+  }
+
+  function getPickupDropColor(itemId, entity) {
+    var visualColor = entity && entity.visual && entity.visual.color;
+    if (visualColor !== undefined) return visualColor;
+    if (!itemId) return 0xd6c28a;
+    if (itemId.indexOf('wood') !== -1) return 0x9b6a32;
+    if (itemId.indexOf('stone') !== -1) return 0x8b9098;
+    if (itemId.indexOf('flint') !== -1) return 0x5a5a5a;
+    if (itemId.indexOf('food') !== -1) return 0xd4523f;
+    if (itemId.indexOf('leather') !== -1) return 0x8b5a2b;
+    if (itemId.indexOf('copper') !== -1) return 0xb87333;
+    if (itemId.indexOf('tin') !== -1) return 0xd0d6dc;
+    if (itemId.indexOf('bronze') !== -1) return 0xcd7f32;
+    if (itemId.indexOf('iron') !== -1) return 0x9aa0a8;
+    if (itemId.indexOf('coal') !== -1) return 0x303030;
+    return 0xd6c28a;
+  }
+
+  function createPickupResourceShape(root, itemId, color) {
+    var mainMat = new THREE.MeshLambertMaterial({ color: color });
+    var darkMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(color).offsetHSL(0, 0, -0.16).getHex() });
+
+    if (itemId && itemId.indexOf('wood') !== -1) {
+      var logGeo = new THREE.CylinderGeometry(0.045, 0.055, 0.28, 6);
+      for (var logIndex = 0; logIndex < 2; logIndex++) {
+        var log = new THREE.Mesh(logGeo, logIndex === 0 ? mainMat : darkMat);
+        log.rotation.z = Math.PI / 2;
+        log.position.set((logIndex === 0 ? -0.05 : 0.05), 0.05 + logIndex * 0.02, logIndex === 0 ? -0.03 : 0.03);
+        root.add(log);
+      }
+      var strap = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.012, 5, 10), new THREE.MeshLambertMaterial({ color: 0xc8b38a }));
+      strap.rotation.y = Math.PI / 2;
+      strap.position.y = 0.06;
+      root.add(strap);
+      return;
+    }
+
+    if (itemId && itemId.indexOf('food') !== -1) {
+      var basket = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.08, 8), new THREE.MeshLambertMaterial({ color: 0xa67643 }));
+      basket.position.y = 0.02;
+      root.add(basket);
+      for (var berryIndex = 0; berryIndex < 4; berryIndex++) {
+        var berry = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 5), berryIndex % 2 === 0 ? mainMat : darkMat);
+        berry.position.set(Math.cos(berryIndex * 1.6) * 0.05, 0.09 + (berryIndex % 2) * 0.015, Math.sin(berryIndex * 1.6) * 0.05);
+        root.add(berry);
+      }
+      return;
+    }
+
+    if (itemId && itemId.indexOf('leather') !== -1) {
+      var roll = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.24, 10), mainMat);
+      roll.rotation.z = Math.PI / 2;
+      roll.position.y = 0.06;
+      root.add(roll);
+      var strapBand = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.12, 0.16), new THREE.MeshLambertMaterial({ color: 0x5f3b1c }));
+      strapBand.position.y = 0.06;
+      root.add(strapBand);
+      return;
+    }
+
+    var clusterGeo = new THREE.DodecahedronGeometry(0.09, 0);
+    var spikeMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(color).offsetHSL(0, 0, 0.12).getHex() });
+    for (var shardIndex = 0; shardIndex < 3; shardIndex++) {
+      var shard = new THREE.Mesh(clusterGeo, shardIndex === 0 ? mainMat : darkMat);
+      shard.position.set(Math.cos(shardIndex * 2.09) * 0.08, 0.05 + shardIndex * 0.015, Math.sin(shardIndex * 2.09) * 0.07);
+      shard.rotation.set(shardIndex * 0.4, shardIndex * 0.7, 0.2);
+      root.add(shard);
+    }
+    if (itemId && (itemId.indexOf('copper') !== -1 || itemId.indexOf('tin') !== -1 || itemId.indexOf('iron') !== -1 || itemId.indexOf('coal') !== -1 || itemId.indexOf('flint') !== -1)) {
+      var spike = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.16, 5), spikeMat);
+      spike.position.set(0.03, 0.16, -0.02);
+      spike.rotation.z = -0.28;
+      root.add(spike);
+    }
+  }
+
+  function createPickupEquipmentShape(root, itemId, entity, color) {
+    var metalMat = new THREE.MeshLambertMaterial({ color: color });
+    var woodMat = new THREE.MeshLambertMaterial({ color: 0x7c5731 });
+    var leatherMat = new THREE.MeshLambertMaterial({ color: 0x6b4423 });
+
+    if (itemId && itemId.indexOf('bow') !== -1) {
+      var bow = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.012, 5, 16, Math.PI), woodMat);
+      bow.rotation.z = Math.PI / 2;
+      root.add(bow);
+      var stringLine = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.28, 4), new THREE.MeshBasicMaterial({ color: 0xf0e1bf }));
+      stringLine.rotation.z = Math.PI / 2;
+      stringLine.position.x = 0.015;
+      root.add(stringLine);
+      return;
+    }
+
+    if (itemId && (itemId.indexOf('spear') !== -1 || itemId.indexOf('glaive') !== -1)) {
+      var shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.012, 0.42, 6), woodMat);
+      shaft.rotation.z = 0.32;
+      root.add(shaft);
+      var spearHead = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.12, 5), metalMat);
+      spearHead.position.set(0.05, 0.2, 0);
+      spearHead.rotation.z = -0.48;
+      root.add(spearHead);
+      return;
+    }
+
+    if (itemId && itemId.indexOf('shield') !== -1) {
+      var shield = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.04, 18), metalMat);
+      shield.rotation.x = Math.PI / 2;
+      root.add(shield);
+      var boss = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), new THREE.MeshLambertMaterial({ color: new THREE.Color(color).offsetHSL(0, 0, 0.1).getHex() }));
+      boss.position.z = 0.03;
+      root.add(boss);
+      return;
+    }
+
+    if (entity && entity.slot === 'armor') {
+      var armorBody = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.24, 0.1), metalMat);
+      armorBody.position.y = 0.02;
+      root.add(armorBody);
+      var shoulderLeft = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.08, 0.08), metalMat);
+      shoulderLeft.position.set(-0.13, 0.08, 0);
+      root.add(shoulderLeft);
+      var shoulderRight = shoulderLeft.clone();
+      shoulderRight.position.x = 0.13;
+      root.add(shoulderRight);
+      return;
+    }
+
+    if (entity && entity.slot === 'boots') {
+      var bootGeo = new THREE.BoxGeometry(0.08, 0.12, 0.14);
+      var bootA = new THREE.Mesh(bootGeo, leatherMat);
+      bootA.position.set(-0.05, 0.02, 0);
+      root.add(bootA);
+      var bootB = bootA.clone();
+      bootB.position.x = 0.05;
+      root.add(bootB);
+      return;
+    }
+
+    if (entity && entity.type === 'consumable') {
+      var vial = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.18, 8), metalMat);
+      vial.position.y = 0.03;
+      root.add(vial);
+      var cap = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.03, 0.05), new THREE.MeshLambertMaterial({ color: 0xf2d8a7 }));
+      cap.position.y = 0.14;
+      root.add(cap);
+      return;
+    }
+
+    var handle = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.015, 0.18, 6), woodMat);
+    handle.position.y = -0.04;
+    root.add(handle);
+    var guard = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.015, 0.03), metalMat);
+    guard.position.y = 0.04;
+    root.add(guard);
+    var blade = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.24, 0.025), metalMat);
+    blade.position.y = 0.16;
+    root.add(blade);
+  }
+
+  function createPickupDropMesh(objData) {
+    var group = new THREE.Group();
+    var itemId = objData && objData.dropItemId ? objData.dropItemId : null;
+    var entity = itemId && window.GameRegistry && GameRegistry.getEntity ? GameRegistry.getEntity(itemId) : null;
+    var color = getPickupDropColor(itemId, entity);
+
+    var shadow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.2, 14),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.14 })
+    );
+    shadow.name = 'dropShadow';
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = 0.02;
+    group.add(shadow);
+
+    var glow = new THREE.Mesh(
+      new THREE.TorusGeometry(0.15, 0.012, 6, 18),
+      new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false })
+    );
+    glow.name = 'dropGlow';
+    glow.rotation.x = Math.PI / 2;
+    glow.position.y = 0.04;
+    group.add(glow);
+
+    var visualRoot = new THREE.Group();
+    visualRoot.name = 'dropVisualRoot';
+    visualRoot.position.y = 0.18;
+    group.add(visualRoot);
+
+    var platform = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.12, 0.14, 0.05, 12),
+      new THREE.MeshLambertMaterial({ color: 0x3f2e1d })
+    );
+    visualRoot.add(platform);
+
+    var itemRoot = new THREE.Group();
+    itemRoot.position.y = 0.08;
+    visualRoot.add(itemRoot);
+
+    if (entity && (entity.type === 'equipment' || entity.type === 'tool' || entity.type === 'consumable')) {
+      createPickupEquipmentShape(itemRoot, itemId, entity, color);
+    } else {
+      createPickupResourceShape(itemRoot, itemId, color);
+    }
+
+    group.userData.dropFloatPhase = objData && objData.id ? ((objData.id.length % 11) * 0.57) : 0;
+    return group;
+  }
+
+  function animatePickupDropMesh(mesh, time) {
+    if (!mesh) return;
+    var visualRoot = mesh.getObjectByName('dropVisualRoot');
+    if (!visualRoot) return;
+
+    var phase = mesh.userData.dropFloatPhase || 0;
+    visualRoot.position.y = 0.18 + Math.sin(time * 2.7 + phase) * 0.045;
+    visualRoot.rotation.y = time * 1.9 + phase;
+    visualRoot.rotation.z = Math.sin(time * 1.4 + phase) * 0.06;
+
+    var glow = mesh.getObjectByName('dropGlow');
+    if (glow && glow.material) {
+      glow.material.opacity = 0.18 + (Math.sin(time * 3.4 + phase) + 1) * 0.04;
+    }
+
+    var shadow = mesh.getObjectByName('dropShadow');
+    if (shadow && shadow.material) {
+      shadow.material.opacity = 0.12 + (Math.sin(time * 2.7 + phase) + 1) * 0.015;
+    }
   }
 
   function createObjectForChunk(chunkData) {
@@ -356,10 +671,15 @@ window.GameEntities = (function () {
     var group = new THREE.Group();
     var mainColor = visual ? visual.color : 0x808080;
     var scale = visual ? (visual.scale || 1.0) : 1.0;
+    var entityBalance = (typeof GameRegistry !== 'undefined' && GameRegistry.getBalance) ? (GameRegistry.getBalance(type) || {}) : {};
     var nodeInfo = (objData && typeof GameTerrain !== 'undefined' && GameTerrain.getNodeInfo) ? GameTerrain.getNodeInfo(objData) : null;
 
     if (nodeInfo) {
       scale *= nodeInfo.scale || 1;
+    }
+
+    if (type && type.indexOf('animal.') === 0 && ((objData && objData.isBoss) || entityBalance.isBoss)) {
+      scale *= 1.6;
     }
 
     if (type === "node.tree") {
@@ -635,6 +955,9 @@ window.GameEntities = (function () {
       addOreSpikes(group, 0x6A6A6A, 1, nodeInfo && nodeInfo.shardCount ? nodeInfo.shardCount : 2, nodeInfo && nodeInfo.shardHeight ? nodeInfo.shardHeight : 0.22);
       group.scale.set(scale, scale, scale);
 
+    } else if (type === 'pickup.drop') {
+      return createPickupDropMesh(objData);
+
     } else if (type === 'site.ruined_outpost') {
       var ruinBaseMat = new THREE.MeshLambertMaterial({ color: 0x7b6144 });
       var ruinWoodMat = new THREE.MeshLambertMaterial({ color: 0x9b7b53 });
@@ -758,7 +1081,7 @@ window.GameEntities = (function () {
       
       // For animals, sync the visible mesh with the latest respawn location.
       if (objData.type && objData.type.startsWith("animal.")) {
-        var animalBalance = getEntityBalance(objData.type);
+        var animalBalance = (window.GAME_BALANCE && GAME_BALANCE[objData.type]) || {};
         var animalBehaviorSettings = getAnimalBehaviorSettings(objData.type, animalBalance);
         var respawnIdleSeconds = animalBehaviorSettings.returnIdleBaseSeconds;
         var respawnTime = performance.now() / 1000;
@@ -1031,14 +1354,7 @@ window.GameEntities = (function () {
   }
 
   function update(dt) {
-    if (window.GameDebugSettings && GameDebugSettings.isEnabled && !GameDebugSettings.isEnabled('animals')) {
-      if (typeof GamePerf !== 'undefined' && GamePerf.setValue) {
-        GamePerf.setValue('animal.total', 0);
-        GamePerf.setValue('animal.simulated', 0);
-      }
-      return;
-    }
-
+    var animalsEnabled = !(window.GameDebugSettings && GameDebugSettings.isEnabled && !GameDebugSettings.isEnabled('animals'));
     var time = performance.now() / 1000;
     var playerPos = window.GamePlayer ? GamePlayer.getPosition() : null;
     var combatActive = window.GameCombat && GameCombat.isActive && GameCombat.isActive();
@@ -1050,7 +1366,12 @@ window.GameEntities = (function () {
       var objData = _dataMap.get(mesh.id);
       if (!objData) return;
 
-      if (objData.type && objData.type.startsWith("animal.") && objData.hp > 0 && !objData._destroyed) {
+      if (objData.type === 'pickup.drop') {
+        animatePickupDropMesh(mesh, time);
+        return;
+      }
+
+      if (animalsEnabled && objData.type && objData.type.startsWith("animal.") && objData.hp > 0 && !objData._destroyed) {
         totalAnimals++;
         if (!shouldSimulateAnimal(mesh, objData, playerPos, activeTarget)) return;
 
@@ -1140,8 +1461,8 @@ window.GameEntities = (function () {
     });
 
     if (typeof GamePerf !== 'undefined' && GamePerf.setValue) {
-      GamePerf.setValue('animal.total', totalAnimals);
-      GamePerf.setValue('animal.simulated', simulatedAnimals);
+      GamePerf.setValue('animal.total', animalsEnabled ? totalAnimals : 0);
+      GamePerf.setValue('animal.simulated', animalsEnabled ? simulatedAnimals : 0);
     }
   }
 
@@ -1376,6 +1697,7 @@ window.GameEntities = (function () {
     createNPCMesh: createNPCMesh,
     destroyNode: destroyNode,
     refreshObject: refreshObject,
+    removeObject: removeObjectMesh,
     removeChunkObjects: removeChunkObjects,
     setChunkObjectsVisible: setChunkObjectsVisible,
     hideObject: hideObject,

@@ -9,11 +9,6 @@
 }
 .modal-container { transition: opacity 0.3s ease, transform 0.3s ease; }
 .modal-overlay { transition: opacity 0.3s ease; }
-.notification { animation: slideInRight 0.3s ease-out; }
-@keyframes slideInRight {
-  from { transform: translateX(100%); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
-}
 .resource-item { transition: transform 0.15s ease; }
 .resource-item:hover { transform: scale(1.05); }
 .building-card { transition: transform 0.15s ease, box-shadow 0.15s ease; }

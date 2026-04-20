@@ -135,10 +135,10 @@ window.ResearchSystem = (function() {
   }
 
   return {
-    canResearch,
-    research,
-    isResearched,
-    getGlobalBonuses,
-    getAvailableTechnologies
+    canResearch: canResearch,
+    research: research,
+    isResearched: isResearched,
+    getGlobalBonuses: getGlobalBonuses,
+    getAvailableTechnologies: getAvailableTechnologies
   };
 })();

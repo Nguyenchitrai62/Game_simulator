@@ -154,6 +154,31 @@
 .weapon-cycle-toggle-icon {
   font-size: 18px;
   line-height: 1;
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.06);
+}
+
+.weapon-cycle-toggle.quality-common,
+.weapon-cycle-toggle.quality-uncommon,
+.weapon-cycle-toggle.quality-rare,
+.weapon-cycle-toggle.quality-epic,
+.weapon-cycle-toggle.quality-relic {
+  box-shadow: var(--quality-shadow);
+  border-color: var(--quality-border);
+}
+
+.weapon-cycle-toggle.quality-common .weapon-cycle-toggle-icon,
+.weapon-cycle-toggle.quality-uncommon .weapon-cycle-toggle-icon,
+.weapon-cycle-toggle.quality-rare .weapon-cycle-toggle-icon,
+.weapon-cycle-toggle.quality-epic .weapon-cycle-toggle-icon,
+.weapon-cycle-toggle.quality-relic .weapon-cycle-toggle-icon {
+  background: var(--quality-icon-surface);
+  box-shadow: 0 0 0 1px var(--quality-icon-ring), 0 0 16px var(--quality-glow);
 }
 
 .weapon-cycle-toggle-label {
@@ -281,6 +306,36 @@
   line-height: 1;
   text-align: center;
   letter-spacing: -0.08em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.quickbar-slot.quality-common,
+.quickbar-slot.quality-uncommon,
+.quickbar-slot.quality-rare,
+.quickbar-slot.quality-epic,
+.quickbar-slot.quality-relic {
+  box-shadow: var(--quality-shadow);
+  border-color: var(--quality-border);
+}
+
+.quickbar-slot.quality-common .quickbar-slot-icon,
+.quickbar-slot.quality-uncommon .quickbar-slot-icon,
+.quickbar-slot.quality-rare .quickbar-slot-icon,
+.quickbar-slot.quality-epic .quickbar-slot-icon,
+.quickbar-slot.quality-relic .quickbar-slot-icon {
+  background: var(--quality-icon-surface);
+  box-shadow: 0 0 0 1px var(--quality-icon-ring), 0 0 14px var(--quality-glow);
+}
+
+.quickbar-slot.selected.quality-common,
+.quickbar-slot.selected.quality-uncommon,
+.quickbar-slot.selected.quality-rare,
+.quickbar-slot.selected.quality-epic,
+.quickbar-slot.selected.quality-relic {
+  border-color: rgba(240, 165, 0, 0.9);
+  box-shadow: 0 0 0 2px rgba(240, 165, 0, 0.22), var(--quality-shadow);
 }
 
 .quickbar-slot-name {
@@ -399,6 +454,15 @@
   box-shadow: 0 0 0 1px rgba(240,165,0,0.14);
 }
 
+.weapon-switch-option.quality-common,
+.weapon-switch-option.quality-uncommon,
+.weapon-switch-option.quality-rare,
+.weapon-switch-option.quality-epic,
+.weapon-switch-option.quality-relic {
+  border-color: var(--quality-border);
+  box-shadow: var(--quality-shadow);
+}
+
 .weapon-switch-option.muted {
   opacity: 0.74;
 }
@@ -475,6 +539,28 @@
   justify-content: center;
   background: rgba(255,255,255,0.07);
   font-size: 17px;
+}
+
+.weapon-switch-option.quality-common .weapon-switch-option-icon,
+.weapon-switch-option.quality-uncommon .weapon-switch-option-icon,
+.weapon-switch-option.quality-rare .weapon-switch-option-icon,
+.weapon-switch-option.quality-epic .weapon-switch-option-icon,
+.weapon-switch-option.quality-relic .weapon-switch-option-icon {
+  background: var(--quality-icon-surface);
+  box-shadow: 0 0 0 1px var(--quality-icon-ring), 0 0 16px var(--quality-glow);
+}
+
+.weapon-switch-option.active.quality-common,
+.weapon-switch-option.active.quality-uncommon,
+.weapon-switch-option.active.quality-rare,
+.weapon-switch-option.active.quality-epic,
+.weapon-switch-option.active.quality-relic,
+.weapon-cycle-toggle.active.quality-common,
+.weapon-cycle-toggle.active.quality-uncommon,
+.weapon-cycle-toggle.active.quality-rare,
+.weapon-cycle-toggle.active.quality-epic,
+.weapon-cycle-toggle.active.quality-relic {
+  box-shadow: 0 0 0 1px rgba(240,165,0,0.14), var(--quality-shadow);
 }
 
 .weapon-switch-option-info {

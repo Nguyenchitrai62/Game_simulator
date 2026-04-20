@@ -856,6 +856,7 @@
 }
 
 .craft-compact-card {
+  position: relative;
   display: grid;
   gap: 8px;
   padding: 10px;
@@ -863,6 +864,7 @@
   border: 1px solid rgba(255,255,255,0.08);
   background: rgba(15, 52, 96, 0.36);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+  overflow: hidden;
 }
 
 .craft-compact-card.ready {
@@ -877,6 +879,31 @@
 .craft-compact-card.locked {
   opacity: 0.82;
   border-style: dashed;
+}
+
+.craft-compact-card.quality-common,
+.craft-compact-card.quality-uncommon,
+.craft-compact-card.quality-rare,
+.craft-compact-card.quality-epic,
+.craft-compact-card.quality-relic {
+  border-color: var(--quality-border);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), var(--quality-shadow);
+}
+
+.craft-compact-card.quality-uncommon {
+  background: linear-gradient(180deg, rgba(22, 56, 54, 0.72), rgba(10, 18, 34, 0.94));
+}
+
+.craft-compact-card.quality-rare {
+  background: linear-gradient(180deg, rgba(18, 48, 86, 0.78), rgba(12, 20, 34, 0.94));
+}
+
+.craft-compact-card.quality-epic {
+  background: linear-gradient(180deg, rgba(50, 26, 84, 0.8), rgba(11, 18, 34, 0.95));
+}
+
+.craft-compact-card.quality-relic {
+  background: linear-gradient(180deg, rgba(102, 50, 10, 0.86), rgba(18, 20, 30, 0.96));
 }
 
 .management-compact-card.build {
@@ -1220,6 +1247,15 @@
   border: 1px solid rgba(255,255,255,0.06);
 }
 
+.bag-inline-row.quality-common,
+.bag-inline-row.quality-uncommon,
+.bag-inline-row.quality-rare,
+.bag-inline-row.quality-epic,
+.bag-inline-row.quality-relic {
+  border-color: var(--quality-border);
+  box-shadow: var(--quality-shadow);
+}
+
 .bag-inline-row-main {
   min-width: 0;
   display: flex;
@@ -1236,6 +1272,15 @@
   justify-content: center;
   background: rgba(255,255,255,0.08);
   font-size: 15px;
+}
+
+.bag-inline-row.quality-common .bag-inline-row-icon,
+.bag-inline-row.quality-uncommon .bag-inline-row-icon,
+.bag-inline-row.quality-rare .bag-inline-row-icon,
+.bag-inline-row.quality-epic .bag-inline-row-icon,
+.bag-inline-row.quality-relic .bag-inline-row-icon {
+  background: var(--quality-icon-surface);
+  box-shadow: 0 0 0 1px var(--quality-icon-ring), 0 0 14px var(--quality-glow);
 }
 
 .bag-inline-row-name {
@@ -1277,6 +1322,23 @@
 
 .loadout-slot-card.equipped {
   border-color: rgba(78,204,163,0.32);
+}
+
+.loadout-slot-card.quality-common,
+.loadout-slot-card.quality-uncommon,
+.loadout-slot-card.quality-rare,
+.loadout-slot-card.quality-epic,
+.loadout-slot-card.quality-relic {
+  border-color: var(--quality-border);
+  box-shadow: var(--quality-shadow);
+}
+
+.loadout-slot-card.equipped.quality-common,
+.loadout-slot-card.equipped.quality-uncommon,
+.loadout-slot-card.equipped.quality-rare,
+.loadout-slot-card.equipped.quality-epic,
+.loadout-slot-card.equipped.quality-relic {
+  box-shadow: 0 0 0 1px rgba(78,204,163,0.14), var(--quality-shadow);
 }
 
 .loadout-slot-header {
@@ -1337,6 +1399,15 @@
   background: rgba(255,255,255,0.06);
 }
 
+.loadout-choice-button.quality-common,
+.loadout-choice-button.quality-uncommon,
+.loadout-choice-button.quality-rare,
+.loadout-choice-button.quality-epic,
+.loadout-choice-button.quality-relic {
+  border-color: var(--quality-border);
+  box-shadow: var(--quality-shadow);
+}
+
 .loadout-choice-main {
   min-width: 0;
   display: flex;
@@ -1353,6 +1424,27 @@
   justify-content: center;
   background: rgba(255,255,255,0.08);
   font-size: 15px;
+}
+
+.loadout-choice-button.quality-common .loadout-choice-icon,
+.loadout-choice-button.quality-uncommon .loadout-choice-icon,
+.loadout-choice-button.quality-rare .loadout-choice-icon,
+.loadout-choice-button.quality-epic .loadout-choice-icon,
+.loadout-choice-button.quality-relic .loadout-choice-icon,
+.craft-compact-card.quality-common .management-icon,
+.craft-compact-card.quality-uncommon .management-icon,
+.craft-compact-card.quality-rare .management-icon,
+.craft-compact-card.quality-epic .management-icon,
+.craft-compact-card.quality-relic .management-icon {
+  background: var(--quality-icon-surface);
+  box-shadow: 0 0 0 1px var(--quality-icon-ring), 0 0 16px var(--quality-glow);
+}
+
+.craft-compact-card.quality-rare .management-icon,
+.craft-compact-card.quality-epic .management-icon,
+.craft-compact-card.quality-relic .management-icon {
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 1px var(--quality-icon-ring), 0 0 22px var(--quality-glow), inset 0 1px 0 rgba(255,255,255,0.08);
 }
 
 .loadout-choice-copy {
@@ -1397,6 +1489,24 @@
   opacity: 0.78;
 }
 
+.bag-weapon-card.quality-common,
+.bag-weapon-card.quality-uncommon,
+.bag-weapon-card.quality-rare,
+.bag-weapon-card.quality-epic,
+.bag-weapon-card.quality-relic {
+  border-color: var(--quality-border);
+  box-shadow: var(--quality-shadow);
+}
+
+.bag-weapon-card.active.quality-common,
+.bag-weapon-card.active.quality-uncommon,
+.bag-weapon-card.active.quality-rare,
+.bag-weapon-card.active.quality-epic,
+.bag-weapon-card.active.quality-relic {
+  border-color: rgba(240,165,0,0.56);
+  box-shadow: 0 0 0 1px rgba(240,165,0,0.14), var(--quality-shadow);
+}
+
 .bag-weapon-card-top {
   display: flex;
   align-items: flex-start;
@@ -1420,6 +1530,15 @@
   justify-content: center;
   background: rgba(255,255,255,0.08);
   font-size: 18px;
+}
+
+.bag-weapon-card.quality-common .bag-weapon-card-icon,
+.bag-weapon-card.quality-uncommon .bag-weapon-card-icon,
+.bag-weapon-card.quality-rare .bag-weapon-card-icon,
+.bag-weapon-card.quality-epic .bag-weapon-card-icon,
+.bag-weapon-card.quality-relic .bag-weapon-card-icon {
+  background: var(--quality-icon-surface);
+  box-shadow: 0 0 0 1px var(--quality-icon-ring), 0 0 18px var(--quality-glow);
 }
 
 .bag-weapon-card-copy {

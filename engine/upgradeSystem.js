@@ -49,7 +49,11 @@ window.UpgradeSystem = (function () {
         GameState.addInstance(instanceUid, instance);
         
         // Re-create 3D mesh with new level visual
-        var scene = GameScene.getScene();
+        var scene = (window.GameScene && GameScene.getScene) ? GameScene.getScene() : null;
+        if (!scene) {
+          if (window.GameHUD && GameHUD.renderAll) GameHUD.renderAll();
+          return check;
+        }
         for (var i = scene.children.length - 1; i >= 0; i--) {
           var child = scene.children[i];
           if (child.userData && child.userData.instanceUid === instanceUid) {

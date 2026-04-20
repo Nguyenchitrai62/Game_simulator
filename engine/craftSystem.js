@@ -72,7 +72,7 @@ window.CraftSystem = (function () {
       if (item && item.type === 'equipment') {
         var invCount = GameState.getInventoryCount(resId);
         var player = GameState.getPlayer();
-        if (invCount > 0 || player.equipped[item.slot] === resId) {
+        if (invCount > 0 || (player && player.equipped && player.equipped[item.slot] === resId)) {
           if (typeof GameHUD !== 'undefined') GameHUD.showError("You already have this equipment!");
           return false;
         }

@@ -1,9 +1,8 @@
 window.GAME_CONTENT = window.GAME_CONTENT || {};
 
-window.GAME_CONTENT.expansion_ranged_weapons = {
-  id: "expansion_ranged_weapons",
+window.GAME_CONTENT["expansion_ranged_weapons"] = {
+  packId: "expansion_ranged_weapons",
   name: "Ranged Weapons",
-  version: "1.0.0",
   entities: [
     {
       id: "equipment.hunting_bow",

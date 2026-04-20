@@ -884,6 +884,11 @@ window.GAME_BALANCE = {
       engageRange: 7.3,
       damageMultiplier: 1.08,
       bossDamageMultiplier: 1.16,
+      directionalAim: true,
+      projectileSpeed: 13.2,
+      projectileHitRadius: 0.42,
+      projectileStartOffset: 0.78,
+      projectileMaxRange: 6.8,
       hitColor: 0xffd166
     }
   },
@@ -1031,6 +1036,11 @@ window.GAME_BALANCE = {
         engageRange: 5.5,
         damageMultiplier: 1.0,
         bossDamageMultiplier: 0.85,
+        directionalAim: true,
+        projectileSpeed: 10.5,
+        projectileHitRadius: 0.38,
+        projectileStartOffset: 0.7,
+        projectileMaxRange: 4.9,
         hitColor: 0x7fd3ff
       },
       special: {
@@ -1415,9 +1425,9 @@ window.GAME_BALANCE = {
   // === THIẾT LẬP CAMERA / MAP ===
   settings: {
     sceneCamera: {
-      defaultZoom: 8,
-      minZoom: 4,
-      maxZoom: 8,
+      defaultZoom: 6,
+      minZoom: 2,
+      maxZoom: 6,
       wheelStep: 1
     },
     fullMap: {

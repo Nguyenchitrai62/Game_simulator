@@ -943,7 +943,9 @@ window.BarracksTroopSystem = (function () {
   }
 
   function scheduleAnimalRespawn(target, balance) {
+    if (balance && (balance.noRespawn || balance.isBoss)) return;
     var respawnTime = getEntityRespawnTimeSeconds(balance);
+    if (!(respawnTime > 0)) return;
     target.respawnAt = Date.now() + (respawnTime * 1000);
 
     function tryAnimalRespawn() {
@@ -964,6 +966,9 @@ window.BarracksTroopSystem = (function () {
       target.respawnAt = 0;
       if (window.GameEntities && GameEntities.showObject) {
         GameEntities.showObject(target);
+      }
+      if (window.GameTerrain && GameTerrain.persistObjectState) {
+        GameTerrain.persistObjectState(target);
       }
     }
 

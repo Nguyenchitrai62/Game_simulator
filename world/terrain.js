@@ -9,6 +9,7 @@ window.GameTerrain = (function () {
   var _chunkCullFrustum = null;
   var _visibleChunkCount = 0;
   var _visibilityDirty = true;
+  var _runtimeDropCounter = 0;
   var _lastVisibilityCameraState = {
     x: Infinity,
     y: Infinity,
@@ -155,6 +156,7 @@ window.GameTerrain = (function () {
     for (var i = 0; i < objects.length; i++) {
       var obj = objects[i];
       if (!obj || obj._destroyed) continue;
+      if (isNonBlockingChunkObject(obj)) continue;
       if (skipObjectId && obj.id === skipObjectId) continue;
       var dx = obj.worldX - worldX;
       var dz = obj.worldZ - worldZ;
@@ -507,8 +509,21 @@ window.GameTerrain = (function () {
     return !!(objData && objData.type && objData.type.indexOf('site.') === 0);
   }
 
+  function isPickupDrop(objData) {
+    return !!(objData && objData.type === 'pickup.drop');
+  }
+
   function isPersistentChunkObject(objData) {
-    return !!(isResourceNode(objData) || (objData && objData.persistentChunkState));
+    return !!(isResourceNode(objData) || isPickupDrop(objData) || (objData && objData.persistentChunkState));
+  }
+
+  function isNonBlockingChunkObject(objData) {
+    return isPickupDrop(objData);
+  }
+
+  function buildRuntimeObjectId(prefix) {
+    _runtimeDropCounter++;
+    return (prefix || 'obj_runtime') + '_' + Date.now().toString(36) + '_' + _runtimeDropCounter.toString(36);
   }
 
   function cloneMap(map) {
@@ -728,6 +743,10 @@ window.GameTerrain = (function () {
     return getSavedNodeField(savedData, "id", "i");
   }
 
+  function getSavedChunkObjectType(savedData) {
+    return getSavedNodeField(savedData, 'type', 't');
+  }
+
   function buildSavedNodeState(objData) {
     if (!isResourceNode(objData)) return null;
 
@@ -788,8 +807,23 @@ window.GameTerrain = (function () {
     if (!isPersistentChunkObject(objData)) return null;
     if (isResourceNode(objData)) return buildSavedNodeState(objData);
 
+    if (isPickupDrop(objData)) {
+      return {
+        i: objData.id,
+        t: objData.type,
+        x: objData.x,
+        z: objData.z,
+        wx: objData.worldX,
+        wz: objData.worldZ,
+        di: objData.dropItemId || null,
+        a: Math.max(1, Number(objData.dropAmount) || 1),
+        sa: Number(objData.dropSpawnedAt) || 0
+      };
+    }
+
     return {
       i: objData.id,
+      t: objData.type,
       x: objData.x,
       z: objData.z,
       wx: objData.worldX,
@@ -923,6 +957,33 @@ window.GameTerrain = (function () {
       return;
     }
 
+    if (isPickupDrop(objData)) {
+      var savedDropX = getSavedNodeField(savedData, 'x', 'x');
+      var savedDropZ = getSavedNodeField(savedData, 'z', 'z');
+      var savedDropWorldX = getSavedNodeField(savedData, 'worldX', 'wx');
+      var savedDropWorldZ = getSavedNodeField(savedData, 'worldZ', 'wz');
+      var savedDropItemId = getSavedNodeField(savedData, 'dropItemId', 'di');
+      var savedDropAmount = getSavedNodeField(savedData, 'dropAmount', 'a');
+      var savedDropSpawnedAt = getSavedNodeField(savedData, 'dropSpawnedAt', 'sa');
+
+      if (savedDropX !== undefined) objData.x = savedDropX;
+      if (savedDropZ !== undefined) objData.z = savedDropZ;
+      if (savedDropWorldX !== undefined) objData.worldX = savedDropWorldX;
+      if (savedDropWorldZ !== undefined) objData.worldZ = savedDropWorldZ;
+      if ((savedDropX !== undefined || savedDropZ !== undefined) && (savedDropWorldX === undefined || savedDropWorldZ === undefined)) {
+        syncNodeWorldPosition(objData);
+      }
+
+      objData.dropItemId = savedDropItemId || objData.dropItemId || null;
+      objData.dropAmount = Math.max(1, Number(savedDropAmount) || Number(objData.dropAmount) || 1);
+      objData.dropSpawnedAt = Number(savedDropSpawnedAt) || Number(objData.dropSpawnedAt) || now;
+      objData.persistentChunkState = true;
+      objData._destroyed = false;
+      objData.maxHp = 1;
+      objData.hp = 1;
+      return;
+    }
+
     var savedHp = getSavedNodeField(savedData, 'hp', 'h');
     var savedDestroyed = getSavedNodeField(savedData, '_destroyed', 'd');
     var savedX = getSavedNodeField(savedData, 'x', 'x');
@@ -955,6 +1016,76 @@ window.GameTerrain = (function () {
 
     if (savedX !== undefined || savedZ !== undefined || savedWorldX !== undefined || savedWorldZ !== undefined) {
       objData._needsMeshRefresh = true;
+    }
+  }
+
+  function createSavedPickupDropObject(savedData, chunkData) {
+    if (!savedData || !chunkData) return null;
+
+    var itemId = getSavedNodeField(savedData, 'dropItemId', 'di');
+    var amount = Math.max(1, Number(getSavedNodeField(savedData, 'dropAmount', 'a')) || 0);
+    if (!itemId || amount <= 0) return null;
+
+    var localX = getSavedNodeField(savedData, 'x', 'x');
+    var localZ = getSavedNodeField(savedData, 'z', 'z');
+    var worldX = getSavedNodeField(savedData, 'worldX', 'wx');
+    var worldZ = getSavedNodeField(savedData, 'worldZ', 'wz');
+
+    if (worldX === undefined && localX !== undefined) {
+      worldX = chunkData.cx * CHUNK_SIZE + localX;
+    }
+    if (worldZ === undefined && localZ !== undefined) {
+      worldZ = chunkData.cz * CHUNK_SIZE + localZ;
+    }
+    if (localX === undefined && worldX !== undefined) {
+      localX = worldX - chunkData.cx * CHUNK_SIZE;
+    }
+    if (localZ === undefined && worldZ !== undefined) {
+      localZ = worldZ - chunkData.cz * CHUNK_SIZE;
+    }
+
+    if (!isFinite(localX) || !isFinite(localZ) || !isFinite(worldX) || !isFinite(worldZ)) {
+      return null;
+    }
+
+    return {
+      id: getSavedNodeId(savedData) || buildRuntimeObjectId('drop'),
+      type: 'pickup.drop',
+      x: localX,
+      z: localZ,
+      worldX: worldX,
+      worldZ: worldZ,
+      hp: 1,
+      maxHp: 1,
+      persistentChunkState: true,
+      dropItemId: itemId,
+      dropAmount: amount,
+      dropSpawnedAt: Number(getSavedNodeField(savedData, 'dropSpawnedAt', 'sa')) || Date.now()
+    };
+  }
+
+  function restoreSavedRuntimeChunkObjects(chunkData, savedObjects) {
+    if (!chunkData || !savedObjects || !savedObjects.length) return;
+
+    var existingIds = {};
+    for (var index = 0; index < chunkData.objects.length; index++) {
+      existingIds[chunkData.objects[index].id] = true;
+    }
+
+    for (var savedIndex = 0; savedIndex < savedObjects.length; savedIndex++) {
+      var savedData = savedObjects[savedIndex];
+      var savedId = getSavedNodeId(savedData);
+      if (savedId && existingIds[savedId]) continue;
+
+      var savedType = getSavedChunkObjectType(savedData);
+      var runtimeObject = null;
+      if (savedType === 'pickup.drop') {
+        runtimeObject = createSavedPickupDropObject(savedData, chunkData);
+      }
+
+      if (!runtimeObject) continue;
+      chunkData.objects.push(runtimeObject);
+      existingIds[runtimeObject.id] = true;
     }
   }
 
@@ -1481,6 +1612,120 @@ window.GameTerrain = (function () {
     return true;
   }
 
+  function clampDropCoordinate(value) {
+    var min = 0.45;
+    var max = CHUNK_SIZE - 0.45;
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function createPickupDropObject(chunkData, worldX, worldZ, itemId, amount, spawnedAt) {
+    if (!chunkData || !itemId || !(amount > 0)) return null;
+
+    var localX = clampDropCoordinate(worldX - chunkData.cx * CHUNK_SIZE);
+    var localZ = clampDropCoordinate(worldZ - chunkData.cz * CHUNK_SIZE);
+    return {
+      id: buildRuntimeObjectId('drop'),
+      type: 'pickup.drop',
+      x: localX,
+      z: localZ,
+      worldX: chunkData.cx * CHUNK_SIZE + localX,
+      worldZ: chunkData.cz * CHUNK_SIZE + localZ,
+      hp: 1,
+      maxHp: 1,
+      persistentChunkState: true,
+      dropItemId: itemId,
+      dropAmount: Math.max(1, Number(amount) || 1),
+      dropSpawnedAt: Number(spawnedAt) || Date.now()
+    };
+  }
+
+  function spawnRewardDrops(worldX, worldZ, rewardMap) {
+    if (!rewardMap) return [];
+
+    var sourceChunk = getChunkAt(worldX, worldZ);
+    if (!sourceChunk) return [];
+
+    var rewardEntries = [];
+    for (var rewardId in rewardMap) {
+      if (!Object.prototype.hasOwnProperty.call(rewardMap, rewardId)) continue;
+      var rewardAmount = Number(rewardMap[rewardId]) || 0;
+      if (rewardAmount > 0) {
+        rewardEntries.push({ id: rewardId, amount: rewardAmount });
+      }
+    }
+
+    if (!rewardEntries.length) return [];
+
+    var spawned = [];
+    var touchedChunks = {};
+    var spawnedAt = Date.now();
+
+    for (var rewardIndex = 0; rewardIndex < rewardEntries.length; rewardIndex++) {
+      var rewardEntry = rewardEntries[rewardIndex];
+      var angle = ((Math.PI * 2) * rewardIndex / rewardEntries.length) + seededRandom(hashString(rewardEntry.id + '|' + spawnedAt + '|' + rewardIndex)) * 0.45;
+      var radius = rewardEntries.length > 1 ? (0.28 + rewardIndex * 0.06) : 0.16;
+      var dropWorldX = worldX + Math.cos(angle) * radius;
+      var dropWorldZ = worldZ + Math.sin(angle) * radius;
+      var dropChunk = getChunkAt(dropWorldX, dropWorldZ) || sourceChunk;
+      var dropObject = createPickupDropObject(dropChunk, dropWorldX, dropWorldZ, rewardEntry.id, rewardEntry.amount, spawnedAt);
+      if (!dropObject) continue;
+
+      dropChunk.objects.push(dropObject);
+      spawned.push(dropObject);
+      touchedChunks[dropChunk.cx + ',' + dropChunk.cz] = dropChunk;
+    }
+
+    if (!spawned.length) return spawned;
+
+    if (typeof GameEntities !== 'undefined' && GameEntities.createObjectForChunk) {
+      for (var chunkKey in touchedChunks) {
+        GameEntities.createObjectForChunk(touchedChunks[chunkKey]);
+      }
+    }
+
+    for (var touchedKey in touchedChunks) {
+      persistChunkData(touchedChunks[touchedKey]);
+    }
+
+    return spawned;
+  }
+
+  function removeChunkObject(objData) {
+    if (!objData) return null;
+
+    var chunkData = getChunkAt(objData.worldX, objData.worldZ);
+    if (!chunkData || !chunkData.objects) return null;
+
+    for (var objectIndex = 0; objectIndex < chunkData.objects.length; objectIndex++) {
+      var chunkObject = chunkData.objects[objectIndex];
+      if (!chunkObject || chunkObject.id !== objData.id) continue;
+
+      var removed = chunkData.objects.splice(objectIndex, 1)[0];
+      if (typeof GameEntities !== 'undefined' && GameEntities.removeObject) {
+        GameEntities.removeObject(removed);
+      }
+      persistChunkData(chunkData);
+      return removed;
+    }
+
+    return null;
+  }
+
+  function takePickupDrop(objData) {
+    if (!isPickupDrop(objData)) return null;
+
+    var removed = removeChunkObject(objData);
+    if (!removed) return null;
+
+    return {
+      itemId: removed.dropItemId || null,
+      amount: Math.max(1, Number(removed.dropAmount) || 1),
+      worldX: removed.worldX,
+      worldZ: removed.worldZ,
+      objectId: removed.id
+    };
+  }
+
   function generateChunk(cx, cz, savedChunkData) {
     var key = cx + "," + cz;
     var seed = chunkSeed(cx, cz) + worldSeed;
@@ -1809,6 +2054,10 @@ window.GameTerrain = (function () {
       }
     }
 
+    if (savedChunkData && savedChunkData.objects && savedChunkData.objects.length) {
+      restoreSavedRuntimeChunkObjects(chunkData, savedChunkData.objects);
+    }
+
     var generationTime = chunkData.generatedAt;
     chunkData.objects.forEach(function (obj) {
       initializeNodeState(obj, generationTime);
@@ -1883,6 +2132,7 @@ window.GameTerrain = (function () {
     for (var i = 0; i < chunk.objects.length; i++) {
       var obj = chunk.objects[i];
       if (obj.hp <= 0 || obj._destroyed) continue;
+      if (isNonBlockingChunkObject(obj)) continue;
       var dx = Math.abs(obj.x - localX);
       var dz = Math.abs(obj.z - localZ);
       if (dx < 0.4 && dz < 0.4) return false;
@@ -2058,12 +2308,15 @@ window.GameTerrain = (function () {
     findNearestObject: findNearestObject,
     getNearbyObjects: getNearbyObjects,
     getNodeInfo: getNodeInfo,
+    isPickupDrop: isPickupDrop,
     isNodeAtMaxGrowth: isNodeAtMaxGrowth,
     canWaterGrowthNode: canWaterGrowthNode,
     applyGrowthWaterBoost: applyGrowthWaterBoost,
     canHarvestNode: canHarvestNode,
     completeNodeHarvest: completeNodeHarvest,
     relocateRespawnedAnimal: relocateRespawnedAnimal,
+    spawnRewardDrops: spawnRewardDrops,
+    takePickupDrop: takePickupDrop,
     persistObjectState: persistObjectState,
     restoreChunk: restoreChunk,
     seededRandom: seededRandom,

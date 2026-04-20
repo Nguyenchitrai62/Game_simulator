@@ -1,7 +1,6 @@
 window.TickSystem = (function () {
   var _tickCount = 0;
   var _resourceStats = {};
-  var _lastNet = {};
 
   function getSimulationConfig() {
     return (window.GAME_BALANCE && GAME_BALANCE.simulation) || {};
@@ -170,8 +169,8 @@ window.TickSystem = (function () {
         _resourceStats.timeLeft[resId] = Infinity;
       }
     });
-    
-    _lastNet = Object.assign({}, _resourceStats.net);
+
+
   }
 
   /**

@@ -23,7 +23,21 @@ window.GamePlayer = (function () {
   // Equipment 3D visuals
   var _weaponMesh = null;
   var _shieldMesh = null;
+  var _armorMesh = null;
+  var _bodyObject = null;
+  var _headObject = null;
+  var _hairObject = null;
+  var _leftArmObject = null;
   var _rightArmObject = null;
+  var _leftLegObject = null;
+  var _rightLegObject = null;
+  var _leftHandAnchor = null;
+  var _rightHandAnchor = null;
+  var _weaponAttachmentParent = null;
+  var _shieldAttachmentParent = null;
+  var _armorAttachmentParent = null;
+  var _movementBlend = 0;
+  var _attackPose = { kind: null, timer: 0, duration: 0, aimX: 0, aimZ: 1 };
   var _contextRefreshAccumulator = 0;
   var _lastContextQueryPos = { x: Infinity, z: Infinity };
 
@@ -53,6 +67,9 @@ window.GamePlayer = (function () {
   var _tutLastNearNode = false; // set by updateContextAction each refresh
   var _clickMouseNdc = null;
   var _clickRaycaster = null;
+  var _clickGroundPlane = null;
+  var _clickWorldPoint = null;
+  var _attackOriginWorldPoint = null;
 
   function updateClickRaycaster(clientX, clientY) {
     if (!_clickMouseNdc && typeof THREE !== 'undefined') {
@@ -60,6 +77,12 @@ window.GamePlayer = (function () {
     }
     if (!_clickRaycaster && typeof THREE !== 'undefined') {
       _clickRaycaster = new THREE.Raycaster();
+    }
+    if (!_clickGroundPlane && typeof THREE !== 'undefined') {
+      _clickGroundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    }
+    if (!_clickWorldPoint && typeof THREE !== 'undefined') {
+      _clickWorldPoint = new THREE.Vector3();
     }
     if (!_clickMouseNdc || !_clickRaycaster) return null;
 
@@ -117,6 +140,7 @@ window.GamePlayer = (function () {
     body.castShadow = true;
     body.name = "body";
     group.add(body);
+    _bodyObject = body;
 
     // Head (slightly larger for low-poly style)
     var headGeo = new THREE.SphereGeometry(0.2, 10, 8);
@@ -125,6 +149,7 @@ window.GamePlayer = (function () {
     head.position.y = 0.98;
     head.castShadow = true;
     group.add(head);
+    _headObject = head;
 
     // Hair
     var hairGeo = new THREE.BoxGeometry(0.22, 0.07, 0.22);
@@ -132,39 +157,69 @@ window.GamePlayer = (function () {
     var hair = new THREE.Mesh(hairGeo, hairMat);
     hair.position.y = 1.1;
     group.add(hair);
+    _hairObject = hair;
 
     // Left arm
     var armGeo = new THREE.BoxGeometry(0.12, 0.35, 0.12);
     var armMat = new THREE.MeshLambertMaterial({ color: 0xDEB887 });
+    var leftArmPivot = new THREE.Group();
+    leftArmPivot.position.set(-0.24, 0.72, 0);
+    leftArmPivot.name = 'leftArmPivot';
+    group.add(leftArmPivot);
     var leftArm = new THREE.Mesh(armGeo, armMat);
-    leftArm.position.set(-0.3, 0.55, 0);
+    leftArm.position.set(0, -0.18, 0);
     leftArm.castShadow = true;
     leftArm.name = "leftArm";
-    group.add(leftArm);
+    leftArmPivot.add(leftArm);
+    var leftHandAnchor = new THREE.Group();
+    leftHandAnchor.position.set(0, -0.34, 0.02);
+    leftHandAnchor.name = 'leftHandAnchor';
+    leftArmPivot.add(leftHandAnchor);
+    _leftArmObject = leftArmPivot;
+    _leftHandAnchor = leftHandAnchor;
 
     // Right arm
+    var rightArmPivot = new THREE.Group();
+    rightArmPivot.position.set(0.24, 0.72, 0);
+    rightArmPivot.name = 'rightArmPivot';
+    group.add(rightArmPivot);
     var rightArm = new THREE.Mesh(armGeo, armMat);
-    rightArm.position.set(0.3, 0.55, 0);
+    rightArm.position.set(0, -0.18, 0);
     rightArm.castShadow = true;
     rightArm.name = "rightArm";
-    group.add(rightArm);
-    _rightArmObject = rightArm;
+    rightArmPivot.add(rightArm);
+    var rightHandAnchor = new THREE.Group();
+    rightHandAnchor.position.set(0, -0.34, 0.02);
+    rightHandAnchor.name = 'rightHandAnchor';
+    rightArmPivot.add(rightHandAnchor);
+    _rightArmObject = rightArmPivot;
+    _rightHandAnchor = rightHandAnchor;
 
     // Left leg
     var legGeo = new THREE.BoxGeometry(0.14, 0.35, 0.14);
     var legMat = new THREE.MeshLambertMaterial({ color: 0x3a3a5c });
+    var leftLegPivot = new THREE.Group();
+    leftLegPivot.position.set(-0.12, 0.34, 0);
+    leftLegPivot.name = 'leftLegPivot';
+    group.add(leftLegPivot);
     var leftLeg = new THREE.Mesh(legGeo, legMat);
-    leftLeg.position.set(-0.12, 0.17, 0);
+    leftLeg.position.set(0, -0.18, 0);
     leftLeg.castShadow = true;
     leftLeg.name = "leftLeg";
-    group.add(leftLeg);
+    leftLegPivot.add(leftLeg);
+    _leftLegObject = leftLegPivot;
 
     // Right leg
+    var rightLegPivot = new THREE.Group();
+    rightLegPivot.position.set(0.12, 0.34, 0);
+    rightLegPivot.name = 'rightLegPivot';
+    group.add(rightLegPivot);
     var rightLeg = new THREE.Mesh(legGeo, legMat);
-    rightLeg.position.set(0.12, 0.17, 0);
+    rightLeg.position.set(0, -0.18, 0);
     rightLeg.castShadow = true;
     rightLeg.name = "rightLeg";
-    group.add(rightLeg);
+    rightLegPivot.add(rightLeg);
+    _rightLegObject = rightLegPivot;
 
     // Shadow circle
     var shadowGeo = new THREE.CircleGeometry(0.3, 16);
@@ -177,6 +232,16 @@ window.GamePlayer = (function () {
     // Initialize equipment meshes (hidden by default)
     _weaponMesh = null;
     _shieldMesh = null;
+    _armorMesh = null;
+    _weaponAttachmentParent = null;
+    _shieldAttachmentParent = null;
+    _armorAttachmentParent = _bodyObject;
+    _movementBlend = 0;
+    _attackPose.kind = null;
+    _attackPose.timer = 0;
+    _attackPose.duration = 0;
+    _attackPose.aimX = _direction.x;
+    _attackPose.aimZ = _direction.z;
 
     group.position.set(_x, 0, _z);
     mesh = group;
@@ -224,45 +289,95 @@ window.GamePlayer = (function () {
     var raycaster = updateClickRaycaster(event.clientX, event.clientY);
     if (!raycaster) return;
 
-    var objectMeshes = GameEntities.getAllMeshes();
-    if (!objectMeshes.length) return;
-    var intersects = raycaster.intersectObjects(objectMeshes, true);
-    if (intersects.length > 0) {
-      var objData = GameEntities.getDataFromMesh(intersects[0].object);
-      if (objData) {
-        if (handleBarracksTargetSelection(objData)) {
-          return;
-        }
+    var objectMeshes = (window.GameEntities && GameEntities.getAllMeshes) ? GameEntities.getAllMeshes() : [];
+    var intersects = objectMeshes.length ? raycaster.intersectObjects(objectMeshes, true) : [];
+    var objData = intersects.length > 0 ? GameEntities.getDataFromMesh(intersects[0].object) : null;
 
-        if (handleCombatClick(objData)) {
-          return;
-        }
+    if (objData) {
+      if (handleBarracksTargetSelection(objData)) {
+        return;
+      }
 
-        if (handleWorldSiteClick(objData)) {
-          return;
-        }
+      if (handlePickupClick(objData)) {
+        return;
+      }
 
-        var entity = GameRegistry.getEntity(objData.type);
-        var name = entity ? entity.name : objData.type;
-        if (objData.type.startsWith('animal.')) {
-          var balance = GameRegistry.getBalance(objData.type);
-          var info = name + ' | ' + t('hud.nodes.hpShort', null, 'HP') + ': ' + objData.hp + '/' + objData.maxHp;
-          if (balance) {
-            info += ' | ' + t('hud.player.animalStatLabels.attack', null, 'Attack') + ': ' + (balance.attack || 0);
-            info += ' ' + t('hud.player.animalStatLabels.defense', null, 'Defense') + ': ' + (balance.defense || 0);
-          }
-          info += ' | ' + ((GameRegistry.isAnimalThreat && GameRegistry.isAnimalThreat(objData.type))
-            ? t('hud.player.animalDisposition.threat', null, 'Threat')
-            : t('hud.player.animalDisposition.prey', null, 'Prey'));
-          GameHUD.showNotification(info);
-        } else if (objData.type.startsWith('node.')) {
-          GameHUD.showNotification(name + ' | ' + t('hud.nodes.hpShort', null, 'HP') + ': ' + objData.hp + '/' + objData.maxHp);
-        } else if (objData.type === 'site.ruined_outpost') {
-          GameHUD.showNotification(name + ' | Move closer and click or press E to salvage the cache.');
-        }
+      if (handleWorldSiteClick(objData)) {
+        return;
       }
     }
 
+    if (handleDirectionalAttackClick(raycaster, objData)) {
+      return;
+    }
+
+    if (objData && handleCombatClick(objData)) {
+      return;
+    }
+
+    if (objData) {
+      showClickedObjectNotification(objData);
+    }
+  }
+
+  function getCurrentWeaponProfile() {
+    if (!window.GameCombat || !GameCombat.getCurrentWeaponProfile) return null;
+    return GameCombat.getCurrentWeaponProfile();
+  }
+
+  function resolveClickWorldPoint(raycaster, objData) {
+    if (objData && isFinite(objData.worldX) && isFinite(objData.worldZ)) {
+      return { x: objData.worldX, z: objData.worldZ };
+    }
+    if (!_clickGroundPlane || !_clickWorldPoint || !raycaster || !raycaster.ray) return null;
+
+    var hitPoint = raycaster.ray.intersectPlane(_clickGroundPlane, _clickWorldPoint);
+    if (!hitPoint) return null;
+
+    return { x: hitPoint.x, z: hitPoint.z };
+  }
+
+  function handleDirectionalAttackClick(raycaster, objData) {
+    var profile = getCurrentWeaponProfile();
+    if (!profile || !profile.directionalAim || !window.GameCombat || !GameCombat.tryDirectionalAttack) {
+      return false;
+    }
+
+    var targetData = (objData && objData.type && objData.type.indexOf('animal.') === 0) ? objData : null;
+    var worldPoint = resolveClickWorldPoint(raycaster, targetData);
+    if (!worldPoint) return true;
+
+    if (targetData) {
+      _handleThreatEngaged(targetData);
+    }
+
+    GameCombat.tryDirectionalAttack(worldPoint.x, worldPoint.z, targetData);
+    return true;
+  }
+
+  function showClickedObjectNotification(objData) {
+    if (!objData) return;
+
+    var entity = GameRegistry.getEntity(objData.type);
+    var name = entity ? entity.name : objData.type;
+    if (objData.type.startsWith('animal.')) {
+      var balance = GameRegistry.getBalance(objData.type);
+      var info = name + ' | ' + t('hud.nodes.hpShort', null, 'HP') + ': ' + objData.hp + '/' + objData.maxHp;
+      if (balance) {
+        info += ' | ' + t('hud.player.animalStatLabels.attack', null, 'Attack') + ': ' + (balance.attack || 0);
+        info += ' ' + t('hud.player.animalStatLabels.defense', null, 'Defense') + ': ' + (balance.defense || 0);
+      }
+      info += ' | ' + ((GameRegistry.isAnimalThreat && GameRegistry.isAnimalThreat(objData.type))
+        ? t('hud.player.animalDisposition.threat', null, 'Threat')
+        : t('hud.player.animalDisposition.prey', null, 'Prey'));
+      GameHUD.showNotification(info);
+    } else if (objData.type.startsWith('node.')) {
+      GameHUD.showNotification(name + ' | ' + t('hud.nodes.hpShort', null, 'HP') + ': ' + objData.hp + '/' + objData.maxHp);
+    } else if (isPickupDrop(objData)) {
+      GameHUD.showNotification(getPickupDropName(objData) + ' | ' + t('hud.player.moveCloserToPickup', null, 'Move closer and click or press E to pick it up.'));
+    } else if (objData.type === 'site.ruined_outpost') {
+      GameHUD.showNotification(name + ' | Move closer and click or press E to salvage the cache.');
+    }
   }
 
   function handleBarracksTargetSelection(objData) {
@@ -289,6 +404,22 @@ window.GamePlayer = (function () {
 
     _handleThreatEngaged(objData);
     return !!GameCombat.startCombat(objData);
+  }
+
+  function handlePickupClick(objData) {
+    if (!isPickupDrop(objData)) return false;
+
+    var interactionRadius = getPlayerInteractionRadius();
+    var dx = (objData.worldX || 0) - _x;
+    var dz = (objData.worldZ || 0) - _z;
+    if (Math.sqrt(dx * dx + dz * dz) > interactionRadius) {
+      if (window.GameHUD && GameHUD.showNotification) {
+        GameHUD.showNotification(t('hud.player.moveCloserToPickupNamed', { name: getPickupDropName(objData) }, 'Move closer to pick up {name}.'));
+      }
+      return true;
+    }
+
+    return collectPickupDrop(objData);
   }
 
   function handleWorldSiteClick(objData) {
@@ -1059,6 +1190,211 @@ window.GamePlayer = (function () {
     _updateTutBubblePosition();
   }
 
+  function clamp01(value) {
+    if (value <= 0) return 0;
+    if (value >= 1) return 1;
+    return value;
+  }
+
+  function dampRotation(object, targetX, targetY, targetZ, alpha) {
+    if (!object) return;
+    object.rotation.x = dampValue(object.rotation.x, targetX, alpha);
+    object.rotation.y = dampValue(object.rotation.y, targetY, alpha);
+    object.rotation.z = dampValue(object.rotation.z, targetZ, alpha);
+  }
+
+  function dampHeldVisualToBase(heldMesh, alpha) {
+    applyHeldVisualPose(heldMesh, alpha, 0, 0, 0, 0, 0, 0);
+  }
+
+  function applyHeldVisualPose(heldMesh, alpha, posX, posY, posZ, rotX, rotY, rotZ) {
+    if (!heldMesh || !heldMesh.userData) return;
+
+    var basePosition = heldMesh.userData.basePosition;
+    var baseRotation = heldMesh.userData.baseRotation;
+    if (basePosition) {
+      heldMesh.position.x = dampValue(heldMesh.position.x, basePosition.x + (posX || 0), alpha);
+      heldMesh.position.y = dampValue(heldMesh.position.y, basePosition.y + (posY || 0), alpha);
+      heldMesh.position.z = dampValue(heldMesh.position.z, basePosition.z + (posZ || 0), alpha);
+    }
+    if (baseRotation) {
+      heldMesh.rotation.x = dampValue(heldMesh.rotation.x, baseRotation.x + (rotX || 0), alpha);
+      heldMesh.rotation.y = dampValue(heldMesh.rotation.y, baseRotation.y + (rotY || 0), alpha);
+      heldMesh.rotation.z = dampValue(heldMesh.rotation.z, baseRotation.z + (rotZ || 0), alpha);
+    }
+  }
+
+  function getHandAnchorPosition(anchor, fallbackY) {
+    if (anchor && anchor.getWorldPosition && typeof THREE !== 'undefined') {
+      if (!_attackOriginWorldPoint) {
+        _attackOriginWorldPoint = new THREE.Vector3();
+      }
+      anchor.getWorldPosition(_attackOriginWorldPoint);
+      return {
+        x: _attackOriginWorldPoint.x,
+        y: _attackOriginWorldPoint.y,
+        z: _attackOriginWorldPoint.z
+      };
+    }
+
+    return { x: _x, y: fallbackY, z: _z };
+  }
+
+  function getAttackAnimationKind(profile) {
+    if (profile && profile.directionalAim) return 'bow';
+    if (profile && profile.weaponId && (profile.weaponId.indexOf('glaive') !== -1 || profile.weaponId.indexOf('stormspine') !== -1)) return 'thrust';
+    if (profile && (profile.id === 'spear' || profile.classId === 'reach')) return 'thrust';
+    return 'slash';
+  }
+
+  function triggerAttackAnimation(profile, targetX, targetZ) {
+    var aimX = _direction.x;
+    var aimZ = _direction.z;
+    var dx = Number(targetX) - _x;
+    var dz = Number(targetZ) - _z;
+    var length = Math.sqrt(dx * dx + dz * dz);
+    if (length > 0.001) {
+      aimX = dx / length;
+      aimZ = dz / length;
+      _direction.x = aimX;
+      _direction.z = aimZ;
+    }
+
+    var kind = getAttackAnimationKind(profile);
+    var baseDuration = kind === 'bow' ? 0.38 : (kind === 'thrust' ? 0.3 : 0.24);
+    var scaledDuration = profile && profile.attackIntervalSeconds
+      ? profile.attackIntervalSeconds * (kind === 'bow' ? 0.78 : 0.72)
+      : baseDuration;
+    var maxDuration = kind === 'bow' ? 0.5 : 0.4;
+    var duration = Math.max(baseDuration, Math.min(maxDuration, scaledDuration));
+
+    _attackPose.kind = kind;
+    _attackPose.timer = duration;
+    _attackPose.duration = duration;
+    _attackPose.aimX = aimX;
+    _attackPose.aimZ = aimZ;
+  }
+
+  function updateAttackPose(dt) {
+    if (!(_attackPose.timer > 0)) return;
+    _attackPose.timer = Math.max(0, _attackPose.timer - dt);
+    if (_attackPose.timer <= 0) {
+      _attackPose.kind = null;
+      _attackPose.duration = 0;
+    }
+  }
+
+  function applyPlayerPose(motionAmount, visualDt, profile) {
+    if (!mesh) return;
+
+    var torsoAlpha = getSmoothingFactor(visualDt, 20);
+    var limbAlpha = getSmoothingFactor(visualDt, 24);
+    var heldAlpha = getSmoothingFactor(visualDt, 18);
+    _movementBlend = dampValue(_movementBlend, motionAmount || 0, getSmoothingFactor(visualDt, 12));
+
+    var walkBlend = _movementBlend;
+    var walkCycle = _visualAnimTime * (6.2 + walkBlend * 1.1);
+    var walkSwing = Math.sin(walkCycle) * 0.18 * walkBlend;
+    var stride = Math.sin(walkCycle) * 0.46 * walkBlend;
+    var bob = Math.sin(walkCycle * 2) * 0.008 * walkBlend;
+    var torsoSway = Math.sin(walkCycle) * 0.03 * walkBlend;
+    var shoulderLift = Math.cos(walkCycle) * 0.04 * walkBlend;
+    var hasShield = !!_shieldMesh;
+    var usingBow = !!(profile && profile.directionalAim);
+    var rightArmIdleX = usingBow ? -0.18 + shoulderLift * 0.35 : (_torchActive ? -0.14 : -walkSwing * 0.72);
+    var leftArmIdleX = usingBow ? -0.34 - shoulderLift * 0.35 : (walkSwing * 0.72);
+    var leftArmIdleZ = hasShield ? -0.22 : 0.04;
+    var rightArmIdleZ = usingBow ? 0.24 : (_torchActive ? 0.16 : -0.04);
+
+    if (usingBow) {
+      leftArmIdleX = Math.min(leftArmIdleX, -0.34);
+      rightArmIdleX = Math.min(rightArmIdleX, -0.18);
+    } else if (hasShield) {
+      leftArmIdleX = Math.min(leftArmIdleX, -0.22);
+    }
+
+    var pose = {
+      groupY: bob,
+      bodyX: 0.03 * walkBlend,
+      bodyZ: torsoSway * 0.32,
+      headX: -bob * 0.28,
+      headZ: -torsoSway * 0.1,
+      hairX: -bob * 0.22,
+      hairZ: -torsoSway * 0.14,
+      leftArmX: leftArmIdleX,
+      leftArmZ: leftArmIdleZ,
+      rightArmX: rightArmIdleX,
+      rightArmZ: rightArmIdleZ,
+      leftLegX: -stride,
+      rightLegX: stride
+    };
+    var weaponPosX = 0;
+    var weaponPosY = 0;
+    var weaponPosZ = 0;
+    var weaponRotX = 0;
+    var weaponRotY = 0;
+    var weaponRotZ = 0;
+    var shieldPosX = 0;
+    var shieldPosY = 0;
+    var shieldPosZ = 0;
+    var shieldRotX = 0;
+    var shieldRotY = 0;
+    var shieldRotZ = 0;
+
+    if (_attackPose.kind && _attackPose.duration > 0) {
+      var progress = clamp01(1 - (_attackPose.timer / _attackPose.duration));
+      if (_attackPose.kind === 'slash') {
+        var slashWindup = clamp01(progress / 0.35);
+        var slashRelease = progress > 0.35 ? clamp01((progress - 0.35) / 0.35) : 0;
+        var slashRecover = progress > 0.7 ? clamp01((progress - 0.7) / 0.3) : 0;
+        pose.bodyZ += (-0.08 * slashWindup) + (0.12 * slashRelease) - (0.04 * slashRecover);
+        pose.rightArmX = (-0.55 - 0.72 * slashWindup) + (1.34 * slashRelease) - (0.34 * slashRecover);
+        pose.rightArmZ = (-0.22 - 0.48 * slashWindup) + (1.05 * slashRelease) - (0.28 * slashRecover);
+        pose.leftArmX = hasShield ? -0.34 : Math.min(pose.leftArmX, -0.12);
+        pose.leftArmZ = hasShield ? -0.38 : 0.12;
+        weaponRotX += 0.1 * slashRelease;
+        weaponRotZ += (-0.18 * slashWindup) + (0.62 * slashRelease) - (0.18 * slashRecover);
+        shieldRotZ += hasShield ? (-0.08 * slashWindup) + (0.22 * slashRelease) : 0;
+      } else if (_attackPose.kind === 'thrust') {
+        var thrustWindup = clamp01(progress / 0.32);
+        var thrustRelease = progress > 0.32 ? clamp01((progress - 0.32) / 0.34) : 0;
+        var thrustRecover = progress > 0.66 ? clamp01((progress - 0.66) / 0.34) : 0;
+        pose.bodyX += (-0.08 * thrustWindup) + (0.06 * thrustRelease) - (0.04 * thrustRecover);
+        pose.bodyZ += 0.06 * thrustRelease;
+        pose.rightArmX = (-0.58 - 0.56 * thrustWindup) + (0.88 * thrustRelease) - (0.24 * thrustRecover);
+        pose.rightArmZ = 0.2 + 0.18 * thrustWindup;
+        pose.leftArmX = (-0.26 - 0.44 * thrustWindup) + (0.56 * thrustRelease) - (0.18 * thrustRecover);
+        pose.leftArmZ = hasShield ? -0.24 : -0.06;
+        weaponPosY += 0.04 * thrustRelease;
+        weaponRotX += 0.18 * thrustRelease;
+      } else if (_attackPose.kind === 'bow') {
+        var bowDraw = clamp01(progress / 0.58);
+        var bowRelease = progress > 0.58 ? clamp01((progress - 0.58) / 0.16) : 0;
+        var bowRecover = progress > 0.74 ? clamp01((progress - 0.74) / 0.26) : 0;
+        pose.bodyX += (-0.03 * bowDraw) + (0.02 * bowRelease);
+        pose.bodyZ += 0.08 * bowDraw;
+        pose.headZ += 0.04 * bowDraw;
+        pose.leftArmX = (-0.58 - 0.22 * bowDraw) + (0.12 * bowRecover);
+        pose.leftArmZ = -0.06 + 0.12 * bowDraw;
+        pose.rightArmX = (-0.14 - 0.92 * bowDraw) + (0.9 * bowRelease) - (0.18 * bowRecover);
+        pose.rightArmZ = 0.34 + 0.24 * bowDraw - 0.12 * bowRelease;
+        weaponPosX -= 0.03 * bowDraw;
+        weaponRotZ += (0.2 * bowDraw) - (0.12 * bowRelease);
+      }
+    }
+
+    mesh.position.y = dampValue(mesh.position.y, 0, torsoAlpha);
+    dampRotation(_bodyObject, pose.bodyX, 0, pose.bodyZ, torsoAlpha);
+    dampRotation(_headObject, pose.headX, 0, pose.headZ, torsoAlpha);
+    dampRotation(_hairObject, pose.hairX, 0, pose.hairZ, torsoAlpha);
+    dampRotation(_leftArmObject, pose.leftArmX, 0, pose.leftArmZ, limbAlpha);
+    dampRotation(_rightArmObject, pose.rightArmX, 0, pose.rightArmZ, limbAlpha);
+    dampRotation(_leftLegObject, pose.leftLegX, 0, 0, limbAlpha);
+    dampRotation(_rightLegObject, pose.rightLegX, 0, 0, limbAlpha);
+    applyHeldVisualPose(_weaponMesh, heldAlpha, weaponPosX, weaponPosY, weaponPosZ, weaponRotX, weaponRotY, weaponRotZ);
+    applyHeldVisualPose(_shieldMesh, heldAlpha, shieldPosX, shieldPosY, shieldPosZ, shieldRotX, shieldRotY, shieldRotZ);
+  }
+
   function update(dt) {
     _animTime += dt;
     _visualAnimTime += Math.min(dt, 1 / 30);
@@ -1082,6 +1418,7 @@ window.GamePlayer = (function () {
 
     // === TORCH SYSTEM ===
     updateTorch(dt);
+    updateAttackPose(dt);
 
     // === HP REGENERATION ===
     var isInCombat = (window.GameCombat && GameCombat.isActive && GameCombat.isActive());
@@ -1112,6 +1449,8 @@ window.GamePlayer = (function () {
 
     var dx = screenDx + screenDy;
     var dz = -screenDx + screenDy;
+    var prevX = _x;
+    var prevZ = _z;
 
     if (moved) {
       var len = Math.sqrt(dx * dx + dz * dz);
@@ -1141,56 +1480,52 @@ window.GamePlayer = (function () {
       GameState.setPlayerPosition(_x, _z);
     }
 
+    var actualMoveDistance = Math.sqrt(Math.pow(_x - prevX, 2) + Math.pow(_z - prevZ, 2));
+    var motionAmount = (dt > 0 && actualMoveDistance > 0.0001)
+      ? Math.min(1, actualMoveDistance / Math.max(dt * _speed, 0.001))
+      : 0;
+    var movingVisual = motionAmount > 0.02;
+
     if (mesh) {
       var visualDt = Math.min(dt, 1 / 30);
-      var positionAlpha = getSmoothingFactor(visualDt, 48);
       var rotationAlpha = getSmoothingFactor(visualDt, 34);
-      var limbAlpha = getSmoothingFactor(visualDt, 28);
+      var profile = getCurrentWeaponProfile();
 
-      mesh.position.x = dampValue(mesh.position.x, _x, positionAlpha);
-      mesh.position.z = dampValue(mesh.position.z, _z, positionAlpha);
+      mesh.position.x = _x;
+      mesh.position.z = _z;
 
-      if (moved) {
-        var targetAngle = Math.atan2(_direction.x, _direction.z) + Math.PI;
+      var facingX = _direction.x;
+      var facingZ = _direction.z;
+      if (_attackPose.kind && (Math.abs(_attackPose.aimX) > 0.001 || Math.abs(_attackPose.aimZ) > 0.001)) {
+        facingX = _attackPose.aimX;
+        facingZ = _attackPose.aimZ;
+      }
+
+      if (movingVisual || _attackPose.kind) {
+        var targetAngle = Math.atan2(facingX, facingZ);
         var angleDiff = targetAngle - mesh.rotation.y;
         while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
         while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
         mesh.rotation.y += angleDiff * rotationAlpha;
       }
 
-      // Walking animation
-      if (moved) {
-        var swing = Math.sin(_visualAnimTime * 10) * 0.4;
-        mesh.children.forEach(function (child) {
-          if (child.name === "leftArm") child.rotation.x = dampValue(child.rotation.x, swing, limbAlpha);
-          if (child.name === "rightArm") child.rotation.x = dampValue(child.rotation.x, _torchActive ? 0 : -swing, limbAlpha);
-          if (child.name === "leftLeg") child.rotation.x = dampValue(child.rotation.x, -swing * 0.6, limbAlpha);
-          if (child.name === "rightLeg") child.rotation.x = dampValue(child.rotation.x, swing * 0.6, limbAlpha);
-        });
-      } else {
-        mesh.children.forEach(function (child) {
-          if (child.name === "rightArm" && _torchActive) {
-            child.rotation.x = dampValue(child.rotation.x, 0, limbAlpha);
-            return;
-          }
-          if (child.name) child.rotation.x = dampValue(child.rotation.x, 0, limbAlpha);
-        });
-      }
+      applyPlayerPose(motionAmount, visualDt, profile);
 
       // Update torch 3D mesh position (attached to right arm)
-      if (_torchMesh && _rightArmObject) {
+      if (_torchMesh && (_rightHandAnchor || _rightArmObject)) {
         if (!_torchWorldPos && typeof THREE !== 'undefined') {
           _torchWorldPos = new THREE.Vector3();
         }
         if (_torchWorldPos) {
-          _rightArmObject.getWorldPosition(_torchWorldPos);
-          _torchMesh.position.set(_torchWorldPos.x, _torchWorldPos.y + 0.3, _torchWorldPos.z);
+          (_rightHandAnchor || _rightArmObject).getWorldPosition(_torchWorldPos);
+          _torchMesh.position.set(_torchWorldPos.x + 0.02, _torchWorldPos.y + 0.18, _torchWorldPos.z + 0.01);
+          _torchMesh.rotation.set(0.12, mesh.rotation.y, -0.18);
         }
       }
     }
 
     GameTerrain.update(_x, _z);
-    refreshContextAction(dt, moved);
+    refreshContextAction(dt, moved || movingVisual);
     _updateTut(dt);
   }
 
@@ -1328,6 +1663,121 @@ window.GamePlayer = (function () {
     return parts.join(", ");
   }
 
+  function isPickupDrop(objData) {
+    return !!(objData && ((window.GameTerrain && GameTerrain.isPickupDrop && GameTerrain.isPickupDrop(objData)) || objData.type === 'pickup.drop'));
+  }
+
+  function isInventoryRewardEntity(entity) {
+    return !!(entity && (entity.type === 'equipment' || entity.type === 'tool' || entity.type === 'consumable'));
+  }
+
+  function maybeAutoEquipReward(rewardId) {
+    var rewardBalance = GameRegistry.getBalance(rewardId) || {};
+    if (!rewardBalance.autoEquipOnReward || !window.GameState || !GameState.equipItem) return false;
+    return !!GameState.equipItem(rewardId);
+  }
+
+  function grantRewardMapDirectly(rewardMap) {
+    var result = {
+      parts: [],
+      autoEquipped: []
+    };
+    if (!rewardMap) return result;
+
+    for (var rewardId in rewardMap) {
+      var amount = Number(rewardMap[rewardId]) || 0;
+      if (amount <= 0) continue;
+
+      var rewardEntity = GameRegistry.getEntity(rewardId);
+      if (isInventoryRewardEntity(rewardEntity)) {
+        GameState.addToInventory(rewardId, amount);
+        if (rewardEntity.type === 'equipment' && maybeAutoEquipReward(rewardId)) {
+          result.autoEquipped.push(rewardEntity.name);
+        }
+      } else {
+        GameState.addResource(rewardId, amount);
+      }
+
+      result.parts.push(amount + ' ' + (rewardEntity ? rewardEntity.name : rewardId));
+    }
+
+    return result;
+  }
+
+  function trySpawnRewardDrops(worldX, worldZ, rewardMap) {
+    if (!rewardMap || !window.GameTerrain || !GameTerrain.spawnRewardDrops) return false;
+    var drops = GameTerrain.spawnRewardDrops(worldX, worldZ, rewardMap);
+    return !!(drops && drops.length);
+  }
+
+  function getPickupDropName(objData) {
+    var itemId = objData && objData.dropItemId ? objData.dropItemId : null;
+    var entity = itemId ? GameRegistry.getEntity(itemId) : null;
+    return entity ? entity.name : (itemId || t('hud.contextAction.loot', null, 'Loot'));
+  }
+
+  function getPickupDropDetail(objData) {
+    var itemId = objData && objData.dropItemId ? objData.dropItemId : null;
+    var entity = itemId ? GameRegistry.getEntity(itemId) : null;
+    var detailParts = [];
+    var amount = Math.max(1, Number(objData && objData.dropAmount) || 1);
+
+    if (amount > 1) {
+      detailParts.push(t('hud.contextAction.stackCount', { count: amount }, 'x{count}'));
+    }
+
+    if (entity) {
+      if (entity.type === 'equipment') {
+        detailParts.push(t('hud.contextAction.types.equipment', null, 'Equipment'));
+      } else if (entity.type === 'consumable') {
+        detailParts.push(t('hud.contextAction.types.consumable', null, 'Consumable'));
+      } else if (entity.type === 'tool') {
+        detailParts.push(t('hud.contextAction.types.tool', null, 'Tool'));
+      } else {
+        detailParts.push(t('hud.contextAction.types.resource', null, 'Resource'));
+      }
+    }
+
+    return detailParts.join(' • ');
+  }
+
+  function collectPickupDrop(objData) {
+    if (!isPickupDrop(objData) || !window.GameTerrain || !GameTerrain.takePickupDrop) return false;
+
+    var pickup = GameTerrain.takePickupDrop(objData);
+    if (!pickup || !pickup.itemId) return false;
+
+    var rewardMap = {};
+    rewardMap[pickup.itemId] = pickup.amount;
+    var rewardResult = grantRewardMapDirectly(rewardMap);
+    var itemName = getPickupDropName({ dropItemId: pickup.itemId, dropAmount: pickup.amount });
+
+    if (window.GameHUD && GameHUD.showDamageNumber) {
+      GameHUD.showDamageNumber(pickup.worldX, 1.0, pickup.worldZ, '+' + pickup.amount + ' ' + itemName, 'loot');
+    }
+    if (typeof ParticleSystem !== 'undefined') {
+      ParticleSystem.emit('loot', { x: pickup.worldX, y: 0.55, z: pickup.worldZ });
+    }
+    if (typeof UnlockSystem !== 'undefined' && UnlockSystem.checkAll) {
+      UnlockSystem.checkAll();
+    }
+    if (window.GameHUD && GameHUD.showNotification) {
+      if (rewardResult.autoEquipped.length) {
+        GameHUD.showNotification(t('hud.actions.pickedUpEquipped', {
+          items: rewardResult.parts.join(', '),
+          equipped: rewardResult.autoEquipped.join(', ')
+        }, 'Picked up: {items}. Equipped: {equipped}.'));
+      } else {
+        GameHUD.showNotification(t('hud.actions.pickedUp', { items: rewardResult.parts.join(', ') }, 'Picked up: {items}'));
+      }
+    }
+    if (window.GameHUD && GameHUD.renderAll) {
+      GameHUD.renderAll();
+    }
+
+    return true;
+  }
+
   function getRuinedOutpostKey(siteData) {
     var rewards = siteData && siteData.siteRewards ? siteData.siteRewards : null;
     if (rewards) {
@@ -1448,6 +1898,13 @@ window.GamePlayer = (function () {
     }
 
     if (nearObj && nearObj.hp > 0) {
+      if (isPickupDrop(nearObj)) {
+        textEl.textContent = t('hud.contextAction.actions.pickup', null, 'Pick up') + ' ' + getPickupDropName(nearObj) + (getPickupDropDetail(nearObj) ? ' [' + getPickupDropDetail(nearObj) + ']' : '');
+        el.classList.add('show');
+        GameHUD.hideObjectHpBar();
+        return;
+      }
+
       var entity = GameRegistry.getEntity(nearObj.type);
       var nodeInfo = (nearObj.type.indexOf("node.") === 0 && typeof GameTerrain !== 'undefined' && GameTerrain.getNodeInfo) ? GameTerrain.getNodeInfo(nearObj) : null;
       var name = getNodePromptName(nearObj, nodeInfo, entity);
@@ -1517,6 +1974,8 @@ window.GamePlayer = (function () {
     if (objData.type.startsWith("animal.")) {
       _handleThreatEngaged(objData);
       GameCombat.startCombat(objData);
+    } else if (isPickupDrop(objData)) {
+      collectPickupDrop(objData);
     } else if (objData.type.startsWith("node.")) {
       harvestNode(objData);
     } else if (objData.type === 'site.ruined_outpost') {
@@ -1534,15 +1993,14 @@ window.GamePlayer = (function () {
       if (amount <= 0) continue;
 
       var rewardEntity = GameRegistry.getEntity(rewardId);
-      if (rewardEntity && (rewardEntity.type === 'equipment' || rewardEntity.type === 'tool' || rewardEntity.type === 'consumable')) {
-        GameState.addToInventory(rewardId, amount);
-      } else {
-        GameState.addResource(rewardId, amount);
-      }
-
       rewardParts.push(amount + ' ' + (rewardEntity ? rewardEntity.name : rewardId));
-      if (window.GameHUD && GameHUD.showDamageNumber) {
-        GameHUD.showDamageNumber(objData.worldX, 1.2, objData.worldZ, '+' + amount + ' ' + (rewardEntity ? rewardEntity.name : rewardId), 'loot');
+    }
+
+    var droppedToWorld = trySpawnRewardDrops(objData.worldX, objData.worldZ, rewards);
+    if (!droppedToWorld) {
+      grantRewardMapDirectly(rewards);
+      if (typeof UnlockSystem !== 'undefined' && UnlockSystem.checkAll) {
+        UnlockSystem.checkAll();
       }
     }
 
@@ -1554,16 +2012,15 @@ window.GamePlayer = (function () {
     if (typeof GameTerrain !== 'undefined' && GameTerrain.persistObjectState) {
       GameTerrain.persistObjectState(objData);
     }
-    if (typeof UnlockSystem !== 'undefined' && UnlockSystem.checkAll) {
-      UnlockSystem.checkAll();
-    }
     if (typeof ParticleSystem !== 'undefined') {
       ParticleSystem.emit('loot', { x: objData.worldX, y: 0.8, z: objData.worldZ });
     }
     if (window.GameHUD && GameHUD.showNotification) {
       var label = getLocalizedRuinedOutpostLabel(objData);
       var rewardText = rewardParts.length ? rewardParts.join(', ') : t('world.player.suppliesRecovered', null, 'Supplies recovered.');
-      GameHUD.showNotification(t('world.player.ruinedOutpostSalvaged', { name: label, rewards: rewardText }, '{name} salvaged: {rewards}'));
+      GameHUD.showNotification(droppedToWorld
+        ? t('world.player.ruinedOutpostLootDropped', { name: label, rewards: rewardText }, '{name} salvaged. Loot dropped: {rewards}')
+        : t('world.player.ruinedOutpostSalvaged', { name: label, rewards: rewardText }, '{name} salvaged: {rewards}'));
     }
     if (window.GameHUD && GameHUD.renderAll) {
       GameHUD.renderAll();
@@ -1613,7 +2070,7 @@ window.GamePlayer = (function () {
 
     if (messages.length > 0) {
       GameHUD.showSuccess(t('hud.actions.collectedFromBuilding', { name: buildingName, items: messages.join(', ') }, 'Collected from {name}: {items}'));
-      UnlockSystem.checkAll();
+      if (typeof UnlockSystem !== 'undefined' && UnlockSystem.checkAll) UnlockSystem.checkAll();
       GameHUD.renderAll();
     }
   }
@@ -1666,15 +2123,17 @@ window.GamePlayer = (function () {
       var rewardMap = harvestResult && harvestResult.rewards ? harvestResult.rewards : balance.rewards;
 
       if (rewardMap) {
-        for (var resId in rewardMap) {
-          var amount = rewardMap[resId];
-          GameState.addResource(resId, amount);
-          var resEntity = GameRegistry.getEntity(resId);
-          var resName = resEntity ? resEntity.name : resId;
-          GameHUD.showDamageNumber(objData.worldX, 1.2, objData.worldZ, "+" + amount + " " + resName, "loot");
+        var droppedToWorld = trySpawnRewardDrops(objData.worldX, objData.worldZ, rewardMap);
+        if (!droppedToWorld) {
+          var grantedRewards = grantRewardMapDirectly(rewardMap);
+          if (grantedRewards.parts.length) {
+            for (var rewardIndex = 0; rewardIndex < grantedRewards.parts.length; rewardIndex++) {
+              GameHUD.showDamageNumber(objData.worldX, 1.2, objData.worldZ, '+' + grantedRewards.parts[rewardIndex], 'loot');
+            }
+          }
+          UnlockSystem.checkAll();
         }
       }
-      UnlockSystem.checkAll();
       GameHUD.renderAll();
     }
 
@@ -1693,14 +2152,47 @@ window.GamePlayer = (function () {
     return color;
   }
 
+  function isBowLikeWeapon(weaponId, weaponBalance) {
+    var overrides = weaponBalance && weaponBalance.weaponProfileOverrides ? weaponBalance.weaponProfileOverrides : {};
+    return !!(
+      (weaponBalance && weaponBalance.weaponProfile === 'bow') ||
+      overrides.directionalAim === true ||
+      (weaponId && (weaponId.indexOf('bow') !== -1 || weaponId.indexOf('sunpiercer') !== -1))
+    );
+  }
+
+  function isPolearmWeapon(weaponId, weaponBalance) {
+    return !!(
+      (weaponBalance && weaponBalance.weaponProfile === 'spear') ||
+      (weaponId && (weaponId.indexOf('glaive') !== -1 || weaponId.indexOf('stormspine') !== -1 || weaponId.indexOf('spear') !== -1))
+    );
+  }
+
+  function getWeaponAttachmentAnchorForWeapon(weaponId, weaponBalance) {
+    if (isBowLikeWeapon(weaponId, weaponBalance)) {
+      return _leftHandAnchor || _leftArmObject || mesh;
+    }
+    return _rightHandAnchor || _rightArmObject || mesh;
+  }
+
+  function getAttackOrigin(profile) {
+    var anchor = (profile && profile.directionalAim)
+      ? (_leftHandAnchor || _leftArmObject || mesh)
+      : (_rightHandAnchor || _rightArmObject || mesh);
+    return getHandAnchorPosition(anchor, 0.82);
+  }
+
   function createWeaponVisual(weaponId) {
     if (typeof THREE === 'undefined' || !weaponId) return null;
 
     var group = new THREE.Group();
     var balance = GameRegistry.getBalance(weaponId) || {};
     var profileId = balance.weaponProfile || 'sword';
+    var isBowLike = isBowLikeWeapon(weaponId, balance);
+    var isPolearm = isPolearmWeapon(weaponId, balance);
     var metalColor = getEquipmentVisualColor(weaponId, 0xA0A0A0);
     var woodColor = weaponId.indexOf('bow') !== -1 ? 0x7c5731 : 0x5c4033;
+    var gripColor = isBowLike ? 0x6e4a2a : 0x4d3420;
 
     function addMesh(geometry, material, x, y, z, rotX, rotY, rotZ) {
       var part = new THREE.Mesh(geometry, material);
@@ -1711,35 +2203,42 @@ window.GamePlayer = (function () {
       return part;
     }
 
-    if (profileId === 'special') {
+    if (isBowLike) {
+      addMesh(new THREE.TorusGeometry(0.16, 0.012, 6, 20, Math.PI), new THREE.MeshLambertMaterial({ color: woodColor }), 0, 0, 0, Math.PI / 2, 0, Math.PI / 2);
+      addMesh(new THREE.BoxGeometry(0.008, 0.12, 0.03), new THREE.MeshLambertMaterial({ color: gripColor }), 0, 0, 0);
+      addMesh(new THREE.BoxGeometry(0.003, 0.31, 0.003), new THREE.MeshBasicMaterial({ color: 0xf2ead2 }), 0, 0, 0);
+      addMesh(new THREE.CylinderGeometry(0.007, 0.007, 0.24, 6), new THREE.MeshLambertMaterial({ color: metalColor }), 0.12, -0.01, 0, 0, 0, 0.9);
       if (weaponId.indexOf('sunpiercer') !== -1) {
-        addMesh(new THREE.TorusGeometry(0.15, 0.014, 8, 22, Math.PI), new THREE.MeshLambertMaterial({ color: 0xa06a28 }), 0.01, 0.18, 0.03, Math.PI / 2, 0, Math.PI / 2);
-        addMesh(new THREE.BoxGeometry(0.004, 0.3, 0.004), new THREE.MeshBasicMaterial({ color: 0xfff1c1 }), 0.01, 0.18, 0.03);
-        addMesh(new THREE.ConeGeometry(0.03, 0.11, 6), new THREE.MeshLambertMaterial({ color: 0xffd166 }), 0.12, 0.29, 0.03, 0, 0, 0.88);
-      } else if (weaponId.indexOf('stormspine') !== -1 || weaponId.indexOf('glaive') !== -1) {
-        addMesh(new THREE.CylinderGeometry(0.012, 0.012, 0.46, 6), new THREE.MeshLambertMaterial({ color: 0x5c4033 }), 0.02, 0.2, 0.02, 0, 0, 0.16);
-        addMesh(new THREE.ConeGeometry(0.034, 0.14, 6), new THREE.MeshLambertMaterial({ color: 0x7ef0d0 }), 0.08, 0.43, 0.02, 0, 0, Math.PI - 0.16);
-        addMesh(new THREE.BoxGeometry(0.08, 0.03, 0.02), new THREE.MeshLambertMaterial({ color: 0xaaf9ec }), 0.02, 0.32, 0.02, 0, 0, 0.16);
-      } else {
-        addMesh(new THREE.BoxGeometry(0.03, 0.34, 0.04), new THREE.MeshLambertMaterial({ color: 0xc8ddff }), 0.03, 0.22, 0.02, 0, 0, -0.14);
-        addMesh(new THREE.BoxGeometry(0.08, 0.03, 0.05), new THREE.MeshLambertMaterial({ color: 0x5c4033 }), 0.03, 0.05, 0.02);
-        addMesh(new THREE.CylinderGeometry(0.018, 0.018, 0.06, 10), new THREE.MeshLambertMaterial({ color: 0xaed7ff }), 0.03, 0.39, 0.02, Math.PI / 2, 0, 0);
+        addMesh(new THREE.BoxGeometry(0.016, 0.16, 0.016), new THREE.MeshBasicMaterial({ color: 0xffe39b, transparent: true, opacity: 0.72 }), -0.02, 0.02, 0);
       }
-    } else if (profileId === 'bow') {
-      addMesh(new THREE.TorusGeometry(0.14, 0.012, 6, 20, Math.PI), new THREE.MeshLambertMaterial({ color: woodColor }), 0.01, 0.18, 0.03, Math.PI / 2, 0, Math.PI / 2);
-      addMesh(new THREE.BoxGeometry(0.003, 0.28, 0.003), new THREE.MeshBasicMaterial({ color: 0xf2ead2 }), 0.01, 0.18, 0.03);
-      addMesh(new THREE.CylinderGeometry(0.008, 0.008, 0.22, 6), new THREE.MeshLambertMaterial({ color: metalColor }), 0.12, 0.17, 0.03, 0.2, 0, 0.9);
-    } else if (profileId === 'spear') {
-      addMesh(new THREE.CylinderGeometry(0.012, 0.012, 0.42, 6), new THREE.MeshLambertMaterial({ color: woodColor }), 0.02, 0.18, 0.02, 0, 0, 0.18);
-      addMesh(new THREE.ConeGeometry(0.028, 0.1, 6), new THREE.MeshLambertMaterial({ color: metalColor }), 0.07, 0.39, 0.02, 0, 0, Math.PI - 0.18);
+    } else if (isPolearm) {
+      addMesh(new THREE.CylinderGeometry(0.012, 0.012, 0.48, 6), new THREE.MeshLambertMaterial({ color: woodColor }), 0, -0.18, 0, 0, 0, 0.08);
+      addMesh(new THREE.ConeGeometry(0.03, 0.14, 6), new THREE.MeshLambertMaterial({ color: metalColor }), 0.02, -0.46, 0, 0, 0, Math.PI);
+      addMesh(new THREE.BoxGeometry(0.08, 0.03, 0.02), new THREE.MeshLambertMaterial({ color: metalColor }), 0, -0.28, 0, 0, 0, 0.08);
+      if (weaponId.indexOf('stormspine') !== -1 || weaponId.indexOf('glaive') !== -1) {
+        addMesh(new THREE.BoxGeometry(0.05, 0.12, 0.02), new THREE.MeshLambertMaterial({ color: 0x8cf5df }), 0.04, -0.38, 0, 0, 0, 0.26);
+      }
     } else {
-      addMesh(new THREE.BoxGeometry(0.028, 0.3, 0.04), new THREE.MeshLambertMaterial({ color: metalColor }), 0.03, 0.2, 0.02, 0, 0, -0.12);
-      addMesh(new THREE.BoxGeometry(0.07, 0.03, 0.05), new THREE.MeshLambertMaterial({ color: woodColor }), 0.03, 0.05, 0.02);
-      addMesh(new THREE.BoxGeometry(0.022, 0.09, 0.03), new THREE.MeshLambertMaterial({ color: woodColor }), 0.03, -0.02, 0.02);
+      addMesh(new THREE.BoxGeometry(0.03, 0.34, 0.045), new THREE.MeshLambertMaterial({ color: metalColor }), 0, -0.24, 0);
+      addMesh(new THREE.ConeGeometry(0.034, 0.1, 6), new THREE.MeshLambertMaterial({ color: metalColor }), 0, -0.45, 0, 0, 0, Math.PI);
+      addMesh(new THREE.BoxGeometry(0.1, 0.024, 0.05), new THREE.MeshLambertMaterial({ color: metalColor }), 0, -0.06, 0);
+      addMesh(new THREE.BoxGeometry(0.028, 0.11, 0.035), new THREE.MeshLambertMaterial({ color: gripColor }), 0, 0.02, 0);
+      addMesh(new THREE.CylinderGeometry(0.018, 0.018, 0.05, 10), new THREE.MeshLambertMaterial({ color: 0xd3b780 }), 0, 0.11, 0, Math.PI / 2, 0, 0);
+      if (profileId === 'special' && weaponId.indexOf('moonfang') !== -1) {
+        addMesh(new THREE.BoxGeometry(0.018, 0.14, 0.018), new THREE.MeshBasicMaterial({ color: 0xc8ddff, transparent: true, opacity: 0.72 }), 0.02, -0.3, 0);
+      }
     }
 
     group.userData.weaponId = weaponId;
-    group.position.set(0.3, -0.05, 0.15);
+    group.userData.attachmentSide = isBowLike ? 'left' : 'right';
+    group.userData.basePosition = isBowLike
+      ? { x: 0.01, y: 0.02, z: 0.02 }
+      : (isPolearm ? { x: 0.01, y: -0.02, z: 0.02 } : { x: 0.02, y: -0.02, z: 0.03 });
+    group.userData.baseRotation = isBowLike
+      ? { x: 0, y: 0.34, z: 0.08 }
+      : (isPolearm ? { x: 0.04, y: 0, z: 0.12 } : { x: 0.18, y: 0, z: -0.1 });
+    group.position.set(group.userData.basePosition.x, group.userData.basePosition.y, group.userData.basePosition.z);
+    group.rotation.set(group.userData.baseRotation.x, group.userData.baseRotation.y, group.userData.baseRotation.z);
     return group;
   }
 
@@ -1748,18 +2247,83 @@ window.GamePlayer = (function () {
 
     var group = new THREE.Group();
     var shieldColor = getEquipmentVisualColor(offhandId, 0x8B7355);
-    var outer = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.24, 0.2), new THREE.MeshLambertMaterial({ color: shieldColor }));
+    var outer = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.26, 0.05), new THREE.MeshLambertMaterial({ color: shieldColor }));
+    outer.position.y = 0.08;
     outer.castShadow = true;
     group.add(outer);
 
-    var boss = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.03, 8), new THREE.MeshLambertMaterial({ color: 0xd6c38d }));
+    var rim = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.28, 0.015), new THREE.MeshLambertMaterial({ color: 0x6d4a26 }));
+    rim.position.set(0, 0.08, -0.02);
+    rim.castShadow = true;
+    group.add(rim);
+
+    var boss = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.035, 8), new THREE.MeshLambertMaterial({ color: 0xd6c38d }));
     boss.rotation.x = Math.PI / 2;
-    boss.position.z = 0.05;
+    boss.position.set(0, 0.08, 0.03);
     boss.castShadow = true;
     group.add(boss);
 
+    var handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.11, 0.025), new THREE.MeshLambertMaterial({ color: 0x4d3420 }));
+    handle.position.set(0, 0.08, -0.035);
+    handle.castShadow = true;
+    group.add(handle);
+
     group.userData.offhandId = offhandId;
-    group.position.set(-0.3, 0.0, 0.0);
+    group.userData.basePosition = { x: -0.03, y: 0.12, z: 0.06 };
+    group.userData.baseRotation = { x: 0.12, y: 0.56, z: -0.18 };
+    group.position.set(group.userData.basePosition.x, group.userData.basePosition.y, group.userData.basePosition.z);
+    group.rotation.set(group.userData.baseRotation.x, group.userData.baseRotation.y, group.userData.baseRotation.z);
+    return group;
+  }
+
+  function createArmorVisual(armorId) {
+    if (typeof THREE === 'undefined' || !armorId) return null;
+
+    var group = new THREE.Group();
+    var armorColor = getEquipmentVisualColor(armorId, 0x7b6a58);
+    var trimColor = armorId.indexOf('iron') !== -1 ? 0xcfd7df : (armorId.indexOf('bronze') !== -1 ? 0xf0c06b : 0xb88752);
+    var underColor = armorId.indexOf('iron') !== -1 ? 0x2b3f59 : (armorId.indexOf('bronze') !== -1 ? 0x3b4658 : 0x5b3b24);
+    var mainMat = new THREE.MeshLambertMaterial({ color: armorColor });
+    var trimMat = new THREE.MeshLambertMaterial({ color: trimColor });
+    var underMat = new THREE.MeshLambertMaterial({ color: underColor });
+
+    function addArmorPart(geometry, material, x, y, z, rx, ry, rz) {
+      var part = new THREE.Mesh(geometry, material);
+      part.position.set(x || 0, y || 0, z || 0);
+      part.rotation.set(rx || 0, ry || 0, rz || 0);
+      part.castShadow = true;
+      group.add(part);
+      return part;
+    }
+
+    if (armorId.indexOf('leather') !== -1) {
+      addArmorPart(new THREE.BoxGeometry(0.5, 0.5, 0.36), mainMat, 0, 0, 0.01);
+      addArmorPart(new THREE.BoxGeometry(0.08, 0.46, 0.34), trimMat, -0.16, 0, 0.03, 0, 0, 0.08);
+      addArmorPart(new THREE.BoxGeometry(0.08, 0.46, 0.34), trimMat, 0.16, 0, 0.03, 0, 0, -0.08);
+      addArmorPart(new THREE.BoxGeometry(0.34, 0.1, 0.06), underMat, 0, -0.22, 0.17);
+      addArmorPart(new THREE.BoxGeometry(0.22, 0.14, 0.06), trimMat, 0, 0.08, 0.19);
+    } else if (armorId.indexOf('bronze') !== -1) {
+      addArmorPart(new THREE.BoxGeometry(0.54, 0.54, 0.38), mainMat, 0, 0, 0.01);
+      addArmorPart(new THREE.BoxGeometry(0.16, 0.12, 0.42), mainMat, -0.28, 0.12, 0.01, 0, 0, 0.12);
+      addArmorPart(new THREE.BoxGeometry(0.16, 0.12, 0.42), mainMat, 0.28, 0.12, 0.01, 0, 0, -0.12);
+      addArmorPart(new THREE.BoxGeometry(0.24, 0.16, 0.07), trimMat, 0, 0.08, 0.2);
+      addArmorPart(new THREE.BoxGeometry(0.38, 0.08, 0.08), trimMat, 0, -0.18, 0.16);
+      addArmorPart(new THREE.BoxGeometry(0.12, 0.18, 0.08), underMat, -0.12, -0.3, 0.12);
+      addArmorPart(new THREE.BoxGeometry(0.12, 0.18, 0.08), underMat, 0.12, -0.3, 0.12);
+    } else if (armorId.indexOf('iron') !== -1) {
+      addArmorPart(new THREE.BoxGeometry(0.56, 0.56, 0.4), mainMat, 0, 0, 0.01);
+      addArmorPart(new THREE.BoxGeometry(0.18, 0.14, 0.44), mainMat, -0.3, 0.12, 0.01, 0, 0, 0.12);
+      addArmorPart(new THREE.BoxGeometry(0.18, 0.14, 0.44), mainMat, 0.3, 0.12, 0.01, 0, 0, -0.12);
+      addArmorPart(new THREE.BoxGeometry(0.3, 0.18, 0.08), trimMat, 0, 0.1, 0.21);
+      addArmorPart(new THREE.BoxGeometry(0.4, 0.08, 0.08), trimMat, 0, -0.18, 0.18);
+      addArmorPart(new THREE.BoxGeometry(0.12, 0.22, 0.1), underMat, -0.18, -0.3, 0.12);
+      addArmorPart(new THREE.BoxGeometry(0.12, 0.22, 0.1), underMat, 0.18, -0.3, 0.12);
+      addArmorPart(new THREE.BoxGeometry(0.18, 0.08, 0.08), trimMat, 0, 0.3, 0.12);
+    } else {
+      addArmorPart(new THREE.BoxGeometry(0.5, 0.5, 0.36), mainMat, 0, 0, 0.01);
+    }
+
+    group.userData.armorId = armorId;
     return group;
   }
 
@@ -1771,53 +2335,64 @@ window.GamePlayer = (function () {
 
     var weaponId = player.equipped.weapon;
     var currentWeaponVisualId = _weaponMesh && _weaponMesh.userData ? _weaponMesh.userData.weaponId : null;
-    if (weaponId !== currentWeaponVisualId) {
+    var weaponBalance = weaponId ? (GameRegistry.getBalance(weaponId) || {}) : {};
+    var desiredWeaponParent = weaponId ? getWeaponAttachmentAnchorForWeapon(weaponId, weaponBalance) : null;
+    if (weaponId !== currentWeaponVisualId || desiredWeaponParent !== _weaponAttachmentParent) {
       if (_weaponMesh) {
-        mesh.remove(_weaponMesh);
+        (_weaponAttachmentParent || mesh).remove(_weaponMesh);
         _weaponMesh = null;
+        _weaponAttachmentParent = null;
       }
       if (weaponId) {
         _weaponMesh = createWeaponVisual(weaponId);
-        if (_weaponMesh) mesh.add(_weaponMesh);
+        _weaponAttachmentParent = desiredWeaponParent;
+        if (_weaponMesh && _weaponAttachmentParent) _weaponAttachmentParent.add(_weaponMesh);
       }
     }
 
     var offhandId = player.equipped.offhand;
     var currentShieldVisualId = _shieldMesh && _shieldMesh.userData ? _shieldMesh.userData.offhandId : null;
-    if (offhandId !== currentShieldVisualId) {
+    var desiredShieldParent = offhandId ? (_leftHandAnchor || _leftArmObject || mesh) : null;
+    if (offhandId !== currentShieldVisualId || desiredShieldParent !== _shieldAttachmentParent) {
       if (_shieldMesh) {
-        mesh.remove(_shieldMesh);
+        (_shieldAttachmentParent || mesh).remove(_shieldMesh);
         _shieldMesh = null;
+        _shieldAttachmentParent = null;
       }
       if (offhandId) {
         _shieldMesh = createShieldVisual(offhandId);
-        if (_shieldMesh) mesh.add(_shieldMesh);
+        _shieldAttachmentParent = desiredShieldParent;
+        if (_shieldMesh && _shieldAttachmentParent) _shieldAttachmentParent.add(_shieldMesh);
       }
     }
 
     // Armor body color
     var armorId = player.equipped.armor;
-    if (armorId && mesh) {
-      mesh.traverse(function (child) {
-        if (child.name === 'body' && child.isMesh) {
-          var armorEntity = GameRegistry.getEntity(armorId);
-          if (armorEntity && armorEntity.id) {
-            if (armorEntity.id.indexOf('leather') > -1) {
-              child.material.color.setHex(0x8B5A2B);
-            } else if (armorEntity.id.indexOf('bronze') > -1) {
-              child.material.color.setHex(0x5a7799);
-            } else if (armorEntity.id.indexOf('iron') > -1) {
-              child.material.color.setHex(0x5577aa);
-            }
-          }
+    var currentArmorVisualId = _armorMesh && _armorMesh.userData ? _armorMesh.userData.armorId : null;
+    if (armorId !== currentArmorVisualId) {
+      if (_armorMesh && (_armorAttachmentParent || _bodyObject)) {
+        (_armorAttachmentParent || _bodyObject).remove(_armorMesh);
+        _armorMesh = null;
+      }
+      if (armorId && _bodyObject) {
+        _armorMesh = createArmorVisual(armorId);
+        _armorAttachmentParent = _bodyObject;
+        if (_armorMesh) {
+          _armorAttachmentParent.add(_armorMesh);
         }
-      });
-    } else if (!armorId && mesh) {
-      mesh.traverse(function (child) {
-        if (child.name === 'body' && child.isMesh) {
-          child.material.color.setHex(0x4488cc);
-        }
-      });
+      }
+    }
+
+    if (_bodyObject && _bodyObject.material && _bodyObject.material.color) {
+      if (armorId && armorId.indexOf('leather') > -1) {
+        _bodyObject.material.color.setHex(0x624733);
+      } else if (armorId && armorId.indexOf('bronze') > -1) {
+        _bodyObject.material.color.setHex(0x455a72);
+      } else if (armorId && armorId.indexOf('iron') > -1) {
+        _bodyObject.material.color.setHex(0x3b4d68);
+      } else {
+        _bodyObject.material.color.setHex(0x4488cc);
+      }
     }
 
     // Boots leg color
@@ -1911,9 +2486,11 @@ window.GamePlayer = (function () {
     getPosition: getPosition,
     setPosition: setPosition,
     getDirection: getDirection,
+    getAttackOrigin: getAttackOrigin,
     getMesh: getMesh,
     interactNearby: interactNearby,
     startEat: startEat,
+    triggerAttackAnimation: triggerAttackAnimation,
     triggerSpeechCue: triggerSpeechCue,
     isEating: isEating,
     isRegenerating: isRegenerating,

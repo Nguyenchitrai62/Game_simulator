@@ -10,7 +10,7 @@ window.GameHUDModules.createInspectorModule = function createInspectorModule(con
   var setHoveredInstance = context.setHoveredInstance;
 
   function selectInstance(uid) {
-    if (BuildingSystem.isBuildMode()) return;
+    if (window.BuildingSystem && BuildingSystem.isBuildMode && BuildingSystem.isBuildMode()) return;
     setSelectedInstance(uid);
     showBuildingInspector(uid);
     if (window.RangeIndicator) RangeIndicator.show(uid);
@@ -382,7 +382,7 @@ window.GameHUDModules.createInspectorModule = function createInspectorModule(con
     if (window.RangeIndicator && RangeIndicator.getActiveUid() === uid) {
       RangeIndicator.hide();
     }
-    BuildingSystem.destroyBuilding(uid);
+    if (window.BuildingSystem && BuildingSystem.destroyBuilding) BuildingSystem.destroyBuilding(uid);
     closeInspector();
     showNotification(t('hud.player.structureRemoved', null, 'Structure removed.'));
   }

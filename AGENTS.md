@@ -2,23 +2,11 @@
 
 ## Overview
 
-- Browser-only 3D survival/settlement simulator built on vanilla JS globals and local `three.min.js`.
-- No bundler, no framework, no build step. Runtime entry is `index.html`.
-- Current content manifest version: `1.1.4` from `content/manifest.js`.
-- Progression path is Stone Age -> Bronze Age -> Iron Age.
-- Audio bootstrap lives in `index.html` through `GameAudioController` and assets in `asset/`.
-- Runtime ends at `main.js` plus the safe optional loader `dev/localCheatLoader.js`.
-- `dev/validate.js` stays out of release runtime.
-- `dev/localCheatLoader.js` may stay wired in `index.html`; it only loads extra local cheat-panel assets when they exist and otherwise silently no-ops.
+Browser-only 3D survival/settlement simulator. Vanilla JS globals + local `three.min.js`. No bundler, no framework, no build step. Runtime entry is `index.html`.
 
-## Fast Start
-
-- Open `index.html` first for DOM structure, stylesheet entry, audio bootstrap, and runtime script order.
-- Open `content/manifest.js`, relevant `content/*.js`, and `balance/balance.js` together for unlocks, recipes, units, bosses, and progression tuning.
-- Open `ui/hud.js`, `ui/hud/modalPanels.js`, `ui/hud/inspector.js`, `ui/hud/settingsPanel.js`, `ui/hud/debugSettings.js`, `ui/i18n.js`, `index.html`, `style.css`, and `styles/*.css` together for HUD or localization work.
-- Open `main.js` for `GameActions`, boot wiring, reset flows, and cross-system UI actions.
-- Open `engine/gameState.js` and `storage/localStorage.js` together for save defaults, migrations, autosave, and full reset behavior.
-- Open `world/combat.js`, `world/player.js`, `world/barracksTroopSystem.js`, `world/terrain.js`, `world/minimap.js`, and `world/entities.js` together for combat, map markers, troops, bosses, and world-site persistence.
+- Progression: Stone Age -> Bronze Age -> Iron Age
+- Audio bootstrap in `index.html` via `GameAudioController`, assets in `asset/`
+- Runtime ends at `main.js`, then optional `dev/localCheatLoader.js` (silent no-op if missing)
 
 ## Repository Tree
 
@@ -29,20 +17,17 @@ Game_simulator/
 |- index.html
 |- main.js
 |- manual.md
-|- style.css
+|- style.css                 # CSS entry point (@import all styles/*)
 |- three.min.js
 |
-|- asset/
-|  |- Chibi.mp3
-|  |- fire.ogg
-|  |- lag.ogg
-|  |- LOGO.png
+|- asset/                    # Audio + images
+|  |- Chibi.mp3, fire.ogg, lag.ogg, LOGO.png
 |
 |- balance/
-|  |- balance.js
+|  |- balance.js             # All numeric tuning, building configs, unit stats, node configs
 |
 |- content/
-|  |- manifest.js
+|  |- manifest.js            # Version + pack list
 |  |- base_stone_age.js
 |  |- expansion_tree_farming.js
 |  |- expansion_bronze_age.js
@@ -56,184 +41,170 @@ Game_simulator/
 |  |- expansion_boss_frontier.js
 |
 |- dev/
-|  |- localCheatLoader.js
-|  |- validate.js
+|  |- localCheatLoader.js    # Lazy optional loader, silent no-op when missing
+|  |- validate.js            # Validator, NOT in release runtime
 |  |- local-cheat-panel/
-|     |- panel.js
-|     |- style.css
+|     |- panel.js, style.css
 |
 |- engine/
-|  |- craftSystem.js
-|  |- gameState.js
-|  |- perfMonitor.js
-|  |- qualitySettings.js
-|  |- registry.js
-|  |- researchSystem.js
-|  |- spatialIndex.js
-|  |- synergy.js
-|  |- tickSystem.js
-|  |- unlockSystem.js
-|  |- upgradeSystem.js
+|  |- craftSystem.js         # Crafting + auto-equip
+|  |- gameState.js           # Canonical save state, instances, chunks, inventory
+|  |- perfMonitor.js         # FPS/perf tracking
+|  |- qualitySettings.js     # Graphics presets
+|  |- registry.js            # Merged content/balance lookups, entity helpers
+|  |- researchSystem.js      # Technology research
+|  |- spatialIndex.js        # Spatial queries
+|  |- synergy.js             # Building proximity bonuses
+|  |- tickSystem.js          # Game tick loop, resource production/consumption
+|  |- unlockSystem.js        # Age/unlock progression
+|  |- upgradeSystem.js       # Building upgrades
 |
 |- storage/
-|  |- localStorage.js
+|  |- localStorage.js        # Autosave, save/load, reset, version check
 |
 |- styles/
-|  |- core.css
-|  |- quickbar.css
-|  |- modal-shell.css
-|  |- modal-panels.css
-|  |- polish.css
-|  |- responsive.css
+|  |- core.css               # Core HUD, overlays, labels, notifications, shared vars
+|  |- quickbar.css           # Quickbar, weapon bar, map popup
+|  |- modal-shell.css        # Modal frame, player card, inventory shell
+|  |- modal-panels.css       # Tab panels, management/loadout cards
+|  |- polish.css             # Animations, tooltip polish
+|  |- responsive.css         # Viewport breakpoints, mobile overrides
 |
 |- ui/
-|  |- hud.js
-|  |- i18n.js
+|  |- hud.js                 # Top-level HUD state, quickbar, modal, notifications, overlays
+|  |- i18n.js                # Language persistence + DOM translation
 |  |- hud/
-|     |- debugSettings.js
-|     |- inspector.js
-|     |- modalPanels.js
-|     |- settingsPanel.js
+|     |- debugSettings.js    # Runtime HUD/world/sim toggles
+|     |- inspector.js        # Building inspector, barracks, destroy
+|     |- modalPanels.js      # Resources, Build, Craft, Stats, Research tabs
+|     |- settingsPanel.js    # Graphics, Language, Overlay, World FX, Simulation, Reset
 |
 |- world/
    |- animationSystem.js
    |- atmosphere.js
-   |- barracksTroopSystem.js
-   |- buildingSystem.js
-   |- combat.js
+   |- barracksTroopSystem.js # Reserve troops, formation, command modes
+   |- buildingSystem.js      # Building placement, mesh creation, build mode
+   |- combat.js              # Combat loop, weapon profiles, boss rewards, death/respawn
    |- dayNightSystem.js
-   |- entities.js
-   |- fireSystem.js
-   |- minimap.js
-   |- npcSystem.js
+   |- entities.js            # 3D object management, animal meshes, show/hide/respawn
+   |- fireSystem.js          # Campfire light coverage, fuel
+   |- minimap.js             # Minimap + full map, danger overlays, markers
+   |- npcSystem.js           # NPC workers, gathering AI, specialization
    |- particleSystem.js
-   |- player.js
+   |- player.js              # Movement, interaction, speech, combat routing, site loot
    |- rangeIndicator.js
-   |- scene.js
-   |- terrain.js
+   |- scene.js               # Scene init, update loop ordering, pause/speed
+   |- terrain.js             # Chunk generation, boss zones, ruined outposts, persistence
    |- waterSystem.js
    |- weatherSystem.js
 ```
 
-## Current Snapshot
-
-- HUD is split across `ui/hud.js` plus `ui/hud/debugSettings.js`, `ui/hud/settingsPanel.js`, `ui/hud/modalPanels.js`, and `ui/hud/inspector.js`.
-- Backpack button and `B` open the main character modal on `Resources`.
-- Main modal tabs are `Resources`, `Build`, `Craft`, `Stats`, and `Research`.
-- Quickbar supports build/craft switching, missing-resource tooltips, and `Q` weapon cycling with opt-in state stored under `evolution_weapon_cycle_v1`.
-- Combat uses weapon profiles `sword`, `spear`, `bow`, and `special` with different reach, cadence, and boss multipliers.
-- Boss zones and ruined outposts are generated from terrain rules, shown on minimap/world map, and persisted through chunk save data.
-- Barracks supports reserve troops with command modes `Hold Position`, `Follow Player`, and `Attack Target`.
-- Current troop roster is `swordsman` at level 1, then `spearman` and `archer` at level 2.
-- `building.armory` is a support military building, not a hard dependency.
-- Worker-targeting AI and worker-danger warning systems are intentionally disabled.
-
-## Style Architecture
-
-- `style.css` is only the stylesheet entry point. It imports the real UI files from `styles/`.
-- `styles/core.css` holds core HUD surfaces, overlays, labels, notifications, and shared variables.
-- `styles/quickbar.css` holds quickbar, weapon switchbar, map popup, and building/world utility surfaces.
-- `styles/modal-shell.css` holds modal frame, left-side player card, inventory shell, and shared bag layout.
-- `styles/modal-panels.css` holds right-side tab panels, management cards, loadout cards, and panel grids.
-- `styles/polish.css` holds lightweight animation and tooltip polish.
-- `styles/responsive.css` holds viewport breakpoints and mobile layout overrides.
-- For HUD work, do not assume `style.css` contains the actual rules anymore.
-
 ## Runtime Load Order
 
 1. `three.min.js`
-2. `content/manifest.js`
-3. Content packs in this order:
-   `base_stone_age` -> `expansion_tree_farming` -> `expansion_bronze_age` -> `expansion_iron_age` -> `expansion_fire_light` -> `expansion_water` -> `expansion_military_defense` -> `expansion_hunt_prey` -> `expansion_military_upgrades` -> `expansion_ranged_weapons` -> `expansion_boss_frontier`
-4. `balance/balance.js`
-5. `ui/i18n.js`
-6. `engine/registry.js`, `engine/gameState.js`
-7. `engine/perfMonitor.js`, `engine/qualitySettings.js`, `engine/spatialIndex.js`
-8. `storage/localStorage.js`
-9. Engine systems: `tickSystem`, `craftSystem`, `unlockSystem`, `upgradeSystem`, `synergy`, `researchSystem`
-10. World systems: `scene` -> `terrain` -> `entities` -> `player` -> `combat` -> `buildingSystem` -> `npcSystem` -> `barracksTroopSystem` -> `rangeIndicator` -> `dayNightSystem` -> `fireSystem` -> `waterSystem` -> `atmosphere` -> `animationSystem` -> `particleSystem` -> `weatherSystem` -> `minimap`
-11. HUD chain: `ui/hud/debugSettings.js` -> `ui/hud/settingsPanel.js` -> `ui/hud/modalPanels.js` -> `ui/hud/inspector.js` -> `ui/hud.js`
-12. `main.js`
-13. `dev/localCheatLoader.js`
+2. `content/manifest.js` -> content packs (in manifest order)
+3. `balance/balance.js`
+4. `ui/i18n.js` (must be after balance, before registry)
+5. `engine/registry.js`, `engine/gameState.js`
+6. `engine/perfMonitor.js`, `engine/qualitySettings.js`, `engine/spatialIndex.js`
+7. `storage/localStorage.js`
+8. Engine systems: `tickSystem` -> `craftSystem` -> `unlockSystem` -> `upgradeSystem` -> `synergy` -> `researchSystem`
+9. World: `scene` -> `terrain` -> `entities` -> `player` -> `combat` -> `buildingSystem` -> `npcSystem` -> `barracksTroopSystem` -> `rangeIndicator` -> `dayNight` -> `fireSystem` -> `waterSystem` -> `atmosphere` -> `animationSystem` -> `particleSystem` -> `weatherSystem` -> `minimap`
+10. HUD chain: `debugSettings` -> `settingsPanel` -> `modalPanels` -> `inspector` -> `hud.js` (must be before `main.js`)
+11. `main.js`
+12. `dev/localCheatLoader.js`
 
-Keep `ui/i18n.js` after balance data and before `engine/registry.js`.
-Keep the extracted HUD chain before `ui/hud.js`.
-Keep `ui/hud.js` before `main.js`.
+## Key Globals
 
-## Important Systems
+| Global | File | Role |
+|--------|------|------|
+| `GameHUD` | `ui/hud.js` | HUD state, quickbar, modal, notifications |
+| `GameI18n` | `ui/i18n.js` | Language persistence, DOM translation |
+| `GameState` | `engine/gameState.js` | Canonical save state |
+| `GameRegistry` | `engine/registry.js` | Entity lookups, descriptions, helpers |
+| `GameQualitySettings` | `engine/qualitySettings.js` | Graphics presets |
+| `GameDebugSettings` | `ui/hud/debugSettings.js` | Runtime toggles |
+| `GameSpatialIndex` | `engine/spatialIndex.js` | Spatial queries |
+| `GameCombat` | `world/combat.js` | Combat loop, weapons, death |
+| `GamePlayer` | `world/player.js` | Movement, interaction, speech |
+| `GameTerrain` | `world/terrain.js` | Chunks, boss zones, persistence |
+| `GameEntities` | `world/entities.js` | 3D object lifecycle |
+| `BuildingSystem` | `world/buildingSystem.js` | Building placement |
+| `NPCSystem` | `world/npcSystem.js` | Worker NPCs |
+| `BarracksTroopSystem` | `world/barracksTroopSystem.js` | Troops |
+| `MiniMap` | `world/minimap.js` | Minimap + full map |
+| `FireSystem` | `world/fireSystem.js` | Campfire light |
+| `GameScene` | `world/scene.js` | Scene init, update loop |
+| `GameActions` | `main.js` | Public API for UI callbacks |
+| `CraftSystem` | `engine/craftSystem.js` | Crafting |
+| `UnlockSystem` | `engine/unlockSystem.js` | Unlock progression |
+| `UpgradeSystem` | `engine/upgradeSystem.js` | Building upgrades |
+| `ResearchSystem` | `engine/researchSystem.js` | Tech research |
+| `GameStorage` | `storage/localStorage.js` | Save/load |
 
-- `GameRegistry` in `engine/registry.js`: merged content/balance lookups, derived descriptions, stat summaries, and animal helpers.
-- `GameState` in `engine/gameState.js`: canonical save state for resources, inventory, player, hunger, time, instances, fire fuel, and chunks.
-- `GameStorage` in `storage/localStorage.js`: autosave, throttling, world/core save split, and managed-storage reset.
-- `GameQualitySettings` in `engine/qualitySettings.js`: graphics presets under `evolution_quality_settings_v1`. Default preset is `medium`.
-- `GameDebugSettings` in `ui/hud/debugSettings.js`: runtime toggles for HUD/world FX/simulation under `evolution_debug_settings_v1`.
-- `GameI18n` in `ui/i18n.js`: language persistence, DOM translation, and content overrides under `evolution_language_v1`.
-- `GameHUD` in `ui/hud.js`: top-level HUD state, quickbar, modal state, notifications, overlay rendering, and public API wrappers.
-- `GameHUDModules.createModalPanelsModule` in `ui/hud/modalPanels.js`: renders `Resources`, `Build`, `Craft`, `Stats`, and `Research` tabs.
-- `GameHUDModules.createSettingsPanelModule` in `ui/hud/settingsPanel.js`: renders `Graphics`, `Language`, `Overlay`, `World FX`, `Simulation`, and `Reset` tabs.
-- `GameHUDModules.createInspectorModule` in `ui/hud/inspector.js`: building inspector, barracks controls, and destroy confirmation.
-- `GameCombat` in `world/combat.js`: combat loop, weapon profiles, boss rewards, death, and respawn.
-- `GameTerrain` in `world/terrain.js`: chunk generation, predator zones, boss zones, ruined outposts, and chunk object persistence.
-- `MiniMap` in `world/minimap.js`: minimap/full map rendering, danger overlays, and boss/outpost markers.
-- `GamePlayer` in `world/player.js`: movement, interaction prompts, tutorial/world speech, combat click routing, and site loot.
-- `BarracksTroopSystem` in `world/barracksTroopSystem.js`: reserve troop spawning, formation logic, and follow/guard/attack-target behavior.
+## Gameplay Quick Reference
 
-## Gameplay Notes
-
-- `building.berry_gatherer` is the Resident House. Residents gather `wood`, `stone`, `flint`, and `berries`, and help nearby farm/tree nursery plots.
-- `building.farm_plot` and `building.tree_nursery` are worker-driven automation surfaces.
-- Workers stop at night outside active campfire light coverage. Shared truth lives in `FireSystem.getLightCoverageAt()`.
-- `building.well` supports farm plots and adds a small passive food trickle.
-- `building.bridge` marks water tiles traversable.
-- `building.watchtower` attacks threat animals only and can receive reserve support from nearby barracks.
-- Ranged weapons include `equipment.hunting_bow`, `equipment.bronze_bow`, and `equipment.iron_longbow`.
-- Boss rewards are relic weapons `equipment.moonfang_blade`, `equipment.sunpiercer_bow`, and `equipment.stormspine_glaive`.
-- World-site loot exists through `site.ruined_outpost` and is salvaged directly by the player.
-- `animal.deer` and `animal.rabbit` are prey. Wolves, boars, bears, lions, bandits, sabertooths, and boss animals are threats.
-- New games start at `06:00`.
-- Tutorial persistence uses `evolution_tutorial_v1`.
+- **Ages**: Stone -> Bronze -> Iron (content packs + balance unlock conditions)
+- **Weapons**: `sword`, `spear`, `bow`, `special` with different reach/cadence/boss multipliers
+- **Boss rewards**: `moonfang_blade`, `sunpiercer_bow`, `stormspine_glaive` (relic equipment)
+- **Prey**: `deer`, `rabbit`. Threats: wolves, boars, bears, lions, bandits, sabertooths, boss animals
+- **Troop types**: `swordsman` (L1), `spearman` + `archer` (L2). Command modes: Hold/Follow/Attack
+- **Buildings**: `berry_gatherer` = Resident House (gathers wood/stone/flint/berries). `farm_plot`/`tree_nursery` = worker-driven. `well` = farm support + food trickle. `bridge` = water traversal. `watchtower` = threat defense. `armory` = support military. `barracks` = troop training.
+- **Workers**: Stop at night outside campfire light coverage (`FireSystem.getLightCoverageAt()`)
+- **World sites**: `ruined_outpost` (player salvages loot). Boss zones generated from terrain rules.
+- **New game**: starts at 06:00. Tutorial persists via `evolution_tutorial_v1`.
 
 ## Task Routing
 
-- Content names, unlocks, recipes, progression, and entity presence: `content/*.js`, then `balance/balance.js` for numbers or behavior.
-- Modal/tab work: update `index.html`, `ui/hud.js`, `ui/hud/modalPanels.js`, `ui/i18n.js`, and the relevant files in `styles/` together.
-- Quickbar, backpack entry, weapon cycle, notifications, and objective tracker: update `ui/hud.js`, `ui/hud/modalPanels.js`, `index.html`, `ui/i18n.js`, and usually `styles/core.css`, `styles/quickbar.css`, or `styles/responsive.css`.
-- Settings popup/runtime toggles: update `ui/hud/settingsPanel.js`, `ui/hud/debugSettings.js`, `engine/qualitySettings.js`, `ui/hud.js`, and matching style files.
-- Localization/display-language issues: update `ui/i18n.js`, then check `engine/registry.js` if descriptions are derived.
-- Combat feel, attack range, boss rewards, death flow, or weapon profiles: update `world/combat.js`, `balance/balance.js`, `world/player.js`, and `world/entities.js`.
-- Barracks, watchtower, armory, troop modes, or inspector summaries: update `main.js`, `world/barracksTroopSystem.js`, `ui/hud/inspector.js`, `balance/balance.js`, and `world/minimap.js`.
-- Boss zones, ruined outposts, map overlays, or chunk persistence: update `world/terrain.js`, `world/minimap.js`, `world/player.js`, `world/entities.js`, `engine/gameState.js`, and `storage/localStorage.js`.
-- Save/load, reset, autosave, or storage keys: update `engine/gameState.js`, `storage/localStorage.js`, and `main.js`.
-- Local dev cheat panel work: update `dev/localCheatLoader.js` and `dev/local-cheat-panel/`. The loader may remain wired in `index.html`, but its missing-asset path must stay silent and non-blocking.
+| Task | Files to update |
+|------|----------------|
+| Content/unlocks/recipes/progression | `content/*.js`, `balance/balance.js` |
+| Modal/tab UI | `index.html`, `ui/hud.js`, `ui/hud/modalPanels.js`, `ui/i18n.js`, `styles/*.css` |
+| Quickbar/weapon cycle/notifications | `ui/hud.js`, `ui/hud/modalPanels.js`, `index.html`, `ui/i18n.js`, `styles/core.css`, `styles/quickbar.css` |
+| Settings/toggles | `ui/hud/settingsPanel.js`, `ui/hud/debugSettings.js`, `engine/qualitySettings.js`, `ui/hud.js` |
+| Localization | `ui/i18n.js`, check `engine/registry.js` for derived descriptions |
+| Combat/weapons/boss/death | `world/combat.js`, `balance/balance.js`, `world/player.js`, `world/entities.js` |
+| Barracks/troops/inspector | `main.js`, `world/barracksTroopSystem.js`, `ui/hud/inspector.js`, `balance/balance.js`, `world/minimap.js` |
+| Boss zones/outposts/chunks | `world/terrain.js`, `world/minimap.js`, `world/player.js`, `world/entities.js`, `engine/gameState.js`, `storage/localStorage.js` |
+| Save/load/reset | `engine/gameState.js`, `storage/localStorage.js`, `main.js` |
+| Dev cheat panel | `dev/localCheatLoader.js`, `dev/local-cheat-panel/` |
+
+## Style Architecture
+
+`style.css` is the entry point only. It imports from `styles/`:
+- `core.css` — HUD surfaces, overlays, labels, notifications, shared variables
+- `quickbar.css` — Quickbar, weapon bar, map popup
+- `modal-shell.css` — Modal frame, player card, inventory shell
+- `modal-panels.css` — Tab panels, management cards
+- `polish.css` — Animations, tooltip polish
+- `responsive.css` — Viewport breakpoints
+
+Do not assume `style.css` contains actual rules. For HUD work, edit the split files.
 
 ## Safe Change Rules
 
-1. Preserve global names such as `GameHUD`, `GameI18n`, `GameState`, `GameRegistry`, `GameQualitySettings`, `GameDebugSettings`, `GameSpatialIndex`, `GameCombat`, and `GameActions`.
+1. Preserve all globals listed in the Key Globals table.
 2. Prefer content/balance fixes over runtime special cases.
-3. When adding or changing a modal tab, update both DOM and CSS split files, not just `style.css`.
-4. When editing localization, verify both `ui/i18n.js` and any runtime-derived description path in `engine/registry.js`.
-5. When editing animal meshes, keep direct child mesh names `leg` and `tail`; animation code still depends on them.
-6. When editing save-sensitive features, verify new-save defaults, old-save load behavior, chunk unload/reload behavior, and full reset behavior.
-7. Do not load `dev/validate.js` in the release runtime. If you touch `dev/localCheatLoader.js`, preserve its lazy optional-load behavior and silent no-op path when local files are missing.
-8. Do not reorder runtime scripts unless the task is explicitly about boot order.
-9. Worker-threat systems are intentionally blocked. Do not re-enable worker-danger HUD/minimap/objective output without restoring the underlying simulation rules too.
-10. Hidden legacy buildings exist for compatibility only. Do not surface or remove them casually without checking save migration impact.
+3. When adding/changing modal tabs, update DOM + CSS split files.
+4. When editing localization, check both `ui/i18n.js` and `engine/registry.js` derived descriptions.
+5. When editing animal meshes, keep direct child mesh names `leg` and `tail`.
+6. When editing save-sensitive features, verify new-save defaults, old-save load, chunk unload/reload, and full reset.
+7. Do not load `dev/validate.js` in release runtime.
+8. Do not reorder runtime scripts unless task is explicitly about boot order.
+9. Worker-threat systems are intentionally disabled. Do not re-enable without restoring underlying simulation rules.
+10. Hidden legacy buildings (`wood_cutter`, `stone_quarry`, `flint_mine`) exist for save compatibility only.
 
-## Known Limitations
+## Disabled/Stub Features
 
-- Worker-targeting AI and worker-danger HUD/minimap warnings are permanently disabled.
-- Barracks troops are still reserve/deployed helpers, not fully direct-controlled squads.
-- Watchtower loot is not auto-transferred into spendable stock.
-- Watchtower support bonuses can exceed the visible base range ring.
-- NPC pathing is still simple direct-line movement.
-- Not every user-facing string is localized yet.
+- Worker-targeting AI and worker-danger warnings: permanently disabled
+- NPC threat response (`isWorkerThreatActive`, `reportWorkerThreat`, `getNearestExposedWorker`): stubs
+- NPC specialization bonuses (`getSpecializationBonus`): returns no-op
+- Barracks troops: reserve/deployed helpers, not fully direct-controlled squads
 
 ## Validation
 
-- Syntax check edited JS files with `node --check path/to/file.js`.
-- Repo-wide syntax sweep in PowerShell:
-  `Get-ChildItem -Recurse -Filter *.js | ForEach-Object { node --check $_.FullName }`
-- Use editor diagnostics after larger edits.
-- Manual release smoke test lives in `manual.md`.
-- Feature implementation status lives in `feature.md`.
-- Optional validator: temporarily wire `dev/validate.js` in a local-only session and run `GameValidator.printReport()` in the browser console. Do not ship that script in release.
+- Syntax check: `node --check path/to/file.js`
+- Repo-wide: `Get-ChildItem -Recurse -Filter *.js | ForEach-Object { node --check $_.FullName }`
+- Manual smoke test: `manual.md`
+- Feature status: `feature.md`
+- Optional: `dev/validate.js` -> `GameValidator.printReport()` in console (do not ship)

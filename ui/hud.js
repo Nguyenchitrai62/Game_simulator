@@ -5,7 +5,7 @@ try {
     console.log('[HUD] IIFE started');
     var _activeTab = null;
     var _notificationTimer = null;
-    var _damageNumbers = [];
+
     var _quickbarMode = 'build';
     var _quickbarItems = [];
     var _quickbarSelected = { build: null, craft: null };
@@ -551,10 +551,8 @@ try {
       _fpsUpdateAccumulator = 0;
 
       var label = Math.round(_fpsSmoothed) + ' FPS';
-      var drawCalls = (typeof GamePerf !== 'undefined' && GamePerf.getValue) ? GamePerf.getValue('draw.calls') : null;
-      if (false && typeof drawCalls === 'number' && drawCalls > 0) {
-        label += ' | DC ' + Math.round(drawCalls);
-      }
+
+
 
       var tooltipParts = [];
       var frameMetric = (typeof GamePerf !== 'undefined' && GamePerf.getMetric) ? GamePerf.getMetric('frame.total') : null;
@@ -1269,12 +1267,8 @@ try {
     return storagePct >= BUILDING_LABEL_STORAGE_WARNING_PCT;
   }
 
-  var _showProductionPanel = false;
-  
-  function toggleProductionPanel() {
-    _showProductionPanel = !_showProductionPanel;
-    renderResources();
-  }
+
+
 
   function getResourceIcon(resourceId) {
     var icons = {
@@ -1636,6 +1630,7 @@ try {
           id: building.id,
           actionType: 'build',
           icon: _modalPanelsModule.getEntityIcon(building),
+          qualityClass: _modalPanelsModule.getEntityQualityClass ? _modalPanelsModule.getEntityQualityClass(building) : 'quality-common',
           name: localizedBuilding.name,
           meta: placedCount > 0 ? ('x' + placedCount) : 'new',
           statusKey: canBuild ? 'ready' : 'need',
@@ -1697,6 +1692,7 @@ try {
           actionType: actionType,
           actionId: actionId,
           icon: _modalPanelsModule.getEntityIcon(primaryOutputEntity || recipe),
+          qualityClass: (_modalPanelsModule && _modalPanelsModule.getEntityQualityClass) ? _modalPanelsModule.getEntityQualityClass(primaryOutputEntity || recipe) : 'quality-common',
           name: localizedRecipe.name,
           meta: meta,
           statusKey: statusKey,
@@ -1740,6 +1736,7 @@ try {
       items.push({
         weaponId: entity.id,
         icon: icon,
+        qualityClass: (_modalPanelsModule && _modalPanelsModule.getEntityQualityClass) ? _modalPanelsModule.getEntityQualityClass(entity) : 'quality-common',
         name: entity.name,
         profileId: profileId,
         profileLabel: getWeaponProfileLabel(profileId),
@@ -1799,6 +1796,9 @@ try {
     var items = getWeaponSwitchItems();
     var summary = getWeaponCycleSummary(items);
     var weaponToggleClassName = 'weapon-cycle-toggle' + (_weaponCycleDropdownOpen ? ' active' : '');
+    if (summary.equipped && summary.equipped.qualityClass) {
+      weaponToggleClassName += ' ' + summary.equipped.qualityClass;
+    }
     var weaponTitle = items.length
       ? t('hud.weaponSwitch.toggleTitle', { enabled: summary.enabledCount, total: summary.totalCount }, 'Quick weapon cycle: {enabled}/{total} active')
       : t('hud.weaponSwitch.toggleEmpty', null, 'No weapons available yet');
@@ -1807,7 +1807,7 @@ try {
     var html = '';
 
     html += '<button class="' + weaponToggleClassName + '" type="button" onclick="event.stopPropagation(); GameHUD.toggleWeaponCycleDropdown()" title="' + escapeHtml(weaponTitle) + '"' + (items.length ? '' : ' disabled') + '>';
-    html += '<span class="weapon-cycle-toggle-icon">' + escapeHtml(weaponIcon) + '</span>';
+    html += '<span class="weapon-cycle-toggle-icon">' + weaponIcon + '</span>';
     html += '<span class="weapon-cycle-toggle-label">' + escapeHtml(t('hud.weaponSwitch.toggleLabel', null, 'Weapons')) + '</span>';
     html += '<span class="weapon-cycle-toggle-meta">Q ' + escapeHtml(weaponCountText) + '</span>';
     html += '</button>';
@@ -1861,13 +1861,13 @@ try {
       var tooltip = [item.name, item.profileLabel, item.statsText].filter(function(part) {
         return !!part;
       }).join(' • ');
-      html += '<div class="weapon-switch-option' + (item.isEquipped ? ' active' : '') + (item.cycleEnabled ? '' : ' muted') + '" onclick="event.stopPropagation()">';
+      html += '<div class="weapon-switch-option' + (item.isEquipped ? ' active' : '') + (item.cycleEnabled ? '' : ' muted') + (item.qualityClass ? ' ' + item.qualityClass : '') + '" onclick="event.stopPropagation()">';
       html += '<label class="weapon-switch-checkbox" onclick="event.stopPropagation()" title="' + escapeHtml(t('hud.weaponSwitch.checkboxHint', null, 'Include in the Q quick cycle')) + '">';
       html += '<input type="checkbox" ' + (item.cycleEnabled ? 'checked ' : '') + 'onclick="event.stopPropagation()" onchange="GameHUD.setWeaponCycleEnabled(\'' + item.weaponId + '\', this.checked)">';
       html += '<span class="weapon-switch-checkbox-mark"></span>';
       html += '</label>';
       html += '<button class="weapon-switch-option-button" type="button" title="' + escapeHtml(tooltip) + '" onclick="event.stopPropagation(); GameHUD.activateWeaponById(\'' + item.weaponId + '\')">';
-      html += '<span class="weapon-switch-option-icon">' + escapeHtml(item.icon) + '</span>';
+      html += '<span class="weapon-switch-option-icon">' + item.icon + '</span>';
       html += '<span class="weapon-switch-option-info">';
       html += '<span class="weapon-switch-option-top">';
       html += '<span class="weapon-switch-option-name">' + escapeHtml(item.name) + '</span>';
@@ -1959,6 +1959,9 @@ try {
       }
 
       var slotClass = 'quickbar-slot ' + (item.ready ? 'ready' : 'blocked');
+      if (item.qualityClass) {
+        slotClass += ' ' + item.qualityClass;
+      }
       if (selectedId === item.id) {
         slotClass += ' selected';
       }
@@ -2113,6 +2116,18 @@ try {
   function openCraftForEquipmentSlot(slotId) {
     if (_modalPanelsModule && _modalPanelsModule.openCraftForEquipmentSlot) {
       _modalPanelsModule.openCraftForEquipmentSlot(slotId);
+    }
+  }
+
+  function setBuildFilterMode(mode) {
+    if (_modalPanelsModule && _modalPanelsModule.setBuildFilterMode) {
+      _modalPanelsModule.setBuildFilterMode(mode);
+    }
+  }
+
+  function setBuildFilterValue(value) {
+    if (_modalPanelsModule && _modalPanelsModule.setBuildFilterValue) {
+      _modalPanelsModule.setBuildFilterValue(value);
     }
   }
 
@@ -2547,7 +2562,6 @@ try {
     updateNodeWorldLabels: updateNodeWorldLabels,
     updateBuildingStorageLabels: updateBuildingStorageLabels,
     updatePerformanceStats: updatePerformanceStats,
-    toggleProductionPanel: toggleProductionPanel,
     // Modal functions
     toggleModal: toggleModal,
     openModal: openModal,
@@ -2566,6 +2580,8 @@ try {
     setBagFilterValue: setBagFilterValue,
     setInventoryFilterMode: setInventoryFilterMode,
     setInventoryFilterValue: setInventoryFilterValue,
+    setBuildFilterMode: setBuildFilterMode,
+    setBuildFilterValue: setBuildFilterValue,
     setCraftFilterMode: setCraftFilterMode,
     setCraftFilterValue: setCraftFilterValue,
     activateQuickbarSlot: activateQuickbarSlot,

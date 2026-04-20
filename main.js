@@ -158,7 +158,7 @@ window.GameActions = (function () {
     }
 
     // Deduct refuel cost
-    for (var resId in balance.refuelCost) {
+    for (resId in balance.refuelCost) {
       GameState.consumeSpendableResource(resId, balance.refuelCost[resId]);
     }
 
@@ -1278,17 +1278,14 @@ window.GameActions = (function () {
 
   function plantCrop(instanceUid) {
     GameHUD.showNotification(t('hud.farm.actions.plantAuto', null, 'Residents handle planting automatically.'));
-    return false;
   }
 
   function waterCrop(instanceUid) {
     GameHUD.showNotification(t('hud.farm.actions.waterAuto', null, 'Residents fetch water automatically.'));
-    return false;
   }
 
   function harvestCrop(instanceUid) {
     GameHUD.showNotification(t('hud.farm.actions.harvestAuto', null, 'Residents harvest crops automatically.'));
-    return false;
   }
 
   function interactWithFarmPlot(instanceUid) {
@@ -1342,12 +1339,12 @@ window.GameActions = (function () {
     // Check building requirements
     if (conditions.buildings) {
       for (var buildingId in conditions.buildings) {
-        var needed = conditions.buildings[buildingId];
+        var neededCount = conditions.buildings[buildingId];
         var current = GameState.getBuildingCount(buildingId);
-        if (current < needed) {
+        if (current < neededCount) {
           var buildingEntity = GameRegistry.getEntity(buildingId);
           var buildingName = buildingEntity ? buildingEntity.name : buildingId;
-          GameHUD.showError(t('hud.actions.needBuildingCount', { amount: needed, name: buildingName, current: current }, 'Need {amount} {name} (have {current})'));
+          GameHUD.showError(t('hud.actions.needBuildingCount', { amount: neededCount, name: buildingName, current: current }, 'Need {amount} {name} (have {current})'));
           return;
         }
       }
@@ -1654,6 +1651,7 @@ window.GameActions = (function () {
   document.getElementById('game-canvas').addEventListener('click', function (event) {
     // Build preview mode - confirm placement
     if (BuildingSystem.isBuildMode()) {
+      event.preventDefault();
       BuildingSystem.confirmBuild();
       return;
     }
@@ -1711,10 +1709,20 @@ window.GameActions = (function () {
     GameHUD.closeInspector();
   });
 
+  document.getElementById('game-canvas').addEventListener('contextmenu', function (event) {
+    if (!BuildingSystem.isBuildMode()) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    BuildingSystem.cancelBuild();
+    GameHUD.showNotification(t('hud.build.canceled', null, 'Build mode canceled.'));
+  });
+
   // ESC key handler
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') {
       if (BuildingSystem.isBuildMode()) {
+        e.preventDefault();
         BuildingSystem.cancelBuild();
       } else {
         GameHUD.closePanels();

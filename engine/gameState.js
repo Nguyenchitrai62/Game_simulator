@@ -777,7 +777,7 @@ window.GameState = (function () {
     }
 
     // Release grid tile
-    GameTerrain.releaseTile(instance.x, instance.z);
+    if (window.GameTerrain && GameTerrain.releaseTile) GameTerrain.releaseTile(instance.x, instance.z);
 
     // Clear building storage
     clearBuildingStorage(uid);
@@ -930,7 +930,6 @@ window.GameState = (function () {
   }
   function getChunkData(key) { return _state.chunks[key] || null; }
   function getAllChunkData() { return _state.chunks; }
-  function getChunks() { return _state.chunks; }
 
   // === Technologies ===
   function getTechState() {
@@ -1158,7 +1157,6 @@ window.GameState = (function () {
     getStorageUsed: getStorageUsed, getStorageCapacity: getStorageCapacity,
     canDeposit: canDeposit, tryDepositToBuilding: tryDepositToBuilding,
     saveChunkData: saveChunkData, getChunkData: getChunkData, getAllChunkData: getAllChunkData,
-    getChunks: getChunks,
     getTechState: getTechState, setTechState: setTechState,
     exportCoreState: exportCoreState, exportWorldState: exportWorldState,
     exportState: exportState, importState: importState, importWorldState: importWorldState,

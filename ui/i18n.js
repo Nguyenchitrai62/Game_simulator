@@ -126,6 +126,20 @@ window.GameI18n = window.GameI18n || (function () {
               placeAnother: 'Place another',
               placeStructure: 'Place structure'
             },
+            categories: {
+              civilian: 'Civilian',
+              civilianCopy: 'Core settlement buildings that support residents and daily survival.',
+              farming: 'Farming',
+              farmingCopy: 'Food, tree growth, and agricultural support structures.',
+              production: 'Production',
+              productionCopy: 'Gathering, mining, and processing buildings that drive your economy.',
+              support: 'Support',
+              supportCopy: 'Infrastructure and utility buildings that keep the settlement connected.',
+              military: 'Military',
+              militaryCopy: 'Defensive and troop-focused structures for protecting the settlement.'
+            },
+            showing: 'Showing {shown}/{total}',
+            emptyFilter: 'No buildings match this filter.',
             sections: {
               planningKicker: 'Settlement Planning',
               planningTitle: 'Construction Queue',
@@ -173,6 +187,7 @@ window.GameI18n = window.GameI18n || (function () {
               useItem: 'Use item',
               craft: 'Craft'
             },
+            rewardRelic: 'Boss relic reward',
             lockedHint: 'Meet the unlock requirements to craft this item.',
             showing: 'Showing {shown}/{total}',
             emptyFilter: 'No recipes match this filter.',
@@ -603,6 +618,8 @@ window.GameI18n = window.GameI18n || (function () {
           torchLitNotification: 'Hand torch lit. ({seconds}s)',
           nodeNotReady: '{name} is not ready yet.',
           npcAlreadyHarvesting: 'An NPC is already harvesting this!',
+          moveCloserToPickup: 'Move closer and click or press E to pick it up.',
+          moveCloserToPickupNamed: 'Move closer to pick up {name}.',
           thisNode: 'This node',
           structureRemoved: 'Structure removed.',
           animalStatLabels: {
@@ -636,21 +653,32 @@ window.GameI18n = window.GameI18n || (function () {
           needBuildingCount: 'Need {amount} {name} (have {current})',
           advancedToAge: 'Advanced to {name}!',
           researched: 'Researched: {name}',
-          cannotResearchTech: 'Cannot research this technology'
+          cannotResearchTech: 'Cannot research this technology',
+          pickedUp: 'Picked up: {items}',
+          pickedUpEquipped: 'Picked up: {items}. Equipped: {equipped}.'
         },
         contextAction: {
           farmPlot: 'Farm Plot',
+          loot: 'Loot',
           collectFrom: 'Collect from {name} ({count} items)',
           collectStored: 'Collect {name} [{count} stored]',
           needsWorker: '{name} [Needs worker]',
           statusWithProgress: '{name} [{status}] {progress}%',
           statusOnly: '{name} [{status}]',
+          stackCount: 'x{count}',
           actions: {
             fight: 'Fight',
             hunt: 'Hunt',
             gather: 'Gather',
             harvest: 'Harvest',
-            interact: 'Interact'
+            interact: 'Interact',
+            pickup: 'Pick up'
+          },
+          types: {
+            resource: 'Resource',
+            equipment: 'Equipment',
+            tool: 'Tool',
+            consumable: 'Consumable'
           }
         },
         equipment: {
@@ -976,7 +1004,9 @@ window.GameI18n = window.GameI18n || (function () {
           bareHands: 'Bare Hands',
           blocked: 'BLOCKED',
           bossDefeated: 'Boss defeated! Reward claimed: {rewards}.{equipText}',
+          bossLootDropped: 'Boss defeated! Loot dropped: {rewards}',
           victoryLoot: 'Victory! Loot collected: {rewards}',
+          victoryLootDropped: 'Victory! Loot dropped: {rewards}',
           victory: 'Victory!',
           equippedRewards: ' Equipped: {items}.',
           relicClaimed: 'Relic claimed',
@@ -1066,6 +1096,7 @@ window.GameI18n = window.GameI18n || (function () {
         },
         player: {
           ruinedOutpostSalvaged: '{name} salvaged: {rewards}',
+          ruinedOutpostLootDropped: '{name} salvaged. Loot dropped: {rewards}',
           suppliesRecovered: 'Supplies recovered.'
         }
       },
@@ -1216,6 +1247,20 @@ window.GameI18n = window.GameI18n || (function () {
               placeAnother: 'Đặt thêm',
               placeStructure: 'Đặt công trình'
             },
+            categories: {
+              civilian: 'Dân sự',
+              civilianCopy: 'Các công trình lõi giúp cư dân sinh sống và vận hành khu định cư mỗi ngày.',
+              farming: 'Nuôi trồng',
+              farmingCopy: 'Nhóm công trình lo lương thực, cây trồng và hỗ trợ nông nghiệp.',
+              production: 'Sản xuất',
+              productionCopy: 'Nhóm khai thác, đào mỏ và chế biến để nuôi nền kinh tế.',
+              support: 'Hạ tầng',
+              supportCopy: 'Công trình tiện ích và hạ tầng giúp khu định cư vận hành mượt hơn.',
+              military: 'Quân sự',
+              militaryCopy: 'Công trình phòng thủ và huấn luyện để bảo vệ khu định cư.'
+            },
+            showing: 'Hiện {shown}/{total}',
+            emptyFilter: 'Không có công trình nào khớp bộ lọc này.',
             sections: {
               planningKicker: 'Quy hoạch',
               planningTitle: 'Hàng đợi xây dựng',
@@ -1263,6 +1308,7 @@ window.GameI18n = window.GameI18n || (function () {
               useItem: 'Dùng đồ',
               craft: 'Chế tạo'
             },
+            rewardRelic: 'Vũ khí thưởng từ boss',
             lockedHint: 'Đạt điều kiện mở khóa để chế món này.',
             showing: 'Hiện {shown}/{total}',
             emptyFilter: 'Không có công thức nào khớp bộ lọc này.',
@@ -1693,6 +1739,8 @@ window.GameI18n = window.GameI18n || (function () {
           torchLitNotification: 'Thắp đuốc tay. ({seconds}s)',
           nodeNotReady: '{name} chưa sẵn sàng.',
           npcAlreadyHarvesting: 'Một NPC đang thu hoạch chỗ này rồi!',
+          moveCloserToPickup: 'Lại gần rồi click hoặc bấm E để nhặt.',
+          moveCloserToPickupNamed: 'Lại gần để nhặt {name}.',
           thisNode: 'Điểm này',
           structureRemoved: 'Đã tháo công trình.',
           animalStatLabels: {
@@ -1726,21 +1774,32 @@ window.GameI18n = window.GameI18n || (function () {
           needBuildingCount: 'Cần {amount} {name} (đang có {current})',
           advancedToAge: 'Đã thăng tiến lên {name}!',
           researched: 'Đã nghiên cứu: {name}',
-          cannotResearchTech: 'Không thể nghiên cứu công nghệ này'
+          cannotResearchTech: 'Không thể nghiên cứu công nghệ này',
+          pickedUp: 'Đã nhặt: {items}',
+          pickedUpEquipped: 'Đã nhặt: {items}. Tự trang bị: {equipped}.'
         },
         contextAction: {
           farmPlot: 'Ruộng',
+          loot: 'Đồ rơi',
           collectFrom: 'Lấy từ {name} ({count} món)',
           collectStored: 'Thu {name} [{count} đang chứa]',
           needsWorker: '{name} [Cần worker]',
           statusWithProgress: '{name} [{status}] {progress}%',
           statusOnly: '{name} [{status}]',
+          stackCount: 'x{count}',
           actions: {
             fight: 'Đánh',
             hunt: 'Săn',
             gather: 'Nhặt',
             harvest: 'Khai thác',
-            interact: 'Tương tác'
+            interact: 'Tương tác',
+            pickup: 'Nhặt'
+          },
+          types: {
+            resource: 'Tài nguyên',
+            equipment: 'Trang bị',
+            tool: 'Công cụ',
+            consumable: 'Vật phẩm tiêu hao'
           }
         },
         equipment: {
@@ -2066,7 +2125,9 @@ window.GameI18n = window.GameI18n || (function () {
           bareHands: 'Tay không',
           blocked: 'CHẶN',
           bossDefeated: 'Đã hạ boss! Nhận thưởng: {rewards}.{equipText}',
+          bossLootDropped: 'Đã hạ boss! Đồ rơi ra: {rewards}',
           victoryLoot: 'Chiến thắng! Đã thu loot: {rewards}',
+          victoryLootDropped: 'Chiến thắng! Đồ rơi ra: {rewards}',
           victory: 'Chiến thắng!',
           equippedRewards: ' Tự trang bị: {items}.',
           relicClaimed: 'Đã nhận di vật',
@@ -2156,6 +2217,7 @@ window.GameI18n = window.GameI18n || (function () {
         },
         player: {
           ruinedOutpostSalvaged: '{name} đã được vét: {rewards}',
+          ruinedOutpostLootDropped: '{name} đã được vét. Đồ rơi ra: {rewards}',
           suppliesRecovered: 'Đã thu hồi nhu yếu phẩm.'
         }
       },

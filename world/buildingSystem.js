@@ -161,6 +161,28 @@ window.BuildingSystem = (function () {
     return { valid: true };
   }
 
+  function getMissingBuildCost(buildingId) {
+    var balance = GameRegistry.getBalance(buildingId);
+    if (!balance || !balance.cost) return null;
+
+    for (var resId in balance.cost) {
+      if (!GameState.hasSpendableResource(resId, balance.cost[resId])) {
+        var available = GameState.getSpendableResource(resId);
+        return {
+          resId: resId,
+          entity: GameRegistry.getEntity(resId),
+          needed: Math.max(0, balance.cost[resId] - available)
+        };
+      }
+    }
+
+    return null;
+  }
+
+  function canAffordBuildCost(buildingId) {
+    return !getMissingBuildCost(buildingId);
+  }
+
   function placeAtPlayer(buildingId) {
     var balance = GameRegistry.getBalance(buildingId);
     if (!balance || !balance.cost) return false;
@@ -383,11 +405,435 @@ window.BuildingSystem = (function () {
     }
   }
 
+  function createStructureMaterial(color, isPreview, previewOpacity) {
+    return new THREE.MeshLambertMaterial({
+      color: color,
+      transparent: isPreview,
+      opacity: isPreview ? (previewOpacity || 0.58) : 1.0
+    });
+  }
+
+  function addStructurePart(group, geometry, material, x, y, z, rx, ry, rz, isPreview, receiveShadow) {
+    var mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(x || 0, y || 0, z || 0);
+    mesh.rotation.set(rx || 0, ry || 0, rz || 0);
+    mesh.castShadow = !isPreview;
+    mesh.receiveShadow = !!receiveShadow && !isPreview;
+    group.add(mesh);
+    return mesh;
+  }
+
+  function addShadowCircle(group, radius, scale, isPreview, opacity) {
+    var shadow = new THREE.Mesh(
+      new THREE.CircleGeometry(radius * scale, 16),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: isPreview ? 0.08 : (opacity || 0.14) })
+    );
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = 0.02;
+    group.add(shadow);
+  }
+
+  function addGabledRoof(group, scale, width, depth, centerY, pitch, material, isPreview, offsetX, offsetZ) {
+    var roofX = (typeof offsetX === 'number' ? offsetX : 0) * scale;
+    var roofZ = (typeof offsetZ === 'number' ? offsetZ : 0) * scale;
+    var roofThickness = 0.07 * scale;
+    var roofGeo = new THREE.BoxGeometry(width * scale, roofThickness, depth * scale);
+    var roofPitch = Math.abs(pitch || 0.45);
+    var runOffset = Math.cos(roofPitch) * depth * 0.17 * scale;
+    var riseOffset = Math.sin(roofPitch) * depth * 0.11 * scale;
+
+    addStructurePart(group, roofGeo, material, roofX, centerY * scale + riseOffset, roofZ - runOffset, -roofPitch, 0, 0, isPreview, false);
+    addStructurePart(group, roofGeo, material, roofX, centerY * scale + riseOffset, roofZ + runOffset, roofPitch, 0, 0, isPreview, false);
+    addStructurePart(group, new THREE.BoxGeometry(width * 0.94 * scale, 0.05 * scale, 0.08 * scale), material, roofX, (centerY + 0.15) * scale + riseOffset * 0.25, roofZ, 0, 0, 0, isPreview, false);
+  }
+
+  function addBarrel(group, scale, material, x, z, isPreview) {
+    addStructurePart(group, new THREE.CylinderGeometry(0.06 * scale, 0.07 * scale, 0.16 * scale, 8), material, x * scale, 0.08 * scale, z * scale, 0, 0, 0, isPreview, false);
+  }
+
+  function addCrate(group, scale, material, x, z, width, height, depth, isPreview) {
+    addStructurePart(group, new THREE.BoxGeometry((width || 0.16) * scale, (height || 0.14) * scale, (depth || 0.16) * scale), material, x * scale, ((height || 0.14) * 0.5) * scale, z * scale, 0, 0, 0, isPreview, false);
+  }
+
+  function addOrePile(group, scale, color, x, z, isPreview) {
+    var oreMat = createStructureMaterial(color, isPreview, 0.5);
+    for (var oreIndex = 0; oreIndex < 3; oreIndex++) {
+      addStructurePart(
+        group,
+        new THREE.DodecahedronGeometry((0.05 + oreIndex * 0.01) * scale, 0),
+        oreMat,
+        (x + (oreIndex - 1) * 0.05) * scale,
+        (0.05 + oreIndex * 0.015) * scale,
+        (z + (oreIndex % 2 === 0 ? -0.03 : 0.04)) * scale,
+        oreIndex * 0.4,
+        oreIndex * 0.3,
+        0,
+        isPreview,
+        false
+      );
+    }
+  }
+
+  function getMineAccentColor(buildingId, fallbackColor) {
+    if (buildingId === 'building.copper_mine') return 0xb87333;
+    if (buildingId === 'building.tin_mine') return 0xd0d6dc;
+    if (buildingId === 'building.iron_mine') return 0x8b7355;
+    if (buildingId === 'building.coal_mine') return 0x303030;
+    if (buildingId === 'building.flint_mine') return 0x4a4a4a;
+    if (buildingId === 'building.stone_quarry') return 0x8a8f96;
+    return fallbackColor || 0x8a8f96;
+  }
+
+  function createResidentHouseMesh(entity, level, isPreview, scale, color, roofColor) {
+    var group = new THREE.Group();
+    var stoneMat = createStructureMaterial(0x7a6f60, isPreview, 0.5);
+    var plasterMat = createStructureMaterial(0xcdb79e, isPreview, 0.54);
+    var wallMat = createStructureMaterial(color || 0x927657, isPreview, 0.55);
+    var trimMat = createStructureMaterial(0x6c4725, isPreview, 0.55);
+    var roofMat = createStructureMaterial(roofColor || 0x6b4e2e, isPreview, 0.55);
+    var shutterMat = createStructureMaterial(0x55663a, isPreview, 0.52);
+    var flowerBoxMat = createStructureMaterial(0x825431, isPreview, 0.52);
+    var flowerMat = createStructureMaterial(0xc85b63, isPreview, 0.48);
+    var glassMat = new THREE.MeshBasicMaterial({ color: 0xffe7c4, transparent: true, opacity: isPreview ? 0.18 : 0.76 });
+
+    addStructurePart(group, new THREE.BoxGeometry(1.14 * scale, 0.16 * scale, 0.9 * scale), stoneMat, 0, 0.08 * scale, 0, 0, 0, 0, isPreview, true);
+    addStructurePart(group, new THREE.BoxGeometry(0.18 * scale, 0.08 * scale, 0.22 * scale), stoneMat, 0.02 * scale, 0.12 * scale, 0.56 * scale, 0, 0, 0, isPreview, true);
+
+    addStructurePart(group, new THREE.BoxGeometry(0.76 * scale, 0.56 * scale, 0.54 * scale), plasterMat, -0.14 * scale, 0.36 * scale, -0.02 * scale, 0, 0, 0, isPreview, true);
+    addStructurePart(group, new THREE.BoxGeometry(0.34 * scale, 0.44 * scale, 0.42 * scale), wallMat, 0.34 * scale, 0.3 * scale, -0.08 * scale, 0, 0, 0, isPreview, true);
+    addStructurePart(group, new THREE.BoxGeometry(0.24 * scale, 0.22 * scale, 0.2 * scale), stoneMat, -0.4 * scale, 0.19 * scale, -0.22 * scale, 0, 0.1, 0, isPreview, true);
+
+    addStructurePart(group, new THREE.BoxGeometry(0.56 * scale, 0.07 * scale, 0.24 * scale), trimMat, 0.06 * scale, 0.12 * scale, 0.42 * scale, 0, 0, 0, isPreview, true);
+    addStructurePart(group, new THREE.BoxGeometry(0.06 * scale, 0.34 * scale, 0.06 * scale), trimMat, -0.12 * scale, 0.28 * scale, 0.48 * scale, 0, 0, 0, isPreview, false);
+    addStructurePart(group, new THREE.BoxGeometry(0.06 * scale, 0.34 * scale, 0.06 * scale), trimMat, 0.22 * scale, 0.28 * scale, 0.48 * scale, 0, 0, 0, isPreview, false);
+    addStructurePart(group, new THREE.BoxGeometry(0.48 * scale, 0.05 * scale, 0.26 * scale), roofMat, 0.06 * scale, 0.6 * scale, 0.42 * scale, 0.28, 0, 0, isPreview, false);
+
+    addGabledRoof(group, scale, 0.96, 0.58, 0.78, 0.56, roofMat, isPreview, -0.14, -0.02);
+    addGabledRoof(group, scale, 0.48, 0.46, 0.62, 0.46, roofMat, isPreview, 0.34, -0.08);
+
+    addStructurePart(group, new THREE.BoxGeometry(0.12 * scale, 0.44 * scale, 0.12 * scale), stoneMat, -0.38 * scale, 1.0 * scale, -0.06 * scale, 0, 0, 0, isPreview, false);
+    addStructurePart(group, new THREE.BoxGeometry(0.18 * scale, 0.04 * scale, 0.18 * scale), stoneMat, -0.38 * scale, 1.24 * scale, -0.06 * scale, 0, 0.2, 0, isPreview, false);
+
+    addStructurePart(group, new THREE.BoxGeometry(0.18 * scale, 0.32 * scale, 0.04 * scale), trimMat, 0.06 * scale, 0.18 * scale, 0.31 * scale, 0, 0, 0, isPreview, false);
+    addStructurePart(group, new THREE.BoxGeometry(0.08 * scale, 0.03 * scale, 0.02 * scale), trimMat, 0.14 * scale, 0.18 * scale, 0.33 * scale, 0, 0, 0.24, isPreview, false);
+    addStructurePart(group, new THREE.BoxGeometry(0.16 * scale, 0.12 * scale, 0.03 * scale), glassMat, -0.34 * scale, 0.38 * scale, 0.26 * scale, 0, 0, 0, isPreview, false);
+    addStructurePart(group, new THREE.BoxGeometry(0.12 * scale, 0.1 * scale, 0.03 * scale), glassMat, 0.34 * scale, 0.34 * scale, 0.14 * scale, 0, 0, 0, isPreview, false);
+    addStructurePart(group, new THREE.BoxGeometry(0.03 * scale, 0.14 * scale, 0.03 * scale), shutterMat, -0.43 * scale, 0.38 * scale, 0.27 * scale, 0, 0, 0.08, isPreview, false);
+    addStructurePart(group, new THREE.BoxGeometry(0.03 * scale, 0.14 * scale, 0.03 * scale), shutterMat, -0.25 * scale, 0.38 * scale, 0.27 * scale, 0, 0, -0.08, isPreview, false);
+    addStructurePart(group, new THREE.BoxGeometry(0.14 * scale, 0.04 * scale, 0.08 * scale), flowerBoxMat, -0.34 * scale, 0.26 * scale, 0.29 * scale, 0, 0, 0, isPreview, false);
+    addStructurePart(group, new THREE.SphereGeometry(0.025 * scale, 5, 4), flowerMat, -0.38 * scale, 0.31 * scale, 0.3 * scale, 0, 0, 0, isPreview, false);
+    addStructurePart(group, new THREE.SphereGeometry(0.022 * scale, 5, 4), flowerMat, -0.31 * scale, 0.3 * scale, 0.31 * scale, 0, 0, 0, isPreview, false);
+
+    addStructurePart(group, new THREE.BoxGeometry(0.16 * scale, 0.05 * scale, 0.24 * scale), trimMat, -0.46 * scale, 0.14 * scale, 0.26 * scale, 0, 0.26, 0, isPreview, false);
+    addBarrel(group, scale, trimMat, 0.46, 0.18, isPreview);
+
+    if (level >= 2) {
+      addStructurePart(group, new THREE.BoxGeometry(0.2 * scale, 0.18 * scale, 0.14 * scale), plasterMat, -0.18 * scale, 0.92 * scale, 0.05 * scale, 0, 0, 0, isPreview, true);
+      addGabledRoof(group, scale, 0.24, 0.2, 1.02, 0.44, roofMat, isPreview, -0.18, 0.05);
+      addStructurePart(group, new THREE.BoxGeometry(0.1 * scale, 0.08 * scale, 0.03 * scale), glassMat, -0.18 * scale, 0.9 * scale, 0.15 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.05 * scale, 0.16 * scale, 0.05 * scale), trimMat, 0.28 * scale, 0.56 * scale, 0.36 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.08 * scale, 0.08 * scale, 0.06 * scale), glassMat, 0.28 * scale, 0.54 * scale, 0.39 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.44 * scale, 0.03 * scale, 0.08 * scale), trimMat, -0.04 * scale, 0.18 * scale, 0.56 * scale, 0, 0, 0, isPreview, false);
+    }
+    if (level >= 3) {
+      addStructurePart(group, new THREE.BoxGeometry(0.06 * scale, 0.34 * scale, 0.06 * scale), trimMat, 0.48 * scale, 0.23 * scale, 0.18 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.06 * scale, 0.34 * scale, 0.06 * scale), trimMat, 0.48 * scale, 0.23 * scale, 0.52 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.22 * scale, 0.05 * scale, 0.38 * scale), trimMat, 0.48 * scale, 0.42 * scale, 0.35 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.04 * scale, 0.18 * scale, 0.22 * scale), shutterMat, 0.48 * scale, 0.28 * scale, 0.35 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.26 * scale, 0.03 * scale, 0.1 * scale), flowerBoxMat, 0.36 * scale, 0.12 * scale, 0.58 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.SphereGeometry(0.024 * scale, 5, 4), flowerMat, 0.28 * scale, 0.17 * scale, 0.6 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.SphereGeometry(0.024 * scale, 5, 4), flowerMat, 0.37 * scale, 0.18 * scale, 0.6 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.SphereGeometry(0.024 * scale, 5, 4), flowerMat, 0.45 * scale, 0.17 * scale, 0.6 * scale, 0, 0, 0, isPreview, false);
+    }
+
+    addShadowCircle(group, 0.7, scale, isPreview, 0.15);
+    return group;
+  }
+
+  function createWarehouseMesh(entity, level, isPreview, scale, color, roofColor) {
+    var group = new THREE.Group();
+    var stoneMat = createStructureMaterial(0x72675b, isPreview, 0.5);
+    var wallMat = createStructureMaterial(color || 0x85705a, isPreview, 0.55);
+    var beamMat = createStructureMaterial(0x5f3d22, isPreview, 0.56);
+    var doorMat = createStructureMaterial(0x4f321a, isPreview, 0.56);
+    var roofMat = createStructureMaterial(roofColor || 0x5b4128, isPreview, 0.54);
+    var metalMat = createStructureMaterial(0x8e959d, isPreview, 0.5);
+    var ventMat = new THREE.MeshBasicMaterial({ color: 0xb7c4c7, transparent: true, opacity: isPreview ? 0.18 : 0.52 });
+
+    addStructurePart(group, new THREE.BoxGeometry(1.62 * scale, 0.16 * scale, 1.08 * scale), stoneMat, 0, 0.08 * scale, 0, 0, 0, 0, isPreview, true);
+    addStructurePart(group, new THREE.BoxGeometry(1.46 * scale, 0.64 * scale, 0.9 * scale), wallMat, 0, 0.4 * scale, -0.02 * scale, 0, 0, 0, isPreview, true);
+    addStructurePart(group, new THREE.BoxGeometry(1.52 * scale, 0.06 * scale, 0.96 * scale), beamMat, 0, 0.72 * scale, -0.02 * scale, 0, 0, 0, isPreview, true);
+    addGabledRoof(group, scale, 1.72, 0.8, 1.04, 0.34, roofMat, isPreview, 0, -0.02);
+
+    addStructurePart(group, new THREE.BoxGeometry(0.08 * scale, 0.56 * scale, 0.08 * scale), beamMat, -0.62 * scale, 0.38 * scale, 0.37 * scale, 0, 0, 0, isPreview, false);
+    addStructurePart(group, new THREE.BoxGeometry(0.08 * scale, 0.56 * scale, 0.08 * scale), beamMat, 0.62 * scale, 0.38 * scale, 0.37 * scale, 0, 0, 0, isPreview, false);
+    addStructurePart(group, new THREE.BoxGeometry(0.9 * scale, 0.08 * scale, 0.22 * scale), beamMat, 0, 0.14 * scale, 0.62 * scale, 0, 0, 0, isPreview, true);
+    addStructurePart(group, new THREE.BoxGeometry(0.68 * scale, 0.5 * scale, 0.06 * scale), doorMat, 0, 0.34 * scale, 0.44 * scale, 0, 0, 0, isPreview, false);
+    addStructurePart(group, new THREE.BoxGeometry(0.04 * scale, 0.5 * scale, 0.07 * scale), beamMat, 0, 0.34 * scale, 0.44 * scale, 0, 0, 0, isPreview, false);
+    addStructurePart(group, new THREE.BoxGeometry(0.78 * scale, 0.06 * scale, 0.08 * scale), beamMat, 0, 0.62 * scale, 0.42 * scale, 0, 0, 0, isPreview, false);
+    addStructurePart(group, new THREE.BoxGeometry(0.18 * scale, 0.1 * scale, 0.03 * scale), ventMat, 0, 0.8 * scale, 0.16 * scale, 0, 0, 0, isPreview, false);
+    addStructurePart(group, new THREE.BoxGeometry(0.18 * scale, 0.1 * scale, 0.03 * scale), ventMat, -0.73 * scale, 0.54 * scale, -0.04 * scale, 0, Math.PI / 2, 0, isPreview, false);
+    addStructurePart(group, new THREE.BoxGeometry(0.18 * scale, 0.1 * scale, 0.03 * scale), ventMat, 0.73 * scale, 0.54 * scale, -0.04 * scale, 0, Math.PI / 2, 0, isPreview, false);
+
+    addCrate(group, scale, beamMat, -0.52, 0.3, 0.28, 0.18, 0.22, isPreview);
+    addCrate(group, scale, beamMat, -0.26, 0.22, 0.22, 0.14, 0.18, isPreview);
+    addBarrel(group, scale, beamMat, 0.5, 0.28, isPreview);
+
+    if (level >= 2) {
+      addStructurePart(group, new THREE.BoxGeometry(0.54 * scale, 0.08 * scale, 0.34 * scale), beamMat, -0.48 * scale, 0.18 * scale, -0.64 * scale, 0, 0, 0, isPreview, true);
+      addStructurePart(group, new THREE.BoxGeometry(0.64 * scale, 0.05 * scale, 0.42 * scale), roofMat, -0.48 * scale, 0.42 * scale, -0.64 * scale, 0.18, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.08 * scale, 0.34 * scale, 0.08 * scale), beamMat, -0.72 * scale, 0.18 * scale, -0.64 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.08 * scale, 0.34 * scale, 0.08 * scale), beamMat, -0.24 * scale, 0.18 * scale, -0.64 * scale, 0, 0, 0, isPreview, false);
+      addCrate(group, scale, beamMat, -0.76, -0.5, 0.26, 0.16, 0.2, isPreview);
+      addCrate(group, scale, beamMat, -0.48, -0.5, 0.32, 0.2, 0.22, isPreview);
+    }
+    if (level >= 3) {
+      addStructurePart(group, new THREE.BoxGeometry(0.08 * scale, 0.7 * scale, 0.08 * scale), beamMat, 0.78 * scale, 0.46 * scale, -0.12 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.34 * scale, 0.06 * scale, 0.08 * scale), beamMat, 0.94 * scale, 0.76 * scale, -0.12 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.CylinderGeometry(0.05 * scale, 0.05 * scale, 0.1 * scale, 10), metalMat, 1.08 * scale, 0.74 * scale, -0.12 * scale, Math.PI / 2, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.CylinderGeometry(0.006 * scale, 0.006 * scale, 0.48 * scale, 4), metalMat, 1.08 * scale, 0.46 * scale, -0.12 * scale, 0, 0, 0, isPreview, false);
+      addCrate(group, scale, beamMat, 0.9, -0.26, 0.3, 0.18, 0.22, isPreview);
+      addBarrel(group, scale, beamMat, 0.76, -0.42, isPreview);
+    }
+
+    addShadowCircle(group, 0.82, scale, isPreview, 0.15);
+    return group;
+  }
+
+  function createBarracksOrArmoryMesh(entity, level, isPreview, scale, color, roofColor) {
+    var group = new THREE.Group();
+    var isArmory = entity.id === 'building.armory';
+    var stoneMat = createStructureMaterial(isArmory ? 0x5c554b : 0x75685a, isPreview, 0.52);
+    var wallMat = createStructureMaterial(color, isPreview, 0.56);
+    var trimMat = createStructureMaterial(isArmory ? 0x4c3423 : 0x603c20, isPreview, 0.56);
+    var roofMat = createStructureMaterial(roofColor || (isArmory ? 0x36404a : 0x2d1f1a), isPreview, 0.55);
+    var accentMat = createStructureMaterial(isArmory ? 0x96a0aa : 0xc23d2a, isPreview, 0.5);
+
+    if (isArmory) {
+      addStructurePart(group, new THREE.BoxGeometry(1.14 * scale, 0.18 * scale, 0.92 * scale), stoneMat, 0, 0.09 * scale, 0, 0, 0, 0, isPreview, true);
+      addStructurePart(group, new THREE.BoxGeometry(0.82 * scale, 0.56 * scale, 0.62 * scale), wallMat, -0.08 * scale, 0.37 * scale, -0.02 * scale, 0, 0, 0, isPreview, true);
+      addStructurePart(group, new THREE.BoxGeometry(0.3 * scale, 0.36 * scale, 0.34 * scale), stoneMat, 0.42 * scale, 0.24 * scale, -0.12 * scale, 0, 0, 0, isPreview, true);
+      addStructurePart(group, new THREE.BoxGeometry(0.42 * scale, 0.08 * scale, 0.2 * scale), trimMat, -0.06 * scale, 0.12 * scale, 0.48 * scale, 0, 0, 0, isPreview, true);
+      addStructurePart(group, new THREE.ConeGeometry(0.52 * scale, 0.3 * scale, 4), roofMat, -0.08 * scale, 0.86 * scale, -0.02 * scale, 0, Math.PI / 4, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.38 * scale, 0.05 * scale, 0.42 * scale), roofMat, 0.42 * scale, 0.52 * scale, -0.12 * scale, 0.22, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.16 * scale, 0.32 * scale, 0.04 * scale), trimMat, -0.08 * scale, 0.18 * scale, 0.27 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.CylinderGeometry(0.13 * scale, 0.13 * scale, 0.05 * scale, 14), accentMat, -0.44 * scale, 0.3 * scale, 0.24 * scale, Math.PI / 2, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.08 * scale, 0.24 * scale, 0.08 * scale), accentMat, 0.46 * scale, 0.2 * scale, 0.18 * scale, 0, 0, 0, isPreview, false);
+      addOrePile(group, scale, 0xa3adb7, 0.44, 0.26, isPreview);
+      addStructurePart(group, new THREE.BoxGeometry(0.08 * scale, 0.36 * scale, 0.08 * scale), stoneMat, -0.42 * scale, 0.24 * scale, -0.18 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.08 * scale, 0.36 * scale, 0.08 * scale), stoneMat, 0.18 * scale, 0.24 * scale, -0.24 * scale, 0, 0, 0, isPreview, false);
+
+      if (level >= 2) {
+        addStructurePart(group, new THREE.BoxGeometry(0.16 * scale, 0.04 * scale, 0.16 * scale), accentMat, -0.06 * scale, 1.02 * scale, -0.02 * scale, 0, 0.4, 0, isPreview, false);
+        addStructurePart(group, new THREE.BoxGeometry(0.1 * scale, 0.18 * scale, 0.04 * scale), accentMat, 0.58 * scale, 0.42 * scale, -0.12 * scale, 0, 0, 0, isPreview, false);
+      }
+      if (level >= 3) {
+        addStructurePart(group, new THREE.BoxGeometry(0.12 * scale, 0.4 * scale, 0.12 * scale), stoneMat, -0.08 * scale, 1.18 * scale, -0.02 * scale, 0, 0, 0, isPreview, false);
+        addStructurePart(group, new THREE.BoxGeometry(0.18 * scale, 0.04 * scale, 0.18 * scale), accentMat, 0.42 * scale, 0.58 * scale, -0.12 * scale, 0, 0.6, 0, isPreview, false);
+      }
+    } else {
+      var windowMat = new THREE.MeshBasicMaterial({ color: 0xffddb0, transparent: true, opacity: isPreview ? 0.18 : 0.55 });
+
+      addStructurePart(group, new THREE.BoxGeometry(1.52 * scale, 0.2 * scale, 1.06 * scale), stoneMat, 0, 0.1 * scale, 0, 0, 0, 0, isPreview, true);
+      addStructurePart(group, new THREE.BoxGeometry(1.22 * scale, 0.7 * scale, 0.82 * scale), wallMat, 0, 0.48 * scale, -0.04 * scale, 0, 0, 0, isPreview, true);
+      addGabledRoof(group, scale, 1.48, 0.9, 0.96, 0.5, roofMat, isPreview, 0, -0.04);
+
+      addStructurePart(group, new THREE.BoxGeometry(0.82 * scale, 0.09 * scale, 0.28 * scale), trimMat, 0, 0.18 * scale, 0.62 * scale, 0, 0, 0, isPreview, true);
+      addStructurePart(group, new THREE.BoxGeometry(0.56 * scale, 0.06 * scale, 0.32 * scale), roofMat, 0, 0.56 * scale, 0.48 * scale, 0.18, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.08 * scale, 0.42 * scale, 0.08 * scale), trimMat, -0.28 * scale, 0.3 * scale, 0.54 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.08 * scale, 0.42 * scale, 0.08 * scale), trimMat, 0.28 * scale, 0.3 * scale, 0.54 * scale, 0, 0, 0, isPreview, false);
+
+      addStructurePart(group, new THREE.BoxGeometry(0.24 * scale, 0.46 * scale, 0.04 * scale), trimMat, -0.18 * scale, 0.3 * scale, 0.37 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.24 * scale, 0.46 * scale, 0.04 * scale), trimMat, 0.18 * scale, 0.3 * scale, 0.37 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.44 * scale, 0.08 * scale, 0.04 * scale), trimMat, 0, 0.66 * scale, 0.36 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.18 * scale, 0.18 * scale, 0.03 * scale), windowMat, -0.44 * scale, 0.6 * scale, 0.38 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.18 * scale, 0.18 * scale, 0.03 * scale), windowMat, 0.44 * scale, 0.6 * scale, 0.38 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.18 * scale, 0.16 * scale, 0.03 * scale), windowMat, -0.62 * scale, 0.52 * scale, 0, 0, Math.PI / 2, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.18 * scale, 0.16 * scale, 0.03 * scale), windowMat, 0.62 * scale, 0.52 * scale, 0, 0, Math.PI / 2, 0, isPreview, false);
+
+      addStructurePart(group, new THREE.BoxGeometry(0.3 * scale, 0.04 * scale, 0.14 * scale), accentMat, 0, 0.96 * scale, 0.28 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.18 * scale, 0.18 * scale, 0.03 * scale), accentMat, 0, 0.86 * scale, 0.29 * scale, 0, 0, 0, isPreview, false);
+
+      addStructurePart(group, new THREE.BoxGeometry(0.36 * scale, 0.04 * scale, 0.14 * scale), trimMat, -0.7 * scale, 0.18 * scale, 0.22 * scale, 0, 0.36, 0, isPreview, false);
+      addStructurePart(group, new THREE.CylinderGeometry(0.014 * scale, 0.014 * scale, 0.34 * scale, 6), accentMat, -0.72 * scale, 0.2 * scale, 0.18 * scale, 0, 0, Math.PI / 2, isPreview, false);
+      addStructurePart(group, new THREE.CylinderGeometry(0.014 * scale, 0.014 * scale, 0.34 * scale, 6), accentMat, -0.72 * scale, 0.2 * scale, 0.06 * scale, 0, 0, Math.PI / 2, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.18 * scale, 0.04 * scale, 0.12 * scale), trimMat, 0.72 * scale, 0.16 * scale, 0.18 * scale, 0, 0.3, 0, isPreview, false);
+      addStructurePart(group, new THREE.CylinderGeometry(0.1 * scale, 0.1 * scale, 0.28 * scale, 8), trimMat, 0.68 * scale, 0.14 * scale, 0.18 * scale, 0, 0, 0, isPreview, false);
+
+      if (level >= 2) {
+        addStructurePart(group, new THREE.BoxGeometry(0.08 * scale, 0.62 * scale, 0.08 * scale), trimMat, 0.54 * scale, 1.0 * scale, 0.24 * scale, 0, 0, 0, isPreview, false);
+        addStructurePart(group, new THREE.PlaneGeometry(0.24 * scale, 0.16 * scale), accentMat, 0.68 * scale, 1.02 * scale, 0.24 * scale, 0, 0, 0, isPreview, false);
+        addStructurePart(group, new THREE.BoxGeometry(0.34 * scale, 0.04 * scale, 0.42 * scale), trimMat, -0.52 * scale, 0.24 * scale, -0.34 * scale, 0, -0.18, 0, isPreview, false);
+      }
+      if (level >= 3) {
+        addStructurePart(group, new THREE.BoxGeometry(0.18 * scale, 0.22 * scale, 0.18 * scale), stoneMat, 0, 1.06 * scale, -0.04 * scale, 0, 0, 0, isPreview, false);
+        addStructurePart(group, new THREE.BoxGeometry(0.12 * scale, 0.08 * scale, 0.12 * scale), roofMat, 0, 1.2 * scale, -0.04 * scale, 0.2, 0.78, 0, isPreview, false);
+        addStructurePart(group, new THREE.BoxGeometry(0.3 * scale, 0.18 * scale, 0.08 * scale), accentMat, -0.42 * scale, 0.34 * scale, 0.24 * scale, 0, 0.14, 0, isPreview, false);
+      }
+    }
+
+    addShadowCircle(group, 0.8, scale, isPreview, 0.15);
+    return group;
+  }
+
+  function createLumberYardMesh(entity, level, isPreview, scale, color, roofColor) {
+    var group = new THREE.Group();
+    var plankMat = createStructureMaterial(color, isPreview, 0.56);
+    var trimMat = createStructureMaterial(0x6c4724, isPreview, 0.56);
+    var roofMat = createStructureMaterial(roofColor || 0x455d2d, isPreview, 0.55);
+    var metalMat = createStructureMaterial(0x8f949a, isPreview, 0.5);
+
+    addStructurePart(group, new THREE.BoxGeometry(1.08 * scale, 0.1 * scale, 0.86 * scale), plankMat, 0, 0.05 * scale, 0, 0, 0, 0, isPreview, true);
+    addStructurePart(group, new THREE.BoxGeometry(0.9 * scale, 0.05 * scale, 0.74 * scale), trimMat, 0, 0.12 * scale, -0.04 * scale, 0, 0, 0, isPreview, true);
+
+    var postGeo = new THREE.BoxGeometry(0.08 * scale, 0.66 * scale, 0.08 * scale);
+    addStructurePart(group, postGeo, trimMat, -0.34 * scale, 0.38 * scale, -0.18 * scale, 0, 0, 0, isPreview, false);
+    addStructurePart(group, postGeo, trimMat, 0.34 * scale, 0.38 * scale, -0.18 * scale, 0, 0, 0, isPreview, false);
+    addStructurePart(group, postGeo, trimMat, -0.24 * scale, 0.32 * scale, 0.24 * scale, 0, 0, 0, isPreview, false);
+    addStructurePart(group, postGeo, trimMat, 0.24 * scale, 0.32 * scale, 0.24 * scale, 0, 0, 0, isPreview, false);
+    addStructurePart(group, new THREE.BoxGeometry(1.02 * scale, 0.06 * scale, 0.74 * scale), roofMat, 0, 0.76 * scale, -0.02 * scale, 0.22, 0, 0, isPreview, false);
+
+    addStructurePart(group, new THREE.CylinderGeometry(0.11 * scale, 0.14 * scale, 0.18 * scale, 10), trimMat, -0.3 * scale, 0.09 * scale, 0.28 * scale, 0, 0, 0, isPreview, false);
+    addStructurePart(group, new THREE.CylinderGeometry(0.03 * scale, 0.03 * scale, 0.38 * scale, 6), trimMat, -0.12 * scale, 0.18 * scale, 0.26 * scale, 0, 0, 0.42, isPreview, false);
+    addStructurePart(group, new THREE.BoxGeometry(0.12 * scale, 0.07 * scale, 0.03 * scale), metalMat, -0.2 * scale, 0.34 * scale, 0.26 * scale, 0, 0, 0.42, isPreview, false);
+
+    for (var logIndex = 0; logIndex < 3; logIndex++) {
+      addStructurePart(group, new THREE.CylinderGeometry(0.045 * scale, 0.05 * scale, 0.26 * scale, 6), trimMat, (0.22 + logIndex * 0.1) * scale, 0.08 * scale, 0.24 * scale, 0, 0, Math.PI / 2, isPreview, false);
+    }
+
+    if (level >= 2) {
+      for (var plankIndex = 0; plankIndex < 3; plankIndex++) {
+        addStructurePart(group, new THREE.BoxGeometry(0.28 * scale, 0.03 * scale, 0.06 * scale), plankMat, (-0.28 + plankIndex * 0.18) * scale, 0.18 * scale, -0.26 * scale, 0, 0.12, 0, isPreview, false);
+      }
+    }
+    if (level >= 3) {
+      addBarrel(group, scale, trimMat, 0.48, -0.22, isPreview);
+      addStructurePart(group, new THREE.BoxGeometry(0.34 * scale, 0.04 * scale, 0.12 * scale), plankMat, 0.4 * scale, 0.26 * scale, -0.18 * scale, 0, -0.18, 0, isPreview, false);
+    }
+
+    addShadowCircle(group, 0.76, scale, isPreview, 0.15);
+    return group;
+  }
+
+  function createMineMesh(entity, level, isPreview, scale, color, roofColor) {
+    var group = new THREE.Group();
+    var buildingId = entity.id || '';
+    var frameMat = createStructureMaterial(0x6b4725, isPreview, 0.56);
+    var stoneMat = createStructureMaterial(color, isPreview, 0.56);
+    var roofMat = createStructureMaterial(roofColor || 0x4d3a2b, isPreview, 0.55);
+    var oreColor = getMineAccentColor(buildingId, color);
+
+    addStructurePart(group, new THREE.BoxGeometry(1.08 * scale, 0.14 * scale, 0.9 * scale), stoneMat, 0, 0.07 * scale, 0, 0, 0, 0, isPreview, true);
+    addStructurePart(group, new THREE.DodecahedronGeometry(0.22 * scale, 0), stoneMat, -0.38 * scale, 0.18 * scale, -0.18 * scale, 0.3, 0.2, 0, isPreview, false);
+    addStructurePart(group, new THREE.DodecahedronGeometry(0.18 * scale, 0), stoneMat, 0.32 * scale, 0.16 * scale, -0.26 * scale, 0.5, 0.4, 0, isPreview, false);
+
+    if (buildingId === 'building.stone_quarry') {
+      addStructurePart(group, new THREE.BoxGeometry(0.76 * scale, 0.3 * scale, 0.42 * scale), stoneMat, 0, 0.22 * scale, -0.08 * scale, 0, 0.18, 0, isPreview, true);
+      addStructurePart(group, new THREE.BoxGeometry(0.28 * scale, 0.12 * scale, 0.18 * scale), stoneMat, 0.3 * scale, 0.12 * scale, 0.28 * scale, 0, 0.3, 0, isPreview, false);
+    } else {
+      addStructurePart(group, new THREE.BoxGeometry(0.1 * scale, 0.52 * scale, 0.1 * scale), frameMat, -0.24 * scale, 0.26 * scale, 0.18 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.1 * scale, 0.52 * scale, 0.1 * scale), frameMat, 0.24 * scale, 0.26 * scale, 0.18 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.66 * scale, 0.1 * scale, 0.12 * scale), frameMat, 0, 0.52 * scale, 0.18 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.44 * scale, 0.34 * scale, 0.28 * scale), new THREE.MeshLambertMaterial({ color: 0x1d1713, transparent: isPreview, opacity: isPreview ? 0.35 : 1.0 }), 0, 0.22 * scale, 0.18 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.78 * scale, 0.06 * scale, 0.42 * scale), roofMat, 0, 0.76 * scale, 0.12 * scale, 0.24, 0, 0, isPreview, false);
+    }
+
+    for (var sleeperIndex = 0; sleeperIndex < 3; sleeperIndex++) {
+      addStructurePart(group, new THREE.BoxGeometry(0.24 * scale, 0.03 * scale, 0.05 * scale), frameMat, 0, 0.03 * scale, (0.34 + sleeperIndex * 0.14) * scale, 0, 0, 0, isPreview, false);
+    }
+    addStructurePart(group, new THREE.BoxGeometry(0.04 * scale, 0.03 * scale, 0.42 * scale), createStructureMaterial(0x8d949c, isPreview, 0.5), -0.08 * scale, 0.05 * scale, 0.48 * scale, 0, 0, 0, isPreview, false);
+    addStructurePart(group, new THREE.BoxGeometry(0.04 * scale, 0.03 * scale, 0.42 * scale), createStructureMaterial(0x8d949c, isPreview, 0.5), 0.08 * scale, 0.05 * scale, 0.48 * scale, 0, 0, 0, isPreview, false);
+    addCrate(group, scale, frameMat, 0.34, 0.42, 0.22, 0.12, 0.18, isPreview);
+    addOrePile(group, scale, oreColor, 0.42, 0.2, isPreview);
+
+    if (level >= 2) {
+      addStructurePart(group, new THREE.BoxGeometry(0.08 * scale, 0.54 * scale, 0.08 * scale), frameMat, -0.44 * scale, 0.28 * scale, -0.1 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.4 * scale, 0.06 * scale, 0.08 * scale), frameMat, -0.26 * scale, 0.56 * scale, -0.1 * scale, 0, 0, -0.36, isPreview, false);
+    }
+    if (level >= 3) {
+      addBarrel(group, scale, frameMat, -0.34, 0.42, isPreview);
+      addOrePile(group, scale, oreColor, -0.28, 0.26, isPreview);
+    }
+
+    addShadowCircle(group, 0.8, scale, isPreview, 0.15);
+    return group;
+  }
+
+  function createForgeMesh(entity, level, isPreview, scale, color, roofColor) {
+    var group = new THREE.Group();
+    var buildingId = entity.id || '';
+    var stoneMat = createStructureMaterial(0x6f685f, isPreview, 0.52);
+    var wallMat = createStructureMaterial(color, isPreview, 0.56);
+    var trimMat = createStructureMaterial(0x5a3920, isPreview, 0.56);
+    var roofMat = createStructureMaterial(roofColor || 0x4a4a4a, isPreview, 0.55);
+    var metalMat = createStructureMaterial(0x979ea5, isPreview, 0.5);
+    var glowMat = new THREE.MeshBasicMaterial({ color: buildingId === 'building.blacksmith' ? 0xff9347 : 0xffb347, transparent: true, opacity: isPreview ? 0.22 : 0.68 });
+
+    addStructurePart(group, new THREE.BoxGeometry(1.1 * scale, 0.18 * scale, 0.92 * scale), stoneMat, 0, 0.09 * scale, 0, 0, 0, 0, isPreview, true);
+
+    if (buildingId === 'building.blacksmith') {
+      addStructurePart(group, new THREE.BoxGeometry(0.82 * scale, 0.5 * scale, 0.64 * scale), wallMat, -0.12 * scale, 0.34 * scale, -0.02 * scale, 0, 0, 0, isPreview, true);
+      addGabledRoof(group, scale, 0.94, 0.54, 0.72, 0.48, roofMat, isPreview);
+      addStructurePart(group, new THREE.BoxGeometry(0.18 * scale, 0.1 * scale, 0.22 * scale), metalMat, 0.34 * scale, 0.06 * scale, 0.3 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.12 * scale, 0.06 * scale, 0.14 * scale), metalMat, 0.34 * scale, 0.14 * scale, 0.3 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.08 * scale, 0.44 * scale, 0.08 * scale), stoneMat, 0.22 * scale, 0.86 * scale, -0.12 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.5 * scale, 0.06 * scale, 0.34 * scale), trimMat, 0.3 * scale, 0.56 * scale, 0.06 * scale, 0.18, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.CylinderGeometry(0.16 * scale, 0.2 * scale, 0.42 * scale, 10), stoneMat, 0.26 * scale, 0.24 * scale, 0.04 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.PlaneGeometry(0.16 * scale, 0.12 * scale), glowMat, 0.26 * scale, 0.28 * scale, 0.21 * scale, 0, 0, 0, isPreview, false);
+    } else {
+      var furnaceHeight = buildingId === 'building.blast_furnace' ? 0.92 : 0.68;
+      var furnaceRadius = buildingId === 'building.blast_furnace' ? 0.22 : 0.18;
+      addStructurePart(group, new THREE.CylinderGeometry(furnaceRadius * scale, (furnaceRadius + 0.04) * scale, furnaceHeight * scale, 12), stoneMat, 0.08 * scale, (furnaceHeight * 0.5 + 0.09) * scale, 0.02 * scale, 0, 0, 0, isPreview, true);
+      addStructurePart(group, new THREE.CylinderGeometry((furnaceRadius - 0.05) * scale, (furnaceRadius - 0.03) * scale, 0.18 * scale, 10), metalMat, 0.08 * scale, (furnaceHeight + 0.14) * scale, 0.02 * scale, 0, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.BoxGeometry(0.42 * scale, 0.12 * scale, 0.32 * scale), wallMat, -0.3 * scale, 0.18 * scale, -0.08 * scale, 0, 0, 0, isPreview, true);
+      addStructurePart(group, new THREE.BoxGeometry(0.52 * scale, 0.06 * scale, 0.4 * scale), roofMat, -0.3 * scale, 0.52 * scale, -0.08 * scale, 0.18, 0, 0, isPreview, false);
+      addStructurePart(group, new THREE.PlaneGeometry(0.14 * scale, 0.1 * scale), glowMat, 0.08 * scale, 0.34 * scale, 0.23 * scale, 0, 0, 0, isPreview, false);
+      addOrePile(group, scale, buildingId === 'building.smelter' ? 0xcd7f32 : 0x8b7355, -0.42, 0.26, isPreview);
+      addBarrel(group, scale, trimMat, 0.42, 0.26, isPreview);
+    }
+
+    if (level >= 2) {
+      addStructurePart(group, new THREE.BoxGeometry(0.18 * scale, 0.04 * scale, 0.18 * scale), metalMat, -0.36 * scale, 0.24 * scale, 0.28 * scale, 0, 0.32, 0, isPreview, false);
+    }
+    if (level >= 3) {
+      addStructurePart(group, new THREE.BoxGeometry(0.08 * scale, 0.48 * scale, 0.08 * scale), stoneMat, 0.34 * scale, 0.86 * scale, -0.18 * scale, 0, 0, 0, isPreview, false);
+    }
+
+    addShadowCircle(group, 0.78, scale, isPreview, 0.15);
+    return group;
+  }
+
+  function createSpecializedBuildingMesh(entity, level, isPreview, instanceData, scale, color, roofColor) {
+    if (!entity || (entity.visual && entity.visual.shape) !== 'building') return null;
+
+    var buildingId = entity.id || '';
+    if (buildingId === 'building.berry_gatherer') {
+      return createResidentHouseMesh(entity, level, isPreview, scale, color, roofColor);
+    }
+    if (buildingId === 'building.warehouse') {
+      return createWarehouseMesh(entity, level, isPreview, scale, color, roofColor);
+    }
+    if (buildingId === 'building.barracks' || buildingId === 'building.armory') {
+      return createBarracksOrArmoryMesh(entity, level, isPreview, scale, color, roofColor);
+    }
+    if (buildingId === 'building.wood_cutter') {
+      return createLumberYardMesh(entity, level, isPreview, scale, color, roofColor);
+    }
+    if (buildingId === 'building.stone_quarry' || buildingId === 'building.flint_mine' || buildingId === 'building.copper_mine' || buildingId === 'building.tin_mine' || buildingId === 'building.iron_mine' || buildingId === 'building.coal_mine') {
+      return createMineMesh(entity, level, isPreview, scale, color, roofColor);
+    }
+    if (buildingId === 'building.smelter' || buildingId === 'building.blast_furnace' || buildingId === 'building.blacksmith') {
+      return createForgeMesh(entity, level, isPreview, scale, color, roofColor);
+    }
+
+    return null;
+  }
+
   function createBuildingMesh(entity, level, isPreview, instanceData) {
     if (!entity || !entity.visual) return null;
 
     level = level || 1;
-    var levelScale = 1.0 + (level - 1) * 0.20;
+    var levelScale = 1.0 + (level - 1) * 0.08;
     var shape = entity.visual.shape || 'building';
     var group = new THREE.Group();
     var color = entity.visual.color || 0x8B4513;
@@ -890,6 +1336,11 @@ window.BuildingSystem = (function () {
       return group;
     }
 
+    var specializedBuildingMesh = createSpecializedBuildingMesh(entity, level, isPreview, instanceData, scale, color, roofColor);
+    if (specializedBuildingMesh) {
+      return specializedBuildingMesh;
+    }
+
     // === LEVEL 2+ : Foundation/Platform ===
     if (!isPreview && level >= 2) {
       var platSize = level >= 3 ? 1.2 : 1.0;
@@ -1115,7 +1566,7 @@ window.BuildingSystem = (function () {
   function createBridgeMesh(entity, level, isPreview, instanceData) {
     if (!entity || !entity.visual) return null;
     level = level || 1;
-    var levelScale = 1.0 + (level - 1) * 0.20;
+    var levelScale = 1.0 + (level - 1) * 0.08;
     var scale = (entity.visual.scale || 1.0) * levelScale;
     var color = entity.visual.color || 0x8B4513;
     var group = new THREE.Group();
@@ -1213,12 +1664,10 @@ window.BuildingSystem = (function () {
     if (!balance) return;
 
     // Check cost first
-    for (var resId in balance.cost) {
-      if (!GameState.hasSpendableResource(resId, balance.cost[resId])) {
-        var resEntity = GameRegistry.getEntity(resId);
-        GameHUD.showError("Not enough " + (resEntity ? resEntity.name : resId) + ".");
-        return;
-      }
+    var missingCost = getMissingBuildCost(buildingId);
+    if (missingCost) {
+      GameHUD.showError("Not enough " + (missingCost.entity ? missingCost.entity.name : missingCost.resId) + ".");
+      return;
     }
 
     // Create preview mesh
@@ -1241,14 +1690,16 @@ window.BuildingSystem = (function () {
     if (window.RangeIndicator && RangeIndicator.showPlacementPreview) {
       RangeIndicator.showPlacementPreview(buildingId, snapX, snapZ);
     }
-    GameHUD.showNotification("Choose a build tile. Click to place, ESC to cancel.");
+    GameHUD.showNotification("Choose a build tile. Left click to place repeatedly. Right click or ESC to cancel.");
   }
 
   function updatePreviewColor(worldX, worldZ) {
     if (!_buildMode.previewMesh) return;
     var result = canPlaceAt(worldX, worldZ, _buildMode.buildingId);
-    var validColor = result.valid ? 0x00ff00 : 0xff0000; // Green = valid, Red = invalid
-    var opacity = result.valid ? 0.4 : 0.3;
+    var canAfford = canAffordBuildCost(_buildMode.buildingId);
+    var isValid = result.valid && canAfford;
+    var validColor = isValid ? 0x00ff88 : (result.valid ? 0xffb347 : 0xff4d4d);
+    var opacity = isValid ? 0.4 : 0.3;
 
     _buildMode.previewMesh.traverse(function(child) {
       if (child.isMesh && child.material) {
@@ -1256,7 +1707,7 @@ window.BuildingSystem = (function () {
         child.material.opacity = opacity;
       }
     });
-    _buildMode.lastValidPos = result.valid ? { x: worldX, z: worldZ } : null;
+    _buildMode.lastValidPos = isValid ? { x: worldX, z: worldZ } : null;
   }
 
   function updateBuildPreview(worldX, worldZ) {
@@ -1273,6 +1724,11 @@ window.BuildingSystem = (function () {
   function confirmBuild() {
     if (!_buildMode.active || !_buildMode.previewMesh) return;
     if (!_buildMode.lastValidPos) {
+      var missingCost = getMissingBuildCost(_buildMode.buildingId);
+      if (missingCost) {
+        GameHUD.showError("Not enough " + (missingCost.entity ? missingCost.entity.name : missingCost.resId) + ": need " + missingCost.needed + " more.");
+        return;
+      }
       GameHUD.showError("Invalid build position.");
       return;
     }
@@ -1280,12 +1736,20 @@ window.BuildingSystem = (function () {
     var buildingId = _buildMode.buildingId;
     var posX = _buildMode.lastValidPos.x;
     var posZ = _buildMode.lastValidPos.z;
+    var placed = placeBuildingAt(buildingId, posX, posZ);
+    if (!placed || !_buildMode.active || !_buildMode.previewMesh || _buildMode.buildingId !== buildingId) {
+      return;
+    }
 
-    // Remove preview mesh
-    cancelBuild();
+    _buildMode.previewMesh.position.set(posX, 0, posZ);
+    updatePreviewColor(posX, posZ);
+    if (window.RangeIndicator && RangeIndicator.showPlacementPreview) {
+      RangeIndicator.showPlacementPreview(buildingId, posX, posZ);
+    }
 
-    // Place the actual building at the selected position
-    placeBuildingAt(buildingId, posX, posZ);
+    if (!canAffordBuildCost(buildingId)) {
+      GameHUD.showNotification("Not enough materials for another structure. Right click or ESC to cancel build mode.");
+    }
   }
 
   function cancelBuild() {

@@ -1,16 +1,15 @@
 window.GAME_CONTENT = window.GAME_CONTENT || {};
 
-window.GAME_CONTENT.expansion_boss_frontier = {
-  id: "expansion_boss_frontier",
+window.GAME_CONTENT["expansion_boss_frontier"] = {
+  packId: "expansion_boss_frontier",
   name: "Boss Frontier",
-  version: "1.0.0",
   entities: [
     {
       id: "animal.moonfang_alpha",
       type: "animal",
       name: "Moonfang Alpha",
       description: "A legendary dire wolf that rules a moonlit hunting ground.",
-      visual: { color: 0x9bbcff, scale: 0.95 },
+      visual: { color: 0x9bbcff, scale: 1.3 },
       unlock: { age: "age.stone" }
     },
     {
@@ -18,7 +17,7 @@ window.GAME_CONTENT.expansion_boss_frontier = {
       type: "animal",
       name: "Sunscale Lion",
       description: "A bronze-age apex lion that guards a blazing pride territory.",
-      visual: { color: 0xd9a24e, scale: 1.0 },
+      visual: { color: 0xd9a24e, scale: 1.4 },
       unlock: { age: "age.bronze" }
     },
     {
@@ -26,7 +25,7 @@ window.GAME_CONTENT.expansion_boss_frontier = {
       type: "animal",
       name: "Stormhide Sabertooth",
       description: "A brutal sabertooth whose lair holds a relic weapon.",
-      visual: { color: 0x79d6c5, scale: 1.05 },
+      visual: { color: 0x79d6c5, scale: 1.5 },
       unlock: { age: "age.iron" }
     },
     {

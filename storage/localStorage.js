@@ -28,18 +28,18 @@ window.GameStorage = (function () {
   function buildCoreSaveData() {
     var data = GameState.exportCoreState ? GameState.exportCoreState() : GameState.exportState();
     data.lastSave = Date.now();
-    data.version = window.GAME_MANIFEST.version;
+    data.version = (window.GAME_MANIFEST || {}).version || '';
     return data;
   }
 
   function buildWorldSaveData() {
     var data = GameState.exportWorldState ? GameState.exportWorldState() : {
-      version: window.GAME_MANIFEST.version,
+      version: (window.GAME_MANIFEST || {}).version || '',
       chunks: GameState.getAllChunkData ? GameState.getAllChunkData() : {},
       exploredChunks: GameState.getExplored ? GameState.getExplored() : {}
     };
     data.lastSave = Date.now();
-    data.version = window.GAME_MANIFEST.version;
+    data.version = (window.GAME_MANIFEST || {}).version || '';
     return data;
   }
 
@@ -302,19 +302,20 @@ window.GameStorage = (function () {
   function checkVersion() {
     var raw = localStorage.getItem(SAVE_KEY);
     var rawWorld = localStorage.getItem(WORLD_SAVE_KEY);
-    if (!raw && !rawWorld) return { match: true, saved: null, current: window.GAME_MANIFEST.version };
+    var _ver = (window.GAME_MANIFEST || {}).version || '';
+    if (!raw && !rawWorld) return { match: true, saved: null, current: _ver };
     try {
       var data = raw ? JSON.parse(raw) : null;
       var worldData = rawWorld ? JSON.parse(rawWorld) : null;
       var savedVersion = data && data.version ? data.version : (worldData ? worldData.version : null);
-      var worldMatches = !worldData || worldData.version === window.GAME_MANIFEST.version;
+      var worldMatches = !worldData || worldData.version === _ver;
       return {
-        match: !!savedVersion && savedVersion === window.GAME_MANIFEST.version && worldMatches,
+        match: !!savedVersion && savedVersion === _ver && worldMatches,
         saved: savedVersion,
-        current: window.GAME_MANIFEST.version
+        current: _ver
       };
     } catch (e) {
-      return { match: false, saved: null, current: window.GAME_MANIFEST.version };
+      return { match: false, saved: null, current: _ver };
     }
   }
 

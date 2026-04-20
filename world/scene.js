@@ -301,8 +301,6 @@ window.GameScene = (function () {
       _animFrameId = requestAnimationFrame(loop);
       var dt = (now - _lastTime) / 1000;
       _lastTime = now;
-      var playerPos = (typeof GamePlayer !== 'undefined' && GamePlayer.getPosition) ? GamePlayer.getPosition() : null;
-
       if (dt > 0.1) dt = 0.1;
 
       if (typeof GamePerf !== 'undefined' && GamePerf.beginFrame) {
@@ -353,8 +351,11 @@ window.GameScene = (function () {
         endPerfMark(pausedSimulationMark);
       }
 
+      // Capture player position AFTER update so camera matches the current mesh position
+      var playerPos = (typeof GamePlayer !== 'undefined' && GamePlayer.getPosition) ? GamePlayer.getPosition() : null;
+
       // Update camera to follow player
-      updateCamera(playerPos);
+      updateCamera(playerPos, dt);
 
       if (typeof GameTerrain !== 'undefined' && GameTerrain.refreshVisibility) {
         GameTerrain.refreshVisibility();
@@ -440,13 +441,14 @@ window.GameScene = (function () {
   function getGameSpeed() { return gameSpeed; }
   function getIsPaused() { return isPaused; }
 
-  function updateCamera(pos) {
+  function updateCamera(pos, dt) {
     if (!pos) return;
     var targetX = pos.x + 20;
     var targetZ = pos.z + 20;
-    camera.position.x += (targetX - camera.position.x) * 0.08;
-    camera.position.y += (20 - camera.position.y) * 0.08;
-    camera.position.z += (targetZ - camera.position.z) * 0.08;
+    var smoothing = 1 - Math.exp(-5 * dt);
+    camera.position.x += (targetX - camera.position.x) * smoothing;
+    camera.position.y += (20 - camera.position.y) * smoothing;
+    camera.position.z += (targetZ - camera.position.z) * smoothing;
     camera.lookAt(pos.x, 0, pos.z);
 
     // Update shadow camera to follow

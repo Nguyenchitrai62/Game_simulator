@@ -20,6 +20,7 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
   var getCharacterCanvas = context.getCharacterCanvas;
   var setCharacterCanvas = context.setCharacterCanvas;
   var _inventoryFilterState = { mode: 'type', value: 'all' };
+  var _buildFilterState = { mode: 'type', value: 'all' };
   var _craftFilterState = { mode: 'type', value: 'all' };
   var _bagPanelState = { section: 'all' };
   var _bagFilterState = {
@@ -28,6 +29,9 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
     consumables: 'all'
   };
   var _isCompactMode = true;
+  var _svgIconHtmlCache = {};
+  var _buildingIconMap = null;
+  var _equipmentIconMap = null;
 
   function toggleModal() {
     if (getModalActive()) {
@@ -334,6 +338,208 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
     return unmet.slice(0, 2).join(' • ');
   }
 
+  function buildSvgIconHtml(cacheKey, svgContent, viewBox) {
+    if (_svgIconHtmlCache[cacheKey]) return _svgIconHtmlCache[cacheKey];
+
+    var svg = '<svg viewBox="' + (viewBox || '0 0 32 32') + '" xmlns="http://www.w3.org/2000/svg">' + svgContent + '</svg>';
+    var html = '<img class="hud-svg-icon" src="data:image/svg+xml,' + encodeURIComponent(svg) + '" alt="" draggable="false">';
+    _svgIconHtmlCache[cacheKey] = html;
+    return html;
+  }
+
+  function buildEquipmentIconHtml(shape, color, accent, edge) {
+    var shapes = {
+      sword: '<g transform="rotate(-38 16 16)">' +
+             '<path d="M16 1 L19 5 L13 5 Z" fill="' + edge + '"/>' +
+             '<rect x="14" y="4" width="4" height="17" rx="1.2" fill="' + color + '"/>' +
+             '<rect x="15.1" y="5" width="1.1" height="14.8" fill="' + edge + '" opacity="0.45"/>' +
+             '<rect x="8.5" y="20.2" width="15" height="3.1" rx="1.4" fill="' + accent + '"/>' +
+             '<rect x="13" y="23.4" width="6" height="6.2" rx="1.6" fill="' + accent + '"/>' +
+             '</g>',
+      spear: '<g transform="rotate(-34 16 16)">' +
+             '<polygon points="16,1.5 20.2,11.5 16,10.7 11.8,11.5" fill="' + color + '"/>' +
+             '<polygon points="16,1.5 16,10.7 11.8,11.5" fill="' + edge + '" opacity="0.55"/>' +
+             '<rect x="15" y="10.8" width="2" height="16.7" rx="1" fill="' + accent + '"/>' +
+             '<rect x="15.45" y="12" width="0.8" height="13" fill="' + edge + '" opacity="0.35"/>' +
+             '</g>',
+      shield: '<path d="M16,3 L27,9 L27,19 L16,28 L5,19 L5,9 Z" fill="' + color + '" stroke="' + edge + '" stroke-width="1.5"/>' +
+              '<path d="M16,8 L22,12 L22,18 L16,23 L10,18 L10,12 Z" fill="' + accent + '"/>' +
+              '<circle cx="16" cy="15" r="2" fill="' + edge + '"/>',
+      armor: '<path d="M8,5 L24,5 L26,9 L26,26 L22,28 L10,28 L6,26 L6,9 Z" fill="' + color + '"/>' +
+             '<path d="M8,5 L16,5 L16,28 L10,28 L6,26 L6,9 Z" fill="' + accent + '"/>' +
+             '<rect x="13" y="11" width="6" height="5" rx="1" fill="' + edge + '"/>',
+      boots: '<path d="M7,5 L13,5 L13,20 L5,20 L5,16 Z" fill="' + color + '"/>' +
+             '<path d="M19,5 L25,5 L25,20 L17,20 L17,16 Z" fill="' + color + '"/>' +
+             '<rect x="5" y="20" width="8" height="5" rx="1" fill="' + accent + '"/>' +
+             '<rect x="17" y="20" width="8" height="5" rx="1" fill="' + accent + '"/>',
+       bow: '<path d="M20.8 4.2 Q10.5 16 20.8 27.8" fill="none" stroke="' + color + '" stroke-width="2.6" stroke-linecap="round"/>' +
+         '<line x1="20.6" y1="4.5" x2="20.6" y2="27.5" stroke="' + accent + '" stroke-width="0.95"/>' +
+         '<line x1="8.1" y1="10.3" x2="24.2" y2="21.7" stroke="' + edge + '" stroke-width="1.65" stroke-linecap="round"/>' +
+         '<polygon points="7.7,10.1 12,10.8 9.4,13.8" fill="' + edge + '"/>' +
+         '<path d="M22.2 20.4 L24.8 18.4 M22.9 21.4 L25.6 19.4" stroke="' + edge + '" stroke-width="1.1" stroke-linecap="round"/>' +
+         '<rect x="17.4" y="13.2" width="2.3" height="5.6" rx="1.1" fill="' + accent + '" opacity="0.75"/>',
+      glaive: '<g transform="rotate(-32 16 16)">' +
+              '<path d="M16 1.2 C21.5 4.5 22.5 9.4 18.8 13.5 L13.5 13.5 C12.6 8.7 13.3 4.8 16 1.2 Z" fill="' + color + '"/>' +
+              '<path d="M16 1.2 C14.2 6 13.6 9.5 14.1 13.5 L12.1 11.6 C12.6 7.8 13.4 4.6 16 1.2 Z" fill="' + edge + '" opacity="0.58"/>' +
+              '<rect x="15" y="12.8" width="2" height="15.6" rx="1" fill="' + accent + '"/>' +
+              '<rect x="12" y="18.1" width="8" height="1.6" rx="0.6" fill="' + edge + '"/>' +
+              '</g>'
+    };
+
+    return buildSvgIconHtml('equipment:' + shape + ':' + color + ':' + accent + ':' + edge, shapes[shape] || '');
+  }
+
+  function buildMineIconHtml(baseColor, oreColor, frameColor) {
+    return buildSvgIconHtml('building:mine:' + baseColor + ':' + oreColor + ':' + frameColor,
+      '<path d="M5 26 L10 10 L22 10 L27 26 Z" fill="' + baseColor + '"/>' +
+      '<path d="M10 10 L16 4.2 L22 10" fill="' + frameColor + '"/>' +
+      '<rect x="6.8" y="24" width="18.4" height="2.6" rx="1.2" fill="' + frameColor + '"/>' +
+      '<path d="M12 20 C13.5 14.5 18.5 14.5 20 20 C18.3 23.6 13.7 23.6 12 20 Z" fill="' + oreColor + '"/>' +
+      '<circle cx="16" cy="18.9" r="2.15" fill="' + oreColor + '"/>' +
+      '<circle cx="13.1" cy="22" r="1.2" fill="' + oreColor + '" opacity="0.82"/>' +
+      '<circle cx="18.9" cy="22" r="1.2" fill="' + oreColor + '" opacity="0.82"/>');
+  }
+
+  function getBuildingIconMap() {
+    if (_buildingIconMap) return _buildingIconMap;
+
+    _buildingIconMap = {
+      'building.wood_cutter': buildSvgIconHtml('building:wood_cutter',
+        '<rect x="5" y="18" width="13" height="8" rx="3" fill="#8b5e34"/>' +
+        '<circle cx="9" cy="22" r="2.2" fill="#b98552" opacity="0.72"/>' +
+        '<circle cx="14" cy="22" r="2.2" fill="#b98552" opacity="0.72"/>' +
+        '<g transform="rotate(-26 22 11)">' +
+        '<rect x="20.3" y="6" width="3.2" height="15" rx="1.2" fill="#6b4423"/>' +
+        '<path d="M17.3 5.8 L26.2 8.6 L22.8 14.6 L14.9 11.7 Z" fill="#d7dde7"/>' +
+        '</g>'),
+      'building.stone_quarry': buildSvgIconHtml('building:stone_quarry',
+        '<path d="M5 24 L10 13 L21 12 L27 22 L18 27 L9 26 Z" fill="#8d949e"/>' +
+        '<path d="M10 13 L21 12 L18 17 L12 18 Z" fill="#b7c0cb" opacity="0.8"/>' +
+        '<g transform="rotate(20 23 11)">' +
+        '<rect x="21.6" y="5" width="3" height="15" rx="1.2" fill="#6b4423"/>' +
+        '<path d="M16.5 8 L29.5 8 L26.4 13.2 L19.6 13.2 Z" fill="#d4d8de"/>' +
+        '</g>'),
+      'building.berry_gatherer': buildSvgIconHtml('building:berry_gatherer',
+        '<path d="M5 15 L16 6 L27 15 V27 H20 V20 H12 V27 H5 Z" fill="#8b5e38"/>' +
+        '<path d="M3.5 15 L16 4.5 L28.5 15" fill="#b57b4a"/>' +
+        '<rect x="10" y="17" width="4" height="4" rx="1" fill="#fce9c2"/>' +
+        '<circle cx="22.8" cy="21.8" r="3.2" fill="#6ead59"/>' +
+        '<circle cx="21.3" cy="21.6" r="0.95" fill="#d64c60"/>' +
+        '<circle cx="23.6" cy="20.6" r="0.95" fill="#d64c60"/>' +
+        '<circle cx="24.1" cy="23.2" r="0.95" fill="#d64c60"/>'),
+      'building.farm_plot': buildSvgIconHtml('building:farm_plot',
+        '<rect x="4" y="20" width="24" height="8" rx="2" fill="#7a552b"/>' +
+        '<rect x="7" y="20" width="1.6" height="8" fill="#9b7141" opacity="0.8"/>' +
+        '<rect x="12" y="20" width="1.6" height="8" fill="#9b7141" opacity="0.8"/>' +
+        '<rect x="17" y="20" width="1.6" height="8" fill="#9b7141" opacity="0.8"/>' +
+        '<rect x="22" y="20" width="1.6" height="8" fill="#9b7141" opacity="0.8"/>' +
+        '<path d="M10 20 C10 15.6 12 13.5 12 10" stroke="#e8bf58" stroke-width="2" stroke-linecap="round" fill="none"/>' +
+        '<path d="M16 20 C16 15 18 12.9 18 9.8" stroke="#f1cb6a" stroke-width="2" stroke-linecap="round" fill="none"/>' +
+        '<path d="M12 11.2 L9.8 13.5 M12 13 L14.2 14.8 M18 11 L20.1 13.4 M18 13 L15.9 15.1" stroke="#f6dd8d" stroke-width="1.4" stroke-linecap="round" fill="none"/>'),
+      'building.tree_nursery': buildSvgIconHtml('building:tree_nursery',
+        '<rect x="8" y="21" width="16" height="7" rx="2.2" fill="#8b6035"/>' +
+        '<rect x="10" y="19" width="12" height="3" rx="1.2" fill="#a87944"/>' +
+        '<path d="M16 20 L16 10" stroke="#6b4423" stroke-width="2.1" stroke-linecap="round"/>' +
+        '<path d="M16 10 C13.8 10.1 11.5 12.1 11.2 14.6 C13.8 15 15.5 13.7 16 12 Z" fill="#70c46c"/>' +
+        '<path d="M16 10 C18.2 10.1 20.5 12.1 20.8 14.6 C18.2 15 16.5 13.7 16 12 Z" fill="#52a85a"/>' +
+        '<circle cx="16" cy="8" r="2.8" fill="#7fd46f"/>'),
+      'building.flint_mine': buildMineIconHtml('#4d4747', '#8b8b96', '#7a6554'),
+      'building.copper_mine': buildMineIconHtml('#5a4535', '#d8843b', '#8e6a4e'),
+      'building.tin_mine': buildMineIconHtml('#5b5148', '#d4dde3', '#8f7c6a'),
+      'building.iron_mine': buildMineIconHtml('#59463d', '#c96a5f', '#8f6d58'),
+      'building.coal_mine': buildMineIconHtml('#443b38', '#4f5861', '#726157'),
+      'building.warehouse': buildSvgIconHtml('building:warehouse',
+        '<rect x="5" y="12" width="10" height="10" rx="2" fill="#9b744b"/>' +
+        '<rect x="17" y="10" width="10" height="10" rx="2" fill="#b38455"/>' +
+        '<rect x="10" y="20" width="12" height="8" rx="2" fill="#805e3b"/>' +
+        '<path d="M5 16 H15 M17 14 H27 M10 24 H22" stroke="#dabb8d" stroke-width="1.2" opacity="0.65"/>' +
+        '<path d="M10 20 L16 15 L22 20" fill="#d6a362" opacity="0.7"/>'),
+      'building.barracks': buildSvgIconHtml('building:barracks',
+        '<path d="M5 15 L16 7 L27 15 V27 H5 Z" fill="#7b5a45"/>' +
+        '<rect x="8" y="18" width="16" height="9" rx="2" fill="#4e627f"/>' +
+        '<path d="M16 11 L21 13.8 L21 19.5 L16 23 L11 19.5 L11 13.8 Z" fill="#c7d0da"/>' +
+        '<path d="M16 13.6 L18.6 15.1 L18.6 18.1 L16 20 L13.4 18.1 L13.4 15.1 Z" fill="#6b86a8"/>' +
+        '<rect x="24" y="8" width="1.4" height="8" fill="#d4b17b"/>' +
+        '<path d="M25.4 8 L28 9.8 L25.4 11.6 Z" fill="#c84b5f"/>'),
+      'building.watchtower': buildSvgIconHtml('building:watchtower',
+        '<path d="M10 27 L12.5 12 H19.5 L22 27" fill="#87603d"/>' +
+        '<rect x="9" y="9" width="14" height="5" rx="1.5" fill="#6d88aa"/>' +
+        '<rect x="7" y="7" width="18" height="3" rx="1.5" fill="#b79263"/>' +
+        '<path d="M16 5 L16 11" stroke="#d8c09a" stroke-width="1.5"/>' +
+        '<path d="M16 5 L21 7.2 L16 9.4 Z" fill="#f0a500"/>'),
+      'building.bridge': buildSvgIconHtml('building:bridge',
+        '<path d="M4 23 C8 13 24 13 28 23" fill="none" stroke="#8d6a4c" stroke-width="3.4" stroke-linecap="round"/>' +
+        '<path d="M7 22 H25" stroke="#d9b47f" stroke-width="2" stroke-linecap="round"/>' +
+        '<path d="M10 18 V23 M16 16 V23 M22 18 V23" stroke="#b38757" stroke-width="1.5" stroke-linecap="round"/>'),
+      'building.well': buildSvgIconHtml('building:well',
+        '<rect x="9" y="17" width="14" height="10" rx="2.2" fill="#7f8794"/>' +
+        '<rect x="12" y="19" width="8" height="6" rx="1.5" fill="#5d8fc0"/>' +
+        '<path d="M8.5 16 L16 9 L23.5 16" fill="#9d7044"/>' +
+        '<path d="M11 16 V10.6 M21 16 V10.6" stroke="#7a552f" stroke-width="1.8"/>' +
+        '<line x1="16" y1="10" x2="16" y2="17" stroke="#d8c09a" stroke-width="1.2"/>'),
+      'building.campfire': buildSvgIconHtml('building:campfire',
+        '<path d="M16 6 C13.4 9.2 12.3 11.4 12.3 14.2 C12.3 18.2 15 21.1 16 21.1 C17.1 21.1 19.8 18 19.8 14.4 C19.8 11.9 18.9 9.6 16 6 Z" fill="#f59b2f"/>' +
+        '<path d="M16.1 9.4 C14.6 11.1 14.1 12.7 14.1 14.5 C14.1 16.5 15.1 18 16.1 18.7 C17.2 18 18.2 16.5 18.2 14.7 C18.2 13 17.6 11.5 16.1 9.4 Z" fill="#ffd166"/>' +
+        '<path d="M10 23 L22 15" stroke="#7a552f" stroke-width="2.3" stroke-linecap="round"/>' +
+        '<path d="M22 23 L10 15" stroke="#9b6a35" stroke-width="2.3" stroke-linecap="round"/>'),
+      'building.blacksmith': buildSvgIconHtml('building:blacksmith',
+        '<path d="M7 23 H16.5 C18.8 23 20 21.6 20 20 C20 18.5 18.8 17.4 17 17.4 H11.5 L13.2 13 H20.5 C22.6 13 24.3 14.6 24.3 16.5 C24.3 19.9 22 23 17.8 23 H7 Z" fill="#aab2bc"/>' +
+        '<g transform="rotate(-24 23 11)">' +
+        '<rect x="21.8" y="6" width="2.4" height="11.6" rx="1" fill="#8c6b43"/>' +
+        '<rect x="18.4" y="5.2" width="9" height="3.8" rx="1.2" fill="#d4dbe4"/>' +
+        '</g>'),
+      'building.smelter': buildSvgIconHtml('building:smelter',
+        '<path d="M8 27 L8 10 L24 10 L24 27 Z" fill="#6d5e58"/>' +
+        '<path d="M10 10 L16 4 L22 10" fill="#8b796f"/>' +
+        '<rect x="12" y="16" width="8" height="8" rx="2" fill="#f28c28"/>' +
+        '<circle cx="16" cy="20" r="2.4" fill="#ffd166"/>' +
+        '<rect x="19.5" y="7" width="2.6" height="6" rx="1" fill="#90837d"/>'),
+      'building.blast_furnace': buildSvgIconHtml('building:blast_furnace',
+        '<path d="M8 27 L9.5 8 L22.5 8 L24 27 Z" fill="#687080"/>' +
+        '<rect x="12" y="15" width="8" height="9" rx="2" fill="#ff9b39"/>' +
+        '<circle cx="16" cy="19.5" r="2.5" fill="#ffe08a"/>' +
+        '<rect x="20.2" y="3.8" width="3" height="7.6" rx="1.1" fill="#8f9aac"/>' +
+        '<path d="M12.5 8 L16 4.2 L19.5 8" fill="#8994a5"/>'),
+      'building.armory': buildSvgIconHtml('building:armory',
+        '<path d="M16 5 L26 10 L26 19.5 L16 27 L6 19.5 L6 10 Z" fill="#5d6f88"/>' +
+        '<path d="M16 8.8 L21.2 12 L21.2 17.4 L16 21 L10.8 17.4 L10.8 12 Z" fill="#b8c3d2"/>' +
+        '<g transform="rotate(-34 16 16)">' +
+        '<rect x="14.7" y="6" width="2.6" height="12.6" rx="1" fill="#f1d89c"/>' +
+        '<rect x="12.1" y="17.7" width="7.8" height="2.2" rx="1" fill="#d4a35e"/>' +
+        '<rect x="14.2" y="19.6" width="3.6" height="5.4" rx="1.1" fill="#9b6a35"/>' +
+        '</g>')
+    };
+
+    return _buildingIconMap;
+  }
+
+  function getEquipmentIconMap() {
+    if (_equipmentIconMap) return _equipmentIconMap;
+
+    _equipmentIconMap = {
+      'equipment.wooden_sword': buildEquipmentIconHtml('sword', '#A66B3D', '#6B4423', '#8B6914'),
+      'equipment.hunting_bow': buildEquipmentIconHtml('bow', '#c8965f', '#6B4423', '#f0d7aa'),
+      'equipment.stone_spear': buildEquipmentIconHtml('spear', '#808080', '#6B4423', '#A0A0A0'),
+      'equipment.stone_shield': buildEquipmentIconHtml('shield', '#808080', '#6B6B6B', '#A0A0A0'),
+      'equipment.leather_armor': buildEquipmentIconHtml('armor', '#6B4423', '#5A3820', '#8B6914'),
+      'equipment.leather_boots': buildEquipmentIconHtml('boots', '#6B4423', '#5A3820', '#8B6914'),
+      'equipment.bronze_sword': buildEquipmentIconHtml('sword', '#CD7F32', '#6B4423', '#E8A84C'),
+      'equipment.bronze_bow': buildEquipmentIconHtml('bow', '#c9864a', '#8f5c2f', '#f1c977'),
+      'equipment.bronze_shield': buildEquipmentIconHtml('shield', '#CD7F32', '#B87333', '#E8A84C'),
+      'equipment.bronze_armor': buildEquipmentIconHtml('armor', '#CD7F32', '#B87333', '#E8A84C'),
+      'equipment.iron_sword': buildEquipmentIconHtml('sword', '#A7ADB8', '#444444', '#C8CDD5'),
+      'equipment.iron_longbow': buildEquipmentIconHtml('bow', '#b4bcc8', '#596270', '#eef3fa'),
+      'equipment.iron_shield': buildEquipmentIconHtml('shield', '#708090', '#5A6A7A', '#A7ADB8'),
+      'equipment.iron_armor': buildEquipmentIconHtml('armor', '#708090', '#5A6A7A', '#A7ADB8'),
+      'equipment.iron_boots': buildEquipmentIconHtml('boots', '#708090', '#5A6A7A', '#A7ADB8'),
+      'equipment.moonfang_blade': buildEquipmentIconHtml('sword', '#9bbcff', '#6B8BC2', '#c8ddff'),
+      'equipment.sunpiercer_bow': buildEquipmentIconHtml('bow', '#ffcc66', '#D4A030', '#FFE4A0'),
+      'equipment.stormspine_glaive': buildEquipmentIconHtml('glaive', '#7ef0d0', '#50C4A0', '#aaf9ec')
+    };
+
+    return _equipmentIconMap;
+  }
+
   function getEntityIcon(entityOrId) {
     var entity = typeof entityOrId === 'string' ? GameRegistry.getEntity(entityOrId) : entityOrId;
     if (!entity) return '✨';
@@ -343,20 +549,7 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
     if (entity.type === 'recipe') return '🛠️';
 
     if (entity.type === 'building') {
-      var buildingIcons = {
-        'building.berry_gatherer': '🏠',
-        'building.farm_plot': '🌾',
-        'building.tree_nursery': '🌲',
-        'building.warehouse': '📦',
-        'building.watchtower': '🗼',
-        'building.bridge': '🌉',
-        'building.well': '🪣',
-        'building.campfire': '🔥',
-        'building.barracks': '🛡️',
-        'building.blacksmith': '🔨',
-        'building.smelter': '♨️',
-        'building.blast_furnace': '🏭'
-      };
+      var buildingIcons = getBuildingIconMap();
       if (buildingIcons[entity.id]) return buildingIcons[entity.id];
 
       var buildingBalance = GameRegistry.getBalance(entity.id) || {};
@@ -373,20 +566,7 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
     }
 
     if (entity.type === 'equipment') {
-      var equipmentIcons = {
-        'equipment.wooden_sword': '🪵⚔',
-        'equipment.stone_spear': '🪨🗡',
-        'equipment.stone_shield': '🪨🛡',
-        'equipment.leather_armor': '🧥',
-        'equipment.leather_boots': '🥾',
-        'equipment.bronze_sword': '🥉⚔',
-        'equipment.bronze_shield': '🥉🛡',
-        'equipment.bronze_armor': '🥉🦺',
-        'equipment.iron_sword': '⚙️⚔',
-        'equipment.iron_shield': '⚙️🛡',
-        'equipment.iron_armor': '⚙️🦺',
-        'equipment.iron_boots': '⚙️🥾'
-      };
+      var equipmentIcons = getEquipmentIconMap();
       if (equipmentIcons[entity.id]) return equipmentIcons[entity.id];
 
       var equipmentBalance = GameRegistry.getBalance(entity.id);
@@ -433,6 +613,68 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
       return GameRegistry.getStatSummary(stats, options);
     }
     return '';
+  }
+
+  function getPrimaryRecipeOutputEntity(recipeId) {
+    if (!recipeId) return null;
+
+    var recipeBalance = GameRegistry.getBalance(recipeId) || {};
+    var outputMap = recipeBalance.output || {};
+    var outputIds = Object.keys(outputMap);
+    return outputIds.length ? GameRegistry.getEntity(outputIds[0]) : null;
+  }
+
+  function getEquipmentPowerScore(stats) {
+    if (!stats) return 0;
+
+    return (Number(stats.attack) || 0) +
+      (Number(stats.defense) || 0) +
+      ((Number(stats.maxHp) || 0) / 10) +
+      ((Number(stats.speed) || 0) * 8);
+  }
+
+  function getEntityQualityClass(entityOrId) {
+    var entity = typeof entityOrId === 'string' ? GameRegistry.getEntity(entityOrId) : entityOrId;
+    if (!entity) return 'quality-common';
+
+    if (entity.type === 'recipe') {
+      var outputEntity = getPrimaryRecipeOutputEntity(entity.id);
+      return outputEntity ? getEntityQualityClass(outputEntity) : 'quality-common';
+    }
+
+    var balance = GameRegistry.getBalance(entity.id) || {};
+    var ageId = getEntityUnlockAgeId(entity);
+
+    if (entity.type === 'equipment') {
+      var stats = getEquipmentStats(entity.id) || balance.stats || entity.stats || {};
+      var powerScore = getEquipmentPowerScore(stats);
+
+      if (balance.isBoss || balance.autoEquipOnReward || balance.weaponProfile === 'special') return 'quality-relic';
+      if (ageId === 'age.iron' || powerScore >= 15) return 'quality-epic';
+      if (ageId === 'age.bronze' || powerScore >= 8) return 'quality-rare';
+      if (powerScore >= 4) return 'quality-uncommon';
+      return 'quality-common';
+    }
+
+    if (entity.type === 'building') {
+      if (entity.id === 'building.armory' || ageId === 'age.iron') return 'quality-epic';
+      if (ageId === 'age.bronze') return 'quality-rare';
+      if (entity.id === 'building.watchtower' || entity.id === 'building.barracks' || entity.id === 'building.warehouse') return 'quality-uncommon';
+      return 'quality-common';
+    }
+
+    if (entity.type === 'technology') {
+      if (ageId === 'age.iron') return 'quality-epic';
+      if (ageId === 'age.bronze') return 'quality-rare';
+      return 'quality-uncommon';
+    }
+
+    if (entity.type === 'consumable' || entity.type === 'item') {
+      if (ageId === 'age.iron') return 'quality-rare';
+      if (ageId === 'age.bronze') return 'quality-uncommon';
+    }
+
+    return 'quality-common';
   }
 
   function getEquipmentSlotLabel(slot) {
@@ -522,6 +764,78 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
     };
   }
 
+  function getBuildingCategoryMeta(entity, balance) {
+    var buildingId = entity && entity.id ? entity.id : '';
+    var categoryId = 'civilian';
+
+    if (balance && (balance.military || balance.towerDefense || balance.guardCount || balance.guardRadius)) {
+      categoryId = 'military';
+    } else if (buildingId === 'building.barracks' || buildingId === 'building.watchtower' || buildingId === 'building.armory') {
+      categoryId = 'military';
+    } else if (buildingId === 'building.farm_plot' || buildingId === 'building.tree_nursery' || buildingId === 'building.well') {
+      categoryId = 'farming';
+    } else if (
+      buildingId === 'building.wood_cutter' ||
+      buildingId === 'building.stone_quarry' ||
+      buildingId === 'building.flint_mine' ||
+      buildingId === 'building.copper_mine' ||
+      buildingId === 'building.tin_mine' ||
+      buildingId === 'building.iron_mine' ||
+      buildingId === 'building.coal_mine' ||
+      buildingId === 'building.blacksmith' ||
+      buildingId === 'building.smelter' ||
+      buildingId === 'building.blast_furnace'
+    ) {
+      categoryId = 'production';
+    } else if (buildingId === 'building.bridge' || buildingId === 'building.campfire' || buildingId === 'building.warehouse') {
+      categoryId = 'support';
+    }
+
+    var categoryMetaMap = {
+      civilian: {
+        id: 'civilian',
+        label: t('hud.modal.build.categories.civilian', null, 'Civilian'),
+        order: 0,
+        copy: t('hud.modal.build.categories.civilianCopy', null, 'Core settlement buildings that support residents and daily survival.')
+      },
+      farming: {
+        id: 'farming',
+        label: t('hud.modal.build.categories.farming', null, 'Farming'),
+        order: 1,
+        copy: t('hud.modal.build.categories.farmingCopy', null, 'Food, tree growth, and agricultural support structures.')
+      },
+      production: {
+        id: 'production',
+        label: t('hud.modal.build.categories.production', null, 'Production'),
+        order: 2,
+        copy: t('hud.modal.build.categories.productionCopy', null, 'Gathering, mining, and processing buildings that drive your economy.')
+      },
+      support: {
+        id: 'support',
+        label: t('hud.modal.build.categories.support', null, 'Support'),
+        order: 3,
+        copy: t('hud.modal.build.categories.supportCopy', null, 'Infrastructure and utility buildings that keep the settlement connected.')
+      },
+      military: {
+        id: 'military',
+        label: t('hud.modal.build.categories.military', null, 'Military'),
+        order: 4,
+        copy: t('hud.modal.build.categories.militaryCopy', null, 'Defensive and troop-focused structures for protecting the settlement.')
+      }
+    };
+
+    return categoryMetaMap[categoryId] || categoryMetaMap.civilian;
+  }
+
+  function isCraftQualityHighlightEligible(entity) {
+    if (!entity || entity.type !== 'equipment') return false;
+    return entity.slot === 'weapon' || entity.slot === 'offhand' || entity.slot === 'armor' || entity.slot === 'boots';
+  }
+
+  function getCraftQualityClass(entity) {
+    return isCraftQualityHighlightEligible(entity) ? getEntityQualityClass(entity) : '';
+  }
+
   function registerFilterOption(optionMap, optionId, label, order) {
     if (!optionMap[optionId]) {
       optionMap[optionId] = {
@@ -602,6 +916,7 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
 
   function buildInventoryItemCardHtml(item) {
     var cardClass = 'inventory-item-card';
+    if (item.qualityClass) cardClass += ' ' + item.qualityClass;
     if (item.clickable) cardClass += ' clickable';
     if (item.isEquipped) cardClass += ' equipped';
     if (item.isConsumable) cardClass += ' consumable';
@@ -651,6 +966,7 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
 
   function buildCompactCraftCardHtml(entry) {
     var cardClass = 'craft-compact-card ' + entry.statusClass;
+    if (entry.qualityClass) cardClass += ' ' + entry.qualityClass;
     var html = '<div class="' + cardClass + '" data-modal-focus-id="' + entry.recipeId + '">';
     // Row 1: icon + name + button
     html += '<div class="craft-compact-top">';
@@ -674,6 +990,85 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
     }
     html += '</div>';
     return html;
+  }
+
+  function hasRecipeOutputEntity(recipes, entityId) {
+    if (!recipes || !recipes.length || !entityId) return false;
+
+    for (var index = 0; index < recipes.length; index++) {
+      var recipe = recipes[index];
+      if (!recipe) continue;
+      var balance = GameRegistry.getBalance(recipe.id) || {};
+      if (balance.output && balance.output[entityId]) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  function collectRewardEquipmentCraftEntries(recipes, craftTypeOptionsMap, craftAgeOptionsMap) {
+    var entries = [];
+    var readyCount = 0;
+    var equippedCount = 0;
+    var player = GameState.getPlayer ? GameState.getPlayer() : null;
+    var equipmentEntities = GameRegistry.getEntitiesByType ? GameRegistry.getEntitiesByType('equipment') : [];
+
+    equipmentEntities.forEach(function(entity) {
+      if (!entity) return;
+
+      var balance = GameRegistry.getBalance(entity.id) || {};
+      if (!balance.autoEquipOnReward && balance.weaponProfile !== 'special') return;
+      if (hasRecipeOutputEntity(recipes, entity.id)) return;
+
+      var inventoryCount = GameState.getInventoryCount ? GameState.getInventoryCount(entity.id) : 0;
+      var isEquipped = !!(player && player.equipped && player.equipped[entity.slot] === entity.id);
+      if (!inventoryCount && !isEquipped) return;
+
+      var ageId = getEntityUnlockAgeId(entity);
+      var filterAgeId = getFilterAgeId(ageId);
+      var categoryMeta = getItemCategoryMeta(entity);
+      var statSummary = getEquipmentStatSummary(entity.id, { shortLabels: true });
+      var summaryText = t('hud.modal.craft.rewardRelic', null, 'Boss relic reward');
+      if (statSummary) {
+        summaryText += ' • ' + statSummary;
+      }
+
+      registerFilterOption(craftTypeOptionsMap, categoryMeta.id, categoryMeta.label, categoryMeta.order);
+      registerFilterOption(craftAgeOptionsMap, filterAgeId, getFilterAgeLabel(filterAgeId), getAgeSortWeight(filterAgeId));
+
+      if (isEquipped) equippedCount += 1;
+      else readyCount += 1;
+
+      entries.push({
+        recipeId: entity.id,
+        icon: getEntityIcon(entity),
+        name: entity.name || entity.id,
+        qualityClass: getCraftQualityClass(entity),
+        primaryTag: getEquipmentSlotLabel(entity.slot),
+        ageLabel: getAgeLabel(ageId),
+        filterAgeId: filterAgeId,
+        ageWeight: getAgeSortWeight(filterAgeId),
+        categoryMeta: categoryMeta,
+        statusClass: isEquipped ? 'done' : 'ready',
+        statusText: isEquipped
+          ? t('hud.modal.craft.badges.equipped', null, 'Equipped')
+          : t('hud.modal.craft.badges.readyToUse', null, 'Ready to use'),
+        statusWeight: isEquipped ? 2 : 0,
+        actionHtml: isEquipped
+          ? buildCompactActionButtonHtml('btn-secondary', t('hud.modal.craft.action.equipped', null, 'Equipped'), '', true)
+          : buildCompactActionButtonHtml('btn-success', t('hud.modal.craft.action.useItem', null, 'Use item'), 'GameActions.equip(\'' + entity.id + '\'); GameHUD.updateModal();', false),
+        statsSummary: summaryText,
+        inputHtml: '',
+        unlockHint: ''
+      });
+    });
+
+    return {
+      entries: entries,
+      readyCount: readyCount,
+      equippedCount: equippedCount
+    };
   }
 
   function ensureGroupedSection(map, meta) {
@@ -953,6 +1348,7 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
         icon: getEntityIcon(entity),
         name: entity.name || itemId,
         count: amount,
+        qualityClass: getEntityQualityClass(entity),
         ageLabel: getAgeLabel(ageId),
         filterAgeId: filterAgeId,
         ageWeight: getAgeSortWeight(filterAgeId),
@@ -992,6 +1388,7 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
         icon: getEquipmentSlotIcon(slotId),
         itemId: equippedId,
         entity: equippedEntity,
+        qualityClass: equippedEntity ? getEntityQualityClass(equippedEntity) : '',
         summary: equippedId ? getEquipmentStatSummary(equippedId, { shortLabels: true }) : ''
       };
     });
@@ -1123,6 +1520,7 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
     var cardClass = 'craft-compact-card management-compact-card';
     if (config.kind) cardClass += ' ' + config.kind;
     if (config.statusClass) cardClass += ' ' + config.statusClass;
+    if (config.qualityClass) cardClass += ' ' + config.qualityClass;
     var nameText = config.name || '';
     var copyText = config.copy || '';
     var copyTooltip = config.copyTooltip || copyText;
@@ -1168,7 +1566,7 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
 
     var html = '<div class="bag-inline-list">';
     items.forEach(function(item) {
-      html += '<div class="bag-inline-row">';
+      html += '<div class="bag-inline-row' + (item.qualityClass ? ' ' + item.qualityClass : '') + '">';
       html += '<div class="bag-inline-row-main">';
       html += '<span class="bag-inline-row-icon">' + (item.icon || '✨') + '</span>';
       html += '<span class="bag-inline-row-name">' + escapeHtml(item.name || '') + '</span>';
@@ -1227,7 +1625,7 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
   }
 
   function buildLoadoutSlotCardHtml(slotInfo, candidates) {
-    var html = '<div class="loadout-slot-card' + (slotInfo.itemId ? ' equipped' : '') + '">';
+    var html = '<div class="loadout-slot-card' + (slotInfo.itemId ? ' equipped' : '') + (slotInfo.qualityClass ? ' ' + slotInfo.qualityClass : '') + '">';
     html += '<div class="loadout-slot-header">';
     html += '<div class="loadout-slot-label">' + slotInfo.icon + ' ' + escapeHtml(slotInfo.label) + '</div>';
     if (slotInfo.itemId) {
@@ -1245,7 +1643,7 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
     if (candidates && candidates.length) {
       html += '<div class="loadout-choice-list">';
       candidates.forEach(function(candidate) {
-        html += '<button class="loadout-choice-button" type="button" onclick="GameActions.equip(\'' + candidate.itemId + '\'); GameHUD.updateModal();">';
+        html += '<button class="loadout-choice-button' + (candidate.qualityClass ? ' ' + candidate.qualityClass : '') + '" type="button" onclick="GameActions.equip(\'' + candidate.itemId + '\'); GameHUD.updateModal();">';
         html += '<span class="loadout-choice-main">';
         html += '<span class="loadout-choice-icon">' + candidate.icon + '</span>';
         html += '<span class="loadout-choice-copy">';
@@ -1265,7 +1663,7 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
   }
 
   function buildWeaponManagementCardHtml(item) {
-    var html = '<div class="bag-weapon-card' + (item.isEquipped ? ' active' : '') + (item.cycleEnabled ? '' : ' muted') + '">';
+    var html = '<div class="bag-weapon-card' + (item.isEquipped ? ' active' : '') + (item.cycleEnabled ? '' : ' muted') + (item.qualityClass ? ' ' + item.qualityClass : '') + '">';
     html += '<div class="bag-weapon-card-top">';
     html += '<div class="bag-weapon-card-identity">';
     html += '<div class="bag-weapon-card-icon">' + item.icon + '</div>';
@@ -1335,6 +1733,7 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
       return {
         icon: slotInfo.icon,
         name: slotInfo.label,
+        qualityClass: slotInfo.qualityClass,
         meta: slotInfo.itemId ? ((slotInfo.entity ? slotInfo.entity.name : slotInfo.itemId) + (slotInfo.summary ? ' • ' + slotInfo.summary : '')) : t('hud.equipment.empty', null, 'Empty')
       };
     }), t('hud.modal.bag.overview.noLoadout', null, 'No gear is equipped yet.'));
@@ -1346,6 +1745,7 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
       return {
         icon: item.icon,
         name: item.name,
+        qualityClass: item.qualityClass,
         meta: (item.cycleEnabled ? t('hud.modal.bag.overview.inCycle', null, 'In Q cycle') : t('hud.modal.bag.overview.skippedCycle', null, 'Skipped by Q')) + (item.isEquipped ? ' • ' + t('hud.modal.bag.weapons.equipped', null, 'Equipped') : '')
       };
     }), t('hud.modal.bag.overview.noWeapons', null, 'No carried weapons yet.'));
@@ -1783,10 +2183,13 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
     var buildings = GameRegistry.getEntitiesByType('building').filter(function(building) {
       return !building.hiddenInBuildMenu;
     });
-    var readyCards = [];
-    var blockedCards = [];
-    var lockedCards = [];
+    var buildEntries = [];
+    var buildTypeOptionsMap = {};
+    var buildAgeOptionsMap = {};
     var totalPlaced = 0;
+    var readyCount = 0;
+    var blockedCount = 0;
+    var lockedCount = 0;
     var summaryReadyLabel = t('hud.modal.build.sections.readyCount', null, 'Ready to place');
     var summaryBlockedLabel = t('hud.modal.build.sections.blockedCount', null, 'Need more stock');
     var summaryPlacedLabel = t('hud.modal.build.sections.totalPlaced', null, 'Structures placed');
@@ -1796,6 +2199,9 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
       var balance = GameRegistry.getBalance(building.id) || {};
       var count = GameState.getBuildingCount(building.id);
       var isUnlocked = GameState.isUnlocked(building.id);
+      var ageId = getEntityUnlockAgeId(localizedBuilding);
+      var filterAgeId = getFilterAgeId(ageId);
+      var categoryMeta = getBuildingCategoryMeta(localizedBuilding, balance);
       var costInfo = buildResourcePills(balance.cost, 'cost');
       var productionInfo = buildResourcePills(balance.produces, 'output');
       var consumptionInfo = buildResourcePills(balance.consumesPerSecond, 'neutral');
@@ -1810,10 +2216,13 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
       var tags = [
         { label: t('hud.modal.build.badges.placed', { count: count }, 'Placed x{count}'), tone: 'muted' }
       ];
-      var ageId = getEntityUnlockAgeId(localizedBuilding);
       if (ageId) {
         tags.push({ label: getAgeLabel(ageId) });
       }
+
+      registerFilterOption(buildTypeOptionsMap, categoryMeta.id, categoryMeta.label, categoryMeta.order);
+      registerFilterOption(buildAgeOptionsMap, filterAgeId, getFilterAgeLabel(filterAgeId), getAgeSortWeight(filterAgeId));
+
       var rows = [];
       if (costInfo.html) {
         rows.push({
@@ -1836,8 +2245,21 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
 
       totalPlaced += count;
 
+      var entry = {
+        buildingId: building.id,
+        filterAgeId: filterAgeId,
+        ageWeight: getAgeSortWeight(filterAgeId),
+        categoryMeta: categoryMeta,
+        statusWeight: 0,
+        statusBucket: 'ready',
+        name: localizedBuilding.name || building.id,
+        html: ''
+      };
+
       if (!isUnlocked) {
-        lockedCards.push(buildCompactManagementCardHtml({
+        entry.statusWeight = 2;
+        entry.statusBucket = 'locked';
+        entry.html = buildCompactManagementCardHtml({
           kind: 'build',
           focusId: building.id,
           iconTone: 'build',
@@ -1852,13 +2274,17 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
           rows: [],
           noteText: describeUnlockProgress(UnlockSystem.getUnlockProgress(building)) || t('hud.modal.build.sections.lockedCopy', null, 'Track the missing requirements to unlock this blueprint.'),
           actionHtml: buildCompactActionButtonHtml('btn-secondary', t('hud.modal.build.action.locked', null, 'Locked'), '', true)
-        }));
+        });
+        lockedCount += 1;
+        buildEntries.push(entry);
         return;
       }
 
       var canBuy = costInfo.allAffordable;
       var buildDescription = localizedBuilding.description || '';
-      var cardHtml = buildCompactManagementCardHtml({
+      entry.statusWeight = canBuy ? 0 : 1;
+      entry.statusBucket = canBuy ? 'ready' : 'blocked';
+      entry.html = buildCompactManagementCardHtml({
         kind: 'build',
         focusId: building.id,
         iconTone: 'build',
@@ -1875,22 +2301,59 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
       });
 
       if (canBuy) {
-        readyCards.push(cardHtml);
+        readyCount += 1;
       } else {
-        blockedCards.push(cardHtml);
+        blockedCount += 1;
+      }
+
+      buildEntries.push(entry);
+    });
+
+    if (!buildEntries.length) {
+      panel.innerHTML = '<div class="empty-state">' + escapeHtml(t('hud.modal.build.sections.empty', null, 'No building blueprints are available yet.')) + '</div>';
+      return;
+    }
+
+    var buildTypeOptions = buildFilterOptionList(buildTypeOptionsMap);
+    var buildAgeOptions = buildFilterOptionList(buildAgeOptionsMap);
+    normalizeFilterState(_buildFilterState, _buildFilterState.mode === 'age' ? buildAgeOptions : buildTypeOptions);
+
+    buildEntries.sort(function(left, right) {
+      if (left.statusWeight !== right.statusWeight) return left.statusWeight - right.statusWeight;
+      if (left.categoryMeta.order !== right.categoryMeta.order) return left.categoryMeta.order - right.categoryMeta.order;
+      if (left.ageWeight !== right.ageWeight) return left.ageWeight - right.ageWeight;
+      return left.name.localeCompare(right.name);
+    });
+
+    var filteredBuildEntries = buildEntries.filter(function(entry) {
+      return matchesBagFilter(entry, _buildFilterState);
+    });
+    var readyCards = [];
+    var blockedCards = [];
+    var lockedCards = [];
+
+    filteredBuildEntries.forEach(function(entry) {
+      if (entry.statusBucket === 'ready') {
+        readyCards.push(entry.html);
+      } else if (entry.statusBucket === 'blocked') {
+        blockedCards.push(entry.html);
+      } else {
+        lockedCards.push(entry.html);
       }
     });
 
     var html = '<div class="bag-workbench-shell">';
     html += '<div class="bag-workbench-toolbar build-research-toolbar">';
     html += '<div class="craft-summary-strip">';
-    html += '<span class="craft-summary-chip ready">' + escapeHtml(summaryReadyLabel) + ' <strong>' + readyCards.length + '</strong></span>';
-    html += '<span class="craft-summary-chip waiting">' + escapeHtml(summaryBlockedLabel) + ' <strong>' + blockedCards.length + '</strong></span>';
-    if (lockedCards.length) {
-      html += '<span class="craft-summary-chip locked">' + escapeHtml(t('hud.modal.build.sections.lockedTitle', null, 'Locked Structures')) + ' <strong>' + lockedCards.length + '</strong></span>';
+    html += '<span class="craft-summary-chip ready">' + escapeHtml(summaryReadyLabel) + ' <strong>' + readyCount + '</strong></span>';
+    html += '<span class="craft-summary-chip waiting">' + escapeHtml(summaryBlockedLabel) + ' <strong>' + blockedCount + '</strong></span>';
+    if (lockedCount) {
+      html += '<span class="craft-summary-chip locked">' + escapeHtml(t('hud.modal.build.sections.lockedTitle', null, 'Locked Structures')) + ' <strong>' + lockedCount + '</strong></span>';
     }
     html += '<span class="craft-summary-chip complete">' + escapeHtml(summaryPlacedLabel) + ' <strong>' + totalPlaced + '</strong></span>';
-    html += '</div></div>';
+    html += '</div>';
+    html += buildBagFilterToolbarHtml('Build', _buildFilterState, buildTypeOptions, buildAgeOptions, t('hud.modal.build.showing', { shown: filteredBuildEntries.length, total: buildEntries.length }, 'Showing {shown}/{total}'));
+    html += '</div>';
 
     if (readyCards.length) {
       html += '<div class="panel-section workbench-section"><div class="section-header compact"><div><div class="section-title">' + escapeHtml(t('hud.modal.build.sections.readyTitle', null, 'Immediate Builds')) + '</div></div><div class="section-action-group"><span class="status-chip ready">' + escapeHtml(String(readyCards.length)) + '</span></div></div><div class="craft-compact-grid">' + readyCards.join('') + '</div></div>';
@@ -1905,14 +2368,14 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
     }
 
     html += '</div>';
-    panel.innerHTML = (readyCards.length || blockedCards.length || lockedCards.length) ? html : '<div class="empty-state">' + escapeHtml(t('hud.modal.build.sections.empty', null, 'No building blueprints are available yet.')) + '</div>';
+    panel.innerHTML = (readyCards.length || blockedCards.length || lockedCards.length) ? html : '<div class="empty-state">' + escapeHtml(t('hud.modal.build.emptyFilter', null, 'No buildings match this filter.')) + '</div>';
   }
 
   function renderModalCraft() {
     var panel = document.getElementById('modal-panel-craft');
     if (!panel) return;
 
-    var recipes = CraftSystem.getAllRecipes();
+    var recipes = CraftSystem.getAllRecipes() || [];
     var craftEntries = [];
     var craftTypeOptionsMap = {};
     var craftAgeOptionsMap = {};
@@ -1923,11 +2386,6 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
     var summaryReadyLabel = t('hud.modal.craft.sections.readyCount', null, 'Ready now');
     var summaryWaitingLabel = t('hud.modal.craft.sections.waitingCount', null, 'Need materials');
     var summaryEquippedLabel = t('hud.modal.craft.sections.equippedCount', null, 'Already equipped');
-
-    if (!recipes || !recipes.length) {
-      panel.innerHTML = '<div class="empty-state">' + escapeHtml(t('hud.modal.craft.sections.empty', null, 'No crafting recipes are available yet.')) + '</div>';
-      return;
-    }
 
     recipes.forEach(function(recipe) {
       var localizedRecipe = GameRegistry.getEntity(recipe.id) || recipe;
@@ -2010,6 +2468,7 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
         recipeId: recipe.id,
         icon: getEntityIcon(primaryOutputEntity || recipe),
         name: localizedRecipe.name || recipe.id,
+        qualityClass: getCraftQualityClass(primaryOutputEntity),
         primaryTag: primaryOutputEntity && primaryOutputEntity.type === 'equipment'
           ? getEquipmentSlotLabel(primaryOutputEntity.slot)
           : categoryMeta.label,
@@ -2028,6 +2487,18 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
           : ''
       });
     });
+
+    var rewardEquipmentCraftData = collectRewardEquipmentCraftEntries(recipes, craftTypeOptionsMap, craftAgeOptionsMap);
+    if (rewardEquipmentCraftData.entries.length) {
+      craftEntries = craftEntries.concat(rewardEquipmentCraftData.entries);
+      readyCount += rewardEquipmentCraftData.readyCount;
+      equippedCount += rewardEquipmentCraftData.equippedCount;
+    }
+
+    if (!craftEntries.length) {
+      panel.innerHTML = '<div class="empty-state">' + escapeHtml(t('hud.modal.craft.sections.empty', null, 'No crafting recipes are available yet.')) + '</div>';
+      return;
+    }
 
     var craftTypeOptions = buildFilterOptionList(craftTypeOptionsMap);
     var craftAgeOptions = buildFilterOptionList(craftAgeOptionsMap);
@@ -2089,6 +2560,19 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
       renderModalLeftSide();
       return;
     }
+    renderModalLeftSide();
+  }
+
+  function setBuildFilterMode(mode) {
+    _buildFilterState.mode = mode === 'age' ? 'age' : 'type';
+    _buildFilterState.value = 'all';
+    renderModalBuild();
+    renderModalLeftSide();
+  }
+
+  function setBuildFilterValue(value) {
+    _buildFilterState.value = value || 'all';
+    renderModalBuild();
     renderModalLeftSide();
   }
 
@@ -2398,10 +2882,13 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
     switchModalTab: switchModalTab,
     updateModal: updateModal,
     getEntityIcon: getEntityIcon,
+    getEntityQualityClass: getEntityQualityClass,
     setBagSection: setBagSection,
     setBagFilterValue: setBagFilterValue,
     setInventoryFilterMode: setInventoryFilterMode,
     setInventoryFilterValue: setInventoryFilterValue,
+    setBuildFilterMode: setBuildFilterMode,
+    setBuildFilterValue: setBuildFilterValue,
     setCraftFilterMode: setCraftFilterMode,
     setCraftFilterValue: setCraftFilterValue
   };
