@@ -1322,21 +1322,8 @@ try {
     var maxHp = GameState.getPlayerMaxHp();
     var atk = GameState.getPlayerAttack();
     var def = GameState.getPlayerDefense();
-    var hunger = GameState.getHunger ? GameState.getHunger() : 100;
-    var speed = GameState.getPlayerSpeed ? GameState.getPlayerSpeed() : 3;
-    var isEatingNow = typeof GamePlayer !== 'undefined' && GamePlayer.isEating && GamePlayer.isEating();
-    var hungryThreshold = GameState.getHungryThreshold();
-    var isSlowed = false;
-
-    if (hunger < hungryThreshold) {
-      speed *= GameState.getHungrySpeedMultiplier();
-      isSlowed = true;
-    }
-
-    if (isEatingNow) {
-      speed *= GameState.getEatSpeedMultiplier();
-      isSlowed = true;
-    }
+    var speed = (typeof GamePlayer !== 'undefined' && GamePlayer.getCurrentMoveSpeed) ? GamePlayer.getCurrentMoveSpeed() : (GameState.getPlayerSpeed ? GameState.getPlayerSpeed() : 3);
+    var isSlowed = !!(typeof GamePlayer !== 'undefined' && GamePlayer.isMovementSlowed && GamePlayer.isMovementSlowed());
 
     var atkEl = document.getElementById("stat-atk");
     var defEl = document.getElementById("stat-def");

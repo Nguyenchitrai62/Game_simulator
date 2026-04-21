@@ -1,5 +1,6 @@
 window.WaterSystem = (function () {
   var _waterTiles = {};
+  var _riverBankTiles = {};
   var _worldSeed = 42;
 
   function isWaterTile(worldX, worldZ) {
@@ -17,14 +18,21 @@ window.WaterSystem = (function () {
     return _waterTiles[key] === 'shallow';
   }
 
+  function isRiverBank(worldX, worldZ) {
+    var key = Math.round(worldX) + "," + Math.round(worldZ);
+    return !!_riverBankTiles[key];
+  }
+
   function setWaterTile(worldX, worldZ, type) {
     var key = Math.round(worldX) + "," + Math.round(worldZ);
+    delete _riverBankTiles[key];
     _waterTiles[key] = type;
   }
 
   function removeWaterTile(worldX, worldZ) {
     var key = Math.round(worldX) + "," + Math.round(worldZ);
     delete _waterTiles[key];
+    delete _riverBankTiles[key];
   }
 
   function wsRand(s) {
@@ -37,11 +45,37 @@ window.WaterSystem = (function () {
          + Math.sin(worldX * 0.05 + _worldSeed * 1.1) * 1.5;
   }
 
+  function getWaterPriority(type) {
+    if (type === 'deep') return 3;
+    if (type === 'shallow') return 2;
+    if (type === 'bank') return 1;
+    return 0;
+  }
+
+  function addWaterPosition(waterPositions, chunkX, chunkZ, worldX, worldZ, type) {
+    var localX = worldX - chunkX;
+    var localZ = worldZ - chunkZ;
+    if (localX < 0 || localX >= 16 || localZ < 0 || localZ >= 16) return;
+
+    for (var i = 0; i < waterPositions.length; i++) {
+      var existing = waterPositions[i];
+      if (existing.x !== localX || existing.z !== localZ) continue;
+      if (getWaterPriority(type) > getWaterPriority(existing.type)) {
+        existing.type = type;
+      }
+      return;
+    }
+
+    waterPositions.push({ x: localX, z: localZ, type: type });
+  }
+
   function generateWaterForChunk(cx, cz, seed) {
     _worldSeed = seed || _worldSeed;
     var waterPositions = [];
     var chunkX = cx * 16;
     var chunkZ = cz * 16;
+
+    clearWaterForChunk(cx, cz);
 
     if (cx === 0 && cz === 0) {
       return waterPositions;
@@ -50,16 +84,14 @@ window.WaterSystem = (function () {
     for (var lx = 0; lx < 16; lx++) {
       var worldX = chunkX + lx;
       var riverCenter = getRiverZ(worldX);
-      var riverCenterInt = Math.round(riverCenter);
+      var deepStartZ = Math.floor(riverCenter);
 
-      for (var depth = -1; depth <= 1; depth++) {
-        var worldZ = riverCenterInt + depth;
-        var localZ = worldZ - chunkZ;
-        if (localZ >= 0 && localZ < 16) {
-          var waterType = (depth === 0) ? 'deep' : 'shallow';
-          waterPositions.push({ x: lx, z: localZ, type: waterType });
-        }
-      }
+      addWaterPosition(waterPositions, chunkX, chunkZ, worldX, deepStartZ - 2, 'bank');
+      addWaterPosition(waterPositions, chunkX, chunkZ, worldX, deepStartZ - 1, 'shallow');
+      addWaterPosition(waterPositions, chunkX, chunkZ, worldX, deepStartZ, 'deep');
+      addWaterPosition(waterPositions, chunkX, chunkZ, worldX, deepStartZ + 1, 'deep');
+      addWaterPosition(waterPositions, chunkX, chunkZ, worldX, deepStartZ + 2, 'shallow');
+      addWaterPosition(waterPositions, chunkX, chunkZ, worldX, deepStartZ + 3, 'bank');
     }
 
     var lakeChance = wsRand(seed + 500 + cx * 13 + cz * 29);
@@ -76,16 +108,7 @@ window.WaterSystem = (function () {
             if (lx2 >= 0 && lx2 < 16 && lz2 >= 0 && lz2 < 16) {
               var dist = Math.sqrt(dx * dx + dz * dz);
               var ltype = dist <= lakeSize * 0.6 ? 'deep' : 'shallow';
-              var exists = false;
-              for (var k = 0; k < waterPositions.length; k++) {
-                if (waterPositions[k].x === lx2 && waterPositions[k].z === lz2) {
-                  exists = true;
-                  break;
-                }
-              }
-              if (!exists) {
-                waterPositions.push({ x: lx2, z: lz2, type: ltype });
-              }
+              addWaterPosition(waterPositions, chunkX, chunkZ, chunkX + lx2, chunkZ + lz2, ltype);
             }
           }
         }
@@ -95,7 +118,13 @@ window.WaterSystem = (function () {
     for (var i = 0; i < waterPositions.length; i++) {
       var wp = waterPositions[i];
       var key = (chunkX + wp.x) + "," + (chunkZ + wp.z);
-      _waterTiles[key] = wp.type;
+      if (wp.type === 'bank') {
+        _riverBankTiles[key] = true;
+        delete _waterTiles[key];
+      } else {
+        _waterTiles[key] = wp.type;
+        delete _riverBankTiles[key];
+      }
     }
 
     return waterPositions;
@@ -104,6 +133,7 @@ window.WaterSystem = (function () {
   var _waterGeo = null;
   var _waterMatDeep = null;
   var _waterMatShallow = null;
+  var _waterMatBank = null;
 
   function ensureMaterials() {
     if (!_waterGeo) {
@@ -127,21 +157,27 @@ window.WaterSystem = (function () {
         depthWrite: false
       });
     }
+    if (!_waterMatBank) {
+      _waterMatBank = new THREE.MeshBasicMaterial({
+        color: 0x8a7a5a,
+        transparent: true,
+        opacity: 0.46,
+        side: THREE.DoubleSide,
+        depthWrite: false
+      });
+    }
   }
 
   function createWaterMesh(waterPositions, group) {
     ensureMaterials();
 
-    var mergedDeep = [];
-    var mergedShallow = [];
-
     for (var i = 0; i < waterPositions.length; i++) {
       var wp = waterPositions[i];
-      var mat = (wp.type === 'deep') ? _waterMatDeep : _waterMatShallow;
+      var mat = wp.type === 'deep' ? _waterMatDeep : (wp.type === 'shallow' ? _waterMatShallow : _waterMatBank);
       var waterMesh = new THREE.Mesh(_waterGeo, mat);
       waterMesh.rotation.x = -Math.PI / 2;
-      waterMesh.position.set(wp.x + 0.5, 0.08, wp.z + 0.5);
-      waterMesh.renderOrder = 1;
+      waterMesh.position.set(wp.x, wp.type === 'bank' ? 0.03 : 0.08, wp.z);
+      waterMesh.renderOrder = wp.type === 'bank' ? 0 : 1;
       waterMesh.userData.isWater = true;
       waterMesh.userData.waterType = wp.type;
       group.add(waterMesh);
@@ -165,6 +201,9 @@ window.WaterSystem = (function () {
         if (_waterTiles[key]) {
           delete _waterTiles[key];
         }
+        if (_riverBankTiles[key]) {
+          delete _riverBankTiles[key];
+        }
       }
     }
   }
@@ -173,6 +212,7 @@ window.WaterSystem = (function () {
     isWaterTile: isWaterTile,
     isDeepWater: isDeepWater,
     isShallowWater: isShallowWater,
+    isRiverBank: isRiverBank,
     setWaterTile: setWaterTile,
     removeWaterTile: removeWaterTile,
     generateWaterForChunk: generateWaterForChunk,

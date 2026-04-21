@@ -14,9 +14,7 @@ window.AtmosphereSystem = (function () {
   var CLOUD_COUNT = 8;
   var DAYTIME_CLOUD_OPACITY = 0.3;
   var CLOUD_FADE_OUT_START_HOUR = 18;
-  var CLOUD_HIDDEN_HOUR = 20;
   var CLOUD_RETURN_HOUR = 6;
-  var CLOUD_FULLY_VISIBLE_HOUR = 8;
 
   var _windTargets = [];
   var _initialized = false;
@@ -298,16 +296,8 @@ window.AtmosphereSystem = (function () {
     var hour = typeof timeOfDay === 'number' ? (timeOfDay % 24) : 12;
     if (hour < 0) hour += 24;
 
-    if (hour >= CLOUD_FADE_OUT_START_HOUR && hour < CLOUD_HIDDEN_HOUR) {
-      return 1 - ((hour - CLOUD_FADE_OUT_START_HOUR) / (CLOUD_HIDDEN_HOUR - CLOUD_FADE_OUT_START_HOUR));
-    }
-
-    if (hour >= CLOUD_HIDDEN_HOUR || hour < CLOUD_RETURN_HOUR) {
+    if (hour >= CLOUD_FADE_OUT_START_HOUR || hour < CLOUD_RETURN_HOUR) {
       return 0;
-    }
-
-    if (hour >= CLOUD_RETURN_HOUR && hour < CLOUD_FULLY_VISIBLE_HOUR) {
-      return (hour - CLOUD_RETURN_HOUR) / (CLOUD_FULLY_VISIBLE_HOUR - CLOUD_RETURN_HOUR);
     }
 
     return 1;

@@ -144,6 +144,10 @@ window.GameState = (function () {
     return Number(((getPlayerConfig().movement || {}).shallowWaterSpeedMultiplier)) || 0;
   }
 
+  function getPlayerRiverBankSpeedMultiplier() {
+    return Number(((getPlayerConfig().movement || {}).riverBankSpeedMultiplier)) || getPlayerShallowWaterSpeedMultiplier();
+  }
+
   function getPlayerDeathResourceLossFraction() {
     return Number(((getPlayerConfig().death || {}).resourceLossFraction));
   }
@@ -1192,6 +1196,7 @@ window.GameState = (function () {
     getPlayerSpawnTimeOfDay: getPlayerSpawnTimeOfDay,
     getPlayerInteractionRadius: getPlayerInteractionRadius,
     getPlayerShallowWaterSpeedMultiplier: getPlayerShallowWaterSpeedMultiplier,
+    getPlayerRiverBankSpeedMultiplier: getPlayerRiverBankSpeedMultiplier,
     getPlayerDeathResourceLossFraction: getPlayerDeathResourceLossFraction,
     getMaxHunger: getMaxHunger, isHungry: isHungry, isStarving: isStarving,
     getTimeOfDay: getTimeOfDay, setTimeOfDay: setTimeOfDay,

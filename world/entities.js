@@ -1152,9 +1152,6 @@ window.GameEntities = (function () {
       chaseSpeed: getBehaviorValue(behaviorConfig, 'chaseSpeed'),
       returnSpeed: getBehaviorValue(behaviorConfig, 'returnSpeed'),
       turnRate: getBehaviorValue(behaviorConfig, 'turnRate'),
-      fleeMinDistance: Number(tuningConfig.fleeMinDistance) || 0,
-      fleeSpawnRadiusMultiplier: Number(tuningConfig.fleeSpawnRadiusMultiplier) || 0,
-      fleeEscapeDistanceMultiplier: Number(tuningConfig.fleeEscapeDistanceMultiplier) || 0,
       returnToSpawnDistanceMultiplier: Number(tuningConfig.returnToSpawnDistanceMultiplier) || 0,
       returnIdleBaseSeconds: Number(tuningConfig.returnIdleBaseSeconds) || 0,
       returnIdleRandomSeconds: Number(tuningConfig.returnIdleRandomSeconds) || 0,
@@ -1170,14 +1167,10 @@ window.GameEntities = (function () {
       settings.aggroRange = aggroRange >= 0 ? aggroRange : 0;
       settings.attackRange = getBehaviorValue(behaviorConfig, 'attackRange');
       settings.chaseRange = getBehaviorValue(behaviorConfig, 'chaseRange');
-      settings.fleeRange = 0;
-      settings.fleeSpeed = settings.returnSpeed;
     } else {
       settings.aggroRange = 0;
       settings.attackRange = 0;
       settings.chaseRange = 0;
-      settings.fleeRange = Number(balance && balance.fleeRange) || 0;
-      settings.fleeSpeed = Number(balance && balance.fleeSpeed) || 0;
     }
 
     return settings;
@@ -1278,37 +1271,6 @@ window.GameEntities = (function () {
     mesh.userData._moveSpeed = moved ? speed : 0;
     turnAnimalTowards(mesh, facingAngleOverride === undefined ? getAnimalFacingAngle(dirX, dirZ) : facingAngleOverride, turnRate, 0.02);
     return moved && distance <= moveDistance + 0.08;
-  }
-
-  function moveAnimalAwayFromTarget(mesh, objData, dangerX, dangerZ, speed, dt, turnRate, settings, facingAngleOverride) {
-    var awayX = objData.worldX - dangerX;
-    var awayZ = objData.worldZ - dangerZ;
-    var awayDistance = Math.sqrt(awayX * awayX + awayZ * awayZ);
-    if (awayDistance < 0.001) {
-      awayX = objData.worldX - mesh.userData._spawnX;
-      awayZ = objData.worldZ - mesh.userData._spawnZ;
-      awayDistance = Math.sqrt(awayX * awayX + awayZ * awayZ);
-    }
-    if (awayDistance < 0.001) {
-      awayX = 1;
-      awayZ = 0;
-      awayDistance = 1;
-    }
-
-    var desiredDistance = Math.max((settings && settings.fleeRange) || 0, (settings && settings.fleeMinDistance) || 0);
-    var targetX = objData.worldX + (awayX / awayDistance) * desiredDistance;
-    var targetZ = objData.worldZ + (awayZ / awayDistance) * desiredDistance;
-    var spawnDx = targetX - mesh.userData._spawnX;
-    var spawnDz = targetZ - mesh.userData._spawnZ;
-    var maxDistanceFromSpawn = ((settings && settings.patrolRadius) || 0) * ((settings && settings.fleeSpawnRadiusMultiplier) || 0);
-    var targetDistanceFromSpawn = Math.sqrt(spawnDx * spawnDx + spawnDz * spawnDz);
-
-    if (targetDistanceFromSpawn > maxDistanceFromSpawn) {
-      targetX = mesh.userData._spawnX + (spawnDx / targetDistanceFromSpawn) * maxDistanceFromSpawn;
-      targetZ = mesh.userData._spawnZ + (spawnDz / targetDistanceFromSpawn) * maxDistanceFromSpawn;
-    }
-
-    return moveAnimal(mesh, objData, targetX, targetZ, speed, dt, turnRate, facingAngleOverride);
   }
 
   function getWorkerTargetForAnimal(objData, settings) {
@@ -1417,23 +1379,12 @@ window.GameEntities = (function () {
               mesh.userData._movementState = 'return';
             }
           }
-        } else if (!settings.isThreat && playerPos && distToPlayer <= settings.fleeRange) {
-          mesh.userData._movementState = 'flee';
-          mesh.userData._patrolTarget = null;
-          mesh.userData._idleUntil = 0;
-
-          var escaped = moveAnimalAwayFromTarget(mesh, objData, playerPos.x, playerPos.z, settings.fleeSpeed, dt, settings.turnRate, settings);
-          if (distToPlayer > settings.fleeRange * settings.fleeEscapeDistanceMultiplier) {
-            mesh.userData._movementState = 'patrol';
-          } else if (!escaped && mesh.userData._moveSpeed === 0) {
-            mesh.userData._movementState = 'return';
-          }
-          } else if (distFromSpawn > settings.patrolRadius * settings.returnToSpawnDistanceMultiplier || mesh.userData._movementState === 'return') {
+        } else if (distFromSpawn > settings.patrolRadius * settings.returnToSpawnDistanceMultiplier || mesh.userData._movementState === 'return') {
           mesh.userData._movementState = 'return';
           mesh.userData._patrolTarget = null;
           if (moveAnimal(mesh, objData, mesh.userData._spawnX, mesh.userData._spawnZ, settings.returnSpeed, dt, settings.turnRate)) {
             mesh.userData._movementState = 'patrol';
-              mesh.userData._idleUntil = time + settings.returnIdleBaseSeconds + (Math.random() * settings.returnIdleRandomSeconds);
+            mesh.userData._idleUntil = time + settings.returnIdleBaseSeconds + (Math.random() * settings.returnIdleRandomSeconds);
             mesh.userData._moveSpeed = 0;
           }
         } else {

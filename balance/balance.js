@@ -93,8 +93,6 @@ window.GAME_BALANCE = {
     rewards: { "resource.food": 4, "resource.leather": 1 },
     respawnTime: 45,
     animalDisposition: "prey",
-    fleeRange: 3.2,
-    fleeSpeed: 1.08,
     behavior: {
       patrolRadius: 3.8,
       patrolSpeed: 0.48,
@@ -109,8 +107,6 @@ window.GAME_BALANCE = {
     rewards: { "resource.food": 2 },
     respawnTime: 35,
     animalDisposition: "prey",
-    fleeRange: 2.7,
-    fleeSpeed: 1.2,
     behavior: {
       patrolRadius: 2.4,
       patrolSpeed: 0.54,
@@ -982,7 +978,8 @@ window.GAME_BALANCE = {
     },
     interactionRadius: 2.5,
     movement: {
-      shallowWaterSpeedMultiplier: 0.5
+      shallowWaterSpeedMultiplier: 0.5,
+      riverBankSpeedMultiplier: 0.72
     },
     death: {
       resourceLossFraction: 0.3
@@ -1062,9 +1059,6 @@ window.GAME_BALANCE = {
   },
 
   animalBehavior: {
-    fleeMinDistance: 1.6,
-    fleeSpawnRadiusMultiplier: 1.8,
-    fleeEscapeDistanceMultiplier: 1.2,
     returnToSpawnDistanceMultiplier: 1.25,
     returnIdleBaseSeconds: 0.5,
     returnIdleRandomSeconds: 1.0,

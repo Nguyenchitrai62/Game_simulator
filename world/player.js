@@ -37,6 +37,8 @@ window.GamePlayer = (function () {
   var _shieldAttachmentParent = null;
   var _armorAttachmentParent = null;
   var _movementBlend = 0;
+  var _lastReportedMoveSpeed = null;
+  var _lastReportedMoveSlowed = false;
   var _attackPose = { kind: null, timer: 0, duration: 0, aimX: 0, aimZ: 1 };
   var _contextRefreshAccumulator = 0;
   var _lastContextQueryPos = { x: Infinity, z: Infinity };
@@ -123,6 +125,52 @@ window.GamePlayer = (function () {
 
   function getPlayerShallowWaterSpeedMultiplier() {
     return (window.GameState && GameState.getPlayerShallowWaterSpeedMultiplier) ? GameState.getPlayerShallowWaterSpeedMultiplier() : 0;
+  }
+
+  function getPlayerRiverBankSpeedMultiplier() {
+    return (window.GameState && GameState.getPlayerRiverBankSpeedMultiplier) ? GameState.getPlayerRiverBankSpeedMultiplier() : getPlayerShallowWaterSpeedMultiplier();
+  }
+
+  function getBaseConfiguredPlayerSpeed() {
+    var speed = GameState.getPlayerSpeed ? GameState.getPlayerSpeed() : 3;
+    var hunger = GameState.getHunger ? GameState.getHunger() : 100;
+
+    if (hunger < GameState.getHungryThreshold()) {
+      speed *= GameState.getHungrySpeedMultiplier();
+    }
+
+    if (_isEating) {
+      speed *= GameState.getEatSpeedMultiplier();
+    }
+
+    return speed;
+  }
+
+  function getTerrainMoveSpeedMultiplierAt(worldX, worldZ) {
+    if (GameTerrain.isShallowWater && GameTerrain.isShallowWater(worldX, worldZ)) {
+      return getPlayerShallowWaterSpeedMultiplier();
+    }
+    if (GameTerrain.isRiverBank && GameTerrain.isRiverBank(worldX, worldZ)) {
+      return getPlayerRiverBankSpeedMultiplier();
+    }
+    return 1.0;
+  }
+
+  function getCurrentMoveSpeedProfileAt(worldX, worldZ) {
+    var baseSpeed = getBaseConfiguredPlayerSpeed();
+    var terrainMultiplier = getTerrainMoveSpeedMultiplierAt(worldX, worldZ);
+    return {
+      speed: baseSpeed * terrainMultiplier,
+      isSlowed: terrainMultiplier < 0.999 || baseSpeed < (GameState.getPlayerSpeed ? GameState.getPlayerSpeed() : 3)
+    };
+  }
+
+  function getCurrentMoveSpeed() {
+    return getCurrentMoveSpeedProfileAt(_x, _z).speed;
+  }
+
+  function isMovementSlowed() {
+    return getCurrentMoveSpeedProfileAt(_x, _z).isSlowed;
   }
 
   function init(startX, startZ) {
@@ -1400,18 +1448,7 @@ window.GamePlayer = (function () {
     _visualAnimTime += Math.min(dt, 1 / 30);
     var moved = false;
 
-    var _speed = GameState.getPlayerSpeed ? GameState.getPlayerSpeed() : 3;
-
-    // Speed penalty when hunger drops below the configured threshold.
-    var hunger = GameState.getHunger ? GameState.getHunger() : 100;
-    if (hunger < GameState.getHungryThreshold()) {
-      _speed *= GameState.getHungrySpeedMultiplier();
-    }
-
-    // Speed penalty while eating
-    if (_isEating) {
-      _speed *= GameState.getEatSpeedMultiplier();
-    }
+    var _speed = getBaseConfiguredPlayerSpeed();
 
     // === EATING SYSTEM ===
     updateEating(dt);
@@ -1458,10 +1495,7 @@ window.GamePlayer = (function () {
       _direction.x = dx;
       _direction.z = dz;
 
-      var speedMultiplier = 1.0;
-      if (GameTerrain.isShallowWater && GameTerrain.isShallowWater(_x, _z)) {
-        speedMultiplier = getPlayerShallowWaterSpeedMultiplier();
-      }
+      var speedMultiplier = getTerrainMoveSpeedMultiplierAt(_x, _z);
 
       var newX = _x + dx * _speed * speedMultiplier * dt;
       var newZ = _z + dz * _speed * speedMultiplier * dt;
@@ -1478,6 +1512,15 @@ window.GamePlayer = (function () {
 
     if (GameState && GameState.setPlayerPosition) {
       GameState.setPlayerPosition(_x, _z);
+    }
+
+    var moveSpeedProfile = getCurrentMoveSpeedProfileAt(_x, _z);
+    if (_lastReportedMoveSpeed === null || Math.abs(moveSpeedProfile.speed - _lastReportedMoveSpeed) > 0.001 || moveSpeedProfile.isSlowed !== _lastReportedMoveSlowed) {
+      _lastReportedMoveSpeed = moveSpeedProfile.speed;
+      _lastReportedMoveSlowed = moveSpeedProfile.isSlowed;
+      if (window.GameHUD && GameHUD.renderAll) {
+        GameHUD.renderAll('player-speed-state');
+      }
     }
 
     var actualMoveDistance = Math.sqrt(Math.pow(_x - prevX, 2) + Math.pow(_z - prevZ, 2));
@@ -2281,11 +2324,7 @@ window.GamePlayer = (function () {
 
     var group = new THREE.Group();
     var armorColor = getEquipmentVisualColor(armorId, 0x7b6a58);
-    var trimColor = armorId.indexOf('iron') !== -1 ? 0xcfd7df : (armorId.indexOf('bronze') !== -1 ? 0xf0c06b : 0xb88752);
-    var underColor = armorId.indexOf('iron') !== -1 ? 0x2b3f59 : (armorId.indexOf('bronze') !== -1 ? 0x3b4658 : 0x5b3b24);
     var mainMat = new THREE.MeshLambertMaterial({ color: armorColor });
-    var trimMat = new THREE.MeshLambertMaterial({ color: trimColor });
-    var underMat = new THREE.MeshLambertMaterial({ color: underColor });
 
     function addArmorPart(geometry, material, x, y, z, rx, ry, rz) {
       var part = new THREE.Mesh(geometry, material);
@@ -2296,32 +2335,9 @@ window.GamePlayer = (function () {
       return part;
     }
 
-    if (armorId.indexOf('leather') !== -1) {
-      addArmorPart(new THREE.BoxGeometry(0.5, 0.5, 0.36), mainMat, 0, 0, 0.01);
-      addArmorPart(new THREE.BoxGeometry(0.08, 0.46, 0.34), trimMat, -0.16, 0, 0.03, 0, 0, 0.08);
-      addArmorPart(new THREE.BoxGeometry(0.08, 0.46, 0.34), trimMat, 0.16, 0, 0.03, 0, 0, -0.08);
-      addArmorPart(new THREE.BoxGeometry(0.34, 0.1, 0.06), underMat, 0, -0.22, 0.17);
-      addArmorPart(new THREE.BoxGeometry(0.22, 0.14, 0.06), trimMat, 0, 0.08, 0.19);
-    } else if (armorId.indexOf('bronze') !== -1) {
-      addArmorPart(new THREE.BoxGeometry(0.54, 0.54, 0.38), mainMat, 0, 0, 0.01);
-      addArmorPart(new THREE.BoxGeometry(0.16, 0.12, 0.42), mainMat, -0.28, 0.12, 0.01, 0, 0, 0.12);
-      addArmorPart(new THREE.BoxGeometry(0.16, 0.12, 0.42), mainMat, 0.28, 0.12, 0.01, 0, 0, -0.12);
-      addArmorPart(new THREE.BoxGeometry(0.24, 0.16, 0.07), trimMat, 0, 0.08, 0.2);
-      addArmorPart(new THREE.BoxGeometry(0.38, 0.08, 0.08), trimMat, 0, -0.18, 0.16);
-      addArmorPart(new THREE.BoxGeometry(0.12, 0.18, 0.08), underMat, -0.12, -0.3, 0.12);
-      addArmorPart(new THREE.BoxGeometry(0.12, 0.18, 0.08), underMat, 0.12, -0.3, 0.12);
-    } else if (armorId.indexOf('iron') !== -1) {
-      addArmorPart(new THREE.BoxGeometry(0.56, 0.56, 0.4), mainMat, 0, 0, 0.01);
-      addArmorPart(new THREE.BoxGeometry(0.18, 0.14, 0.44), mainMat, -0.3, 0.12, 0.01, 0, 0, 0.12);
-      addArmorPart(new THREE.BoxGeometry(0.18, 0.14, 0.44), mainMat, 0.3, 0.12, 0.01, 0, 0, -0.12);
-      addArmorPart(new THREE.BoxGeometry(0.3, 0.18, 0.08), trimMat, 0, 0.1, 0.21);
-      addArmorPart(new THREE.BoxGeometry(0.4, 0.08, 0.08), trimMat, 0, -0.18, 0.18);
-      addArmorPart(new THREE.BoxGeometry(0.12, 0.22, 0.1), underMat, -0.18, -0.3, 0.12);
-      addArmorPart(new THREE.BoxGeometry(0.12, 0.22, 0.1), underMat, 0.18, -0.3, 0.12);
-      addArmorPart(new THREE.BoxGeometry(0.18, 0.08, 0.08), trimMat, 0, 0.3, 0.12);
-    } else {
-      addArmorPart(new THREE.BoxGeometry(0.5, 0.5, 0.36), mainMat, 0, 0, 0.01);
-    }
+    addArmorPart(new THREE.BoxGeometry(0.52, 0.52, 0.36), mainMat, 0, 0, 0.01);
+    addArmorPart(new THREE.BoxGeometry(0.26, 0.08, 0.22), mainMat, 0, 0.22, 0.01);
+    addArmorPart(new THREE.BoxGeometry(0.4, 0.08, 0.22), mainMat, 0, -0.22, 0.01);
 
     group.userData.armorId = armorId;
     return group;
@@ -2493,6 +2509,8 @@ window.GamePlayer = (function () {
     triggerAttackAnimation: triggerAttackAnimation,
     triggerSpeechCue: triggerSpeechCue,
     isEating: isEating,
+    isMovementSlowed: isMovementSlowed,
+    getCurrentMoveSpeed: getCurrentMoveSpeed,
     isRegenerating: isRegenerating,
     hasTorchLight: hasTorchLight,
     getTorchFuel: getTorchFuel,

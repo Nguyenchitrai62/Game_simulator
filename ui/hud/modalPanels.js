@@ -2108,7 +2108,7 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
 
     var quickStatsContainer = document.getElementById('modal-player-quickstats');
     if (quickStatsContainer) {
-      var speed = GameState.getPlayerSpeed ? GameState.getPlayerSpeed() : (player.speed || 0);
+      var speed = (typeof GamePlayer !== 'undefined' && GamePlayer.getCurrentMoveSpeed) ? GamePlayer.getCurrentMoveSpeed() : (GameState.getPlayerSpeed ? GameState.getPlayerSpeed() : (player.speed || 0));
       var quickStatsHtml = '';
       quickStatsHtml += '<span class="bag-stat-chip hp">❤️ ' + Math.floor(player.hp) + '/' + GameState.getPlayerMaxHp() + '</span>';
       quickStatsHtml += '<span class="bag-stat-chip attack">⚔️ ' + GameState.getPlayerAttack() + '</span>';
@@ -2598,7 +2598,7 @@ window.GameHUDModules.createModalPanelsModule = function createModalPanelsModule
     var maxHp = GameState.getPlayerMaxHp();
     var attack = GameState.getPlayerAttack();
     var defense = GameState.getPlayerDefense();
-    var speed = GameState.getPlayerSpeed ? GameState.getPlayerSpeed() : 3;
+    var speed = (typeof GamePlayer !== 'undefined' && GamePlayer.getCurrentMoveSpeed) ? GamePlayer.getCurrentMoveSpeed() : (GameState.getPlayerSpeed ? GameState.getPlayerSpeed() : 3);
     var nextAge = getNextAgeObjective();
     var nextUnlocks = UnlockSystem.getNextUnlocks();
     var buildings = GameState.getAllBuildings();

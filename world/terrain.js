@@ -188,7 +188,7 @@ window.GameTerrain = (function () {
 
   function overlapsWater(worldX, worldZ) {
     if (typeof WaterSystem === 'undefined') return false;
-    return WaterSystem.isDeepWater(worldX, worldZ) || WaterSystem.isShallowWater(worldX, worldZ);
+    return WaterSystem.isDeepWater(worldX, worldZ) || WaterSystem.isShallowWater(worldX, worldZ) || (WaterSystem.isRiverBank && WaterSystem.isRiverBank(worldX, worldZ));
   }
 
   function getPlacedInstancesForLookup() {
@@ -1790,18 +1790,29 @@ window.GameTerrain = (function () {
     var groundMat = new THREE.MeshStandardMaterial({ color: biomeColor, roughness: 1, metalness: 0 });
     var ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
-    ground.position.set(CHUNK_SIZE / 2, 0, CHUNK_SIZE / 2);
+    // Integer world coordinates are tile centers, so chunk surfaces need a
+    // half-tile offset for the grid boundaries to line up with placed objects.
+    ground.position.set(CHUNK_SIZE / 2 - 0.5, 0, CHUNK_SIZE / 2 - 0.5);
     ground.receiveShadow = true;
     group.add(ground);
 
     // Grid lines
     var gridHelper = new THREE.GridHelper(CHUNK_SIZE, CHUNK_SIZE, 0x5ca03a, 0x5ca03a);
-    gridHelper.position.set(CHUNK_SIZE / 2, 0.01, CHUNK_SIZE / 2);
+    gridHelper.position.set(CHUNK_SIZE / 2 - 0.5, 0.01, CHUNK_SIZE / 2 - 0.5);
     gridHelper.material.opacity = 0.15;
     gridHelper.material.transparent = true;
     group.add(gridHelper);
 
     var rng = function (offset) { return seededRandom(seed + offset); };
+
+    // Generate river surfaces early so decorations and resources can avoid river banks.
+    if (typeof WaterSystem !== 'undefined') {
+      var waterPositions = WaterSystem.generateWaterForChunk(cx, cz, seed);
+      if (waterPositions.length > 0) {
+        WaterSystem.createWaterMesh(waterPositions, group);
+      }
+      reapplyBridgeTilesForChunk(cx, cz);
+    }
 
     // Grass tufts decoration
     var grassCount = Math.floor(rng(5000) * 6) + 3;
@@ -1809,6 +1820,7 @@ window.GameTerrain = (function () {
       var gx = Math.floor(rng(5000 + gi * 3) * CHUNK_SIZE);
       var gz = Math.floor(rng(5001 + gi * 3) * CHUNK_SIZE);
       if (cx === 0 && cz === 0 && gx > 6 && gx < 10 && gz > 6 && gz < 10) continue;
+      if (overlapsWater(cx * CHUNK_SIZE + gx, cz * CHUNK_SIZE + gz)) continue;
       var grassGroup = createGrassTuft(gx, gz, seed + gi);
       group.add(grassGroup);
       if (typeof AtmosphereSystem !== 'undefined') {
@@ -1823,17 +1835,9 @@ window.GameTerrain = (function () {
       var fx = Math.floor(rng(6000 + fi * 2) * CHUNK_SIZE);
       var fz = Math.floor(rng(6001 + fi * 2) * CHUNK_SIZE);
       if (cx === 0 && cz === 0 && fx > 6 && fx < 10 && fz > 6 && fz < 10) continue;
+      if (overlapsWater(cx * CHUNK_SIZE + fx, cz * CHUNK_SIZE + fz)) continue;
       var flowerGroup = createFlowerCluster(fx, fz, flowerColors[fi % flowerColors.length], seed + fi);
       group.add(flowerGroup);
-    }
-
-    // Generate water first so resources do not spawn into rivers/lakes.
-    if (typeof WaterSystem !== 'undefined') {
-      var waterPositions = WaterSystem.generateWaterForChunk(cx, cz, seed);
-      if (waterPositions.length > 0) {
-        WaterSystem.createWaterMesh(waterPositions, group);
-      }
-      reapplyBridgeTilesForChunk(cx, cz);
     }
 
     // Generate objects based on distance from home
@@ -2164,6 +2168,11 @@ window.GameTerrain = (function () {
     return WaterSystem.isShallowWater(worldX, worldZ);
   }
 
+  function isRiverBank(worldX, worldZ) {
+    if (typeof WaterSystem === 'undefined' || !WaterSystem.isRiverBank) return false;
+    return WaterSystem.isRiverBank(worldX, worldZ);
+  }
+
   function findNearestObject(worldX, worldZ, maxDist) {
     var nearest = null;
     var nearestDist = Number(maxDist) || 0;
@@ -2305,6 +2314,7 @@ window.GameTerrain = (function () {
     getChunkSize: getChunkSize,
     isWalkable: isWalkable,
     isShallowWater: isShallowWater,
+    isRiverBank: isRiverBank,
     findNearestObject: findNearestObject,
     getNearbyObjects: getNearbyObjects,
     getNodeInfo: getNodeInfo,
