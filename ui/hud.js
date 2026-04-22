@@ -2255,6 +2255,7 @@ try {
     }
 
     var nextObjectId = objData && objData.id ? objData.id : null;
+    var shouldSnap = !_trackedObjectHpBar.initialized || _trackedObjectHpBar.objectId !== nextObjectId;
     if (_trackedObjectHpBar.objectId !== nextObjectId) {
       _trackedObjectHpBar.initialized = false;
     }
@@ -2262,7 +2263,7 @@ try {
     _trackedObjectHpBar.object = objData;
     _trackedObjectHpBar.objectId = nextObjectId;
     showObjectHpBar._activeObjectId = nextObjectId;
-    updateTrackedObjectHpBar(0, true);
+    updateTrackedObjectHpBar(0, shouldSnap);
 
     if (holdMs && holdMs > 0) {
       showObjectHpBar._hideTimer = setTimeout(function() {
