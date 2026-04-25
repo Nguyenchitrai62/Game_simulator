@@ -813,6 +813,24 @@ window.GamePlayer = (function () {
     return balance && balance.rewards ? balance.rewards : null;
   }
 
+  function shouldShowResourceDiscoveryOverlayForNode(objData) {
+    var config = _getSpeechValue('resourceDiscovery', null);
+    if (!config || !objData || !objData.type || objData.type.indexOf('node.') !== 0) return false;
+
+    var watchedResourceIds = config.resourceIds || [];
+    var rewardMap = _getNodeRewardMap(objData);
+    if (!rewardMap) return false;
+
+    for (var resId in rewardMap) {
+      if (!rewardMap[resId]) continue;
+      if (watchedResourceIds.length && watchedResourceIds.indexOf(resId) === -1) continue;
+      if (window.GameState && GameState.isUnlocked && GameState.isUnlocked(resId)) continue;
+      return true;
+    }
+
+    return false;
+  }
+
   function _updateResourceDiscovery(dt) {
     var config = _getSpeechValue('resourceDiscovery', null);
     if (!config || !window.GameEntities || !GameEntities.getAllMeshes || !GameEntities.getDataFromMesh) return;
@@ -2515,6 +2533,7 @@ window.GamePlayer = (function () {
     hasTorchLight: hasTorchLight,
     getTorchFuel: getTorchFuel,
     updateTorchFlame: updateTorchFlame,
-    updateEquipmentVisuals: updateEquipmentVisuals
+    updateEquipmentVisuals: updateEquipmentVisuals,
+    shouldShowResourceDiscoveryOverlayForNode: shouldShowResourceDiscoveryOverlayForNode
   };
 })();

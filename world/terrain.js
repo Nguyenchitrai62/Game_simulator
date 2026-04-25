@@ -513,6 +513,10 @@ window.GameTerrain = (function () {
     return !!(objData && objData.type === 'pickup.drop');
   }
 
+  function isAnimalChunkObject(objData) {
+    return !!(objData && objData.type && objData.type.indexOf('animal.') === 0);
+  }
+
   function isPersistentChunkObject(objData) {
     return !!(isResourceNode(objData) || isPickupDrop(objData) || (objData && objData.persistentChunkState));
   }
@@ -2137,6 +2141,7 @@ window.GameTerrain = (function () {
       var obj = chunk.objects[i];
       if (obj.hp <= 0 || obj._destroyed) continue;
       if (isNonBlockingChunkObject(obj)) continue;
+      if (isAnimalChunkObject(obj)) continue;
       var dx = Math.abs(obj.x - localX);
       var dz = Math.abs(obj.z - localZ);
       if (dx < 0.4 && dz < 0.4) return false;

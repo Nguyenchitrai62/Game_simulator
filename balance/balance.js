@@ -44,7 +44,7 @@ window.GAME_BALANCE = {
       patrolRadius: 3.2,
       patrolSpeed: 0.46,
       chaseSpeed: 1.18,
-      returnSpeed: 0.8,
+      returnSpeed: 0.66,
       turnRate: 0.24,
       attackRange: 1.65,
       chaseRange: 6.9
@@ -80,7 +80,7 @@ window.GAME_BALANCE = {
       patrolRadius: 3.8,
       patrolSpeed: 0.34,
       chaseSpeed: 0.9,
-      returnSpeed: 0.64,
+      returnSpeed: 0.5,
       turnRate: 0.14,
       attackRange: 1.375,
       chaseRange: 5.75
@@ -95,8 +95,8 @@ window.GAME_BALANCE = {
     animalDisposition: "prey",
     behavior: {
       patrolRadius: 3.8,
-      patrolSpeed: 0.48,
-      returnSpeed: 0.84,
+      patrolSpeed: 0.33,
+      returnSpeed: 0.56,
       turnRate: 0.22
     }
   },
@@ -108,10 +108,15 @@ window.GAME_BALANCE = {
     respawnTime: 35,
     animalDisposition: "prey",
     behavior: {
-      patrolRadius: 2.4,
-      patrolSpeed: 0.54,
-      returnSpeed: 0.96,
-      turnRate: 0.28
+      patrolRadius: 2.1,
+      patrolSpeed: 0.2,
+      returnSpeed: 0.34,
+      turnRate: 0.38,
+      patrolIdleBaseSeconds: 0.3,
+      patrolIdleRandomSeconds: 0.6,
+      patrolDirectionMinSeconds: 0.4,
+      patrolDirectionMaxSeconds: 0.9,
+      patrolMoveChance: 0.82
     }
   },
 
@@ -1063,7 +1068,10 @@ window.GAME_BALANCE = {
     returnIdleBaseSeconds: 0.5,
     returnIdleRandomSeconds: 1.0,
     patrolIdleBaseSeconds: 0.8,
-    patrolIdleRandomSeconds: 1.2
+    patrolIdleRandomSeconds: 1.2,
+    patrolDirectionMinSeconds: 1.0,
+    patrolDirectionMaxSeconds: 3.0,
+    patrolMoveChance: 0.72
   },
 
   barracksTroops: {

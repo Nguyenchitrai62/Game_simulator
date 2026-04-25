@@ -466,9 +466,15 @@ try {
       return (nodeInfo.stateLabel ? nodeInfo.stateLabel + ' • ' : '') + rewardText;
     }
 
-    function shouldShowWorldNodeLabel(objData) {
+    function shouldShowWorldNodeLabel(objData, nodeInfo) {
       if (!objData || !objData.type) return false;
-      return objData.type !== 'node.tree' && objData.type !== 'node.rock' && objData.type !== 'node.berry_bush';
+      if (objData.type === 'node.tree' || objData.type === 'node.rock' || objData.type === 'node.berry_bush') {
+        return false;
+      }
+      if (!(window.GamePlayer && GamePlayer.shouldShowResourceDiscoveryOverlayForNode)) {
+        return false;
+      }
+      return GamePlayer.shouldShowResourceDiscoveryOverlayForNode(objData);
     }
 
     function getInspectNodeMeta(objData, nodeInfo) {
@@ -2395,10 +2401,9 @@ try {
     var visibleCount = 0;
 
     nearby.forEach(function(objData) {
-      if (!shouldShowWorldNodeLabel(objData)) return;
-
       var nodeInfo = GameTerrain.getNodeInfo(objData);
       if (!nodeInfo) return;
+      if (!shouldShowWorldNodeLabel(objData, nodeInfo)) return;
 
       var worldHeight = nodeInfo.isGiant ? 2.3 : 1.35;
       var pos = projectHudWorldPoint(objData.worldX, worldHeight, objData.worldZ);

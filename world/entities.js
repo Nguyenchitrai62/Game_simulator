@@ -658,8 +658,11 @@ window.GameEntities = (function () {
           mesh.userData._spawnX = obj.worldX;
           mesh.userData._spawnZ = obj.worldZ;
           mesh.userData._movementState = 'patrol';
-          mesh.userData._patrolTarget = null;
-          mesh.userData._idleUntil = 0;
+          mesh.userData._patrolAction = null;
+          mesh.userData._patrolDirX = 0;
+          mesh.userData._patrolDirZ = 0;
+          mesh.userData._nextDirectionChangeAt = 0;
+          mesh.userData._patrolRetryAt = 0;
           mesh.userData._moveSpeed = 0;
         }
       }
@@ -1081,9 +1084,6 @@ window.GameEntities = (function () {
       
       // For animals, sync the visible mesh with the latest respawn location.
       if (objData.type && objData.type.startsWith("animal.")) {
-        var animalBalance = (window.GAME_BALANCE && GAME_BALANCE[objData.type]) || {};
-        var animalBehaviorSettings = getAnimalBehaviorSettings(objData.type, animalBalance);
-        var respawnIdleSeconds = animalBehaviorSettings.returnIdleBaseSeconds;
         var respawnTime = performance.now() / 1000;
         var spawnX = objData.worldX;
         var spawnZ = objData.worldZ;
@@ -1099,11 +1099,12 @@ window.GameEntities = (function () {
           mesh.userData._spawnX = spawnX;
           mesh.userData._spawnZ = spawnZ;
         }
-        // Reset wander timer to pick new direction
-        mesh.userData._wanderTime = respawnTime;
         mesh.userData._movementState = 'patrol';
-        mesh.userData._patrolTarget = null;
-        mesh.userData._idleUntil = respawnTime + respawnIdleSeconds;
+        mesh.userData._patrolAction = null;
+        mesh.userData._patrolDirX = 0;
+        mesh.userData._patrolDirZ = 0;
+        mesh.userData._nextDirectionChangeAt = respawnTime;
+        mesh.userData._patrolRetryAt = 0;
         mesh.userData._moveSpeed = 0;
       }
       
@@ -1130,8 +1131,11 @@ window.GameEntities = (function () {
     mesh.userData._spawnX = mesh.userData._spawnX !== undefined ? mesh.userData._spawnX : objData.worldX;
     mesh.userData._spawnZ = mesh.userData._spawnZ !== undefined ? mesh.userData._spawnZ : objData.worldZ;
     mesh.userData._movementState = mesh.userData._movementState || 'patrol';
-    mesh.userData._patrolTarget = mesh.userData._patrolTarget || null;
-    mesh.userData._idleUntil = mesh.userData._idleUntil || (time + Math.random());
+    mesh.userData._patrolAction = mesh.userData._patrolAction || null;
+    mesh.userData._patrolDirX = Number(mesh.userData._patrolDirX) || 0;
+    mesh.userData._patrolDirZ = Number(mesh.userData._patrolDirZ) || 0;
+    mesh.userData._nextDirectionChangeAt = Number(mesh.userData._nextDirectionChangeAt) || 0;
+    mesh.userData._patrolRetryAt = Number(mesh.userData._patrolRetryAt) || 0;
     mesh.userData._moveSpeed = mesh.userData._moveSpeed || 0;
   }
 
@@ -1143,6 +1147,14 @@ window.GameEntities = (function () {
     return Number(behaviorConfig && behaviorConfig[key]) || 0;
   }
 
+  function getAnimalBehaviorTimingValue(behaviorConfig, tuningConfig, key, fallbackValue) {
+    var behaviorValue = Number(behaviorConfig && behaviorConfig[key]);
+    if (behaviorValue > 0 || behaviorValue === 0) return behaviorValue;
+    var tuningValue = Number(tuningConfig && tuningConfig[key]);
+    if (tuningValue > 0 || tuningValue === 0) return tuningValue;
+    return fallbackValue;
+  }
+
   function getAnimalBehaviorSettings(type, balance) {
     var behaviorConfig = (balance && balance.behavior) || {};
     var tuningConfig = getAnimalBehaviorTuningConfig();
@@ -1152,13 +1164,23 @@ window.GameEntities = (function () {
       chaseSpeed: getBehaviorValue(behaviorConfig, 'chaseSpeed'),
       returnSpeed: getBehaviorValue(behaviorConfig, 'returnSpeed'),
       turnRate: getBehaviorValue(behaviorConfig, 'turnRate'),
-      returnToSpawnDistanceMultiplier: Number(tuningConfig.returnToSpawnDistanceMultiplier) || 0,
-      returnIdleBaseSeconds: Number(tuningConfig.returnIdleBaseSeconds) || 0,
-      returnIdleRandomSeconds: Number(tuningConfig.returnIdleRandomSeconds) || 0,
-      patrolIdleBaseSeconds: Number(tuningConfig.patrolIdleBaseSeconds) || 0,
-      patrolIdleRandomSeconds: Number(tuningConfig.patrolIdleRandomSeconds) || 0,
+      returnToSpawnDistanceMultiplier: getAnimalBehaviorTimingValue(behaviorConfig, tuningConfig, 'returnToSpawnDistanceMultiplier', 1.25),
+      returnIdleBaseSeconds: getAnimalBehaviorTimingValue(behaviorConfig, tuningConfig, 'returnIdleBaseSeconds', 0),
+      returnIdleRandomSeconds: getAnimalBehaviorTimingValue(behaviorConfig, tuningConfig, 'returnIdleRandomSeconds', 0),
+      patrolIdleBaseSeconds: getAnimalBehaviorTimingValue(behaviorConfig, tuningConfig, 'patrolIdleBaseSeconds', 0),
+      patrolIdleRandomSeconds: getAnimalBehaviorTimingValue(behaviorConfig, tuningConfig, 'patrolIdleRandomSeconds', 0),
+      patrolDirectionMinSeconds: getAnimalBehaviorTimingValue(behaviorConfig, tuningConfig, 'patrolDirectionMinSeconds', 1),
+      patrolDirectionMaxSeconds: getAnimalBehaviorTimingValue(behaviorConfig, tuningConfig, 'patrolDirectionMaxSeconds', 3),
+      patrolMoveChance: getAnimalBehaviorTimingValue(behaviorConfig, tuningConfig, 'patrolMoveChance', 0.7),
       disposition: (window.GameRegistry && GameRegistry.getAnimalDisposition) ? GameRegistry.getAnimalDisposition(type) : ((balance && balance.animalDisposition) || 'threat')
     };
+
+    if (settings.patrolDirectionMaxSeconds < settings.patrolDirectionMinSeconds) {
+      settings.patrolDirectionMaxSeconds = settings.patrolDirectionMinSeconds;
+    }
+    if (!(settings.patrolMoveChance >= 0 && settings.patrolMoveChance <= 1)) {
+      settings.patrolMoveChance = 0.7;
+    }
 
     settings.isThreat = settings.disposition !== 'prey';
 
@@ -1223,22 +1245,185 @@ window.GameEntities = (function () {
     return getAnimalFacingAngle(targetX - fromX, targetZ - fromZ);
   }
 
-  function pickAnimalPatrolTarget(mesh, settings) {
+  function clearAnimalPatrolDirection(mesh) {
+    mesh.userData._patrolAction = null;
+    mesh.userData._patrolDirX = 0;
+    mesh.userData._patrolDirZ = 0;
+    mesh.userData._nextDirectionChangeAt = 0;
+    mesh.userData._patrolRetryAt = 0;
+  }
+
+  function getAnimalDirectionVectorFromAngle(angle) {
+    return {
+      x: Math.cos(angle),
+      z: -Math.sin(angle)
+    };
+  }
+
+  function getAnimalTenthsRandomSeconds(minSeconds, maxSeconds, fallbackMinTenths, fallbackMaxTenths) {
+    var minTenths = Math.round((minSeconds > 0 ? minSeconds : (fallbackMinTenths / 10)) * 10);
+    var maxTenths = Math.round((maxSeconds > 0 ? maxSeconds : (fallbackMaxTenths / 10)) * 10);
+    if (maxTenths < minTenths) {
+      maxTenths = minTenths;
+    }
+    return (minTenths + Math.floor(Math.random() * ((maxTenths - minTenths) + 1))) / 10;
+  }
+
+  function getAnimalPatrolDirectionChangeSeconds(settings) {
+    var minSeconds = settings.patrolDirectionMinSeconds > 0 ? settings.patrolDirectionMinSeconds : 1;
+    var maxSeconds = settings.patrolDirectionMaxSeconds > 0 ? settings.patrolDirectionMaxSeconds : minSeconds;
+    if (maxSeconds < minSeconds) {
+      maxSeconds = minSeconds;
+    }
+    return getAnimalTenthsRandomSeconds(minSeconds, maxSeconds, 10, 30);
+  }
+
+  function getAnimalPatrolIdleSeconds(settings) {
+    var minSeconds = settings.patrolIdleBaseSeconds > 0 ? settings.patrolIdleBaseSeconds : 0.8;
+    var maxSeconds = minSeconds + Math.max(0, settings.patrolIdleRandomSeconds);
+    return getAnimalTenthsRandomSeconds(minSeconds, maxSeconds, 8, 20);
+  }
+
+  function getAnimalReturnIdleSeconds(settings) {
+    var minSeconds = settings.returnIdleBaseSeconds > 0 ? settings.returnIdleBaseSeconds : 0.5;
+    var maxSeconds = minSeconds + Math.max(0, settings.returnIdleRandomSeconds);
+    return getAnimalTenthsRandomSeconds(minSeconds, maxSeconds, 5, 15);
+  }
+
+  function getAnimalPatrolRetrySeconds() {
+    return getAnimalTenthsRandomSeconds(0.2, 0.4, 2, 4);
+  }
+
+  function shouldAnimalPatrolMove(settings) {
+    return Math.random() < settings.patrolMoveChance;
+  }
+
+  function setAnimalPatrolIdle(mesh, untilTime) {
+    mesh.userData._patrolAction = 'idle';
+    mesh.userData._patrolDirX = 0;
+    mesh.userData._patrolDirZ = 0;
+    mesh.userData._nextDirectionChangeAt = untilTime;
+    mesh.userData._patrolRetryAt = 0;
+    mesh.userData._moveSpeed = 0;
+  }
+
+  function startAnimalPatrolAction(mesh, objData, settings, time, forceMove, forceFullRandomDirection) {
+    if (!forceMove && !shouldAnimalPatrolMove(settings)) {
+      setAnimalPatrolIdle(mesh, time + getAnimalPatrolIdleSeconds(settings));
+      return false;
+    }
+
+    mesh.userData._patrolAction = 'move';
+    mesh.userData._patrolRetryAt = 0;
+    setAnimalPatrolDirection(mesh, objData, settings, time, !!forceFullRandomDirection);
+    return true;
+  }
+
+  function setAnimalPatrolDirection(mesh, objData, settings, time, forceFullRandom) {
+    mesh.userData._patrolAction = 'move';
     var spawnX = mesh.userData._spawnX;
     var spawnZ = mesh.userData._spawnZ;
-    for (var attempt = 0; attempt < 10; attempt++) {
-      var angle = Math.random() * Math.PI * 2;
-      var radius = settings.patrolRadius * (0.35 + Math.random() * 0.65);
-      var targetX = spawnX + Math.sin(angle) * radius;
-      var targetZ = spawnZ + Math.cos(angle) * radius;
-      if (canAnimalMoveTo(targetX, targetZ)) {
-        return { x: targetX, z: targetZ };
+    var distXToSpawn = spawnX - objData.worldX;
+    var distZToSpawn = spawnZ - objData.worldZ;
+    var distFromSpawn = Math.sqrt((distXToSpawn * distXToSpawn) + (distZToSpawn * distZToSpawn));
+    var inwardAngle = distFromSpawn > 0.001
+      ? getAnimalFacingAngle(distXToSpawn / distFromSpawn, distZToSpawn / distFromSpawn)
+      : 0;
+    var sampleDistance = Math.max(0.9, settings.patrolSpeed * 2.5);
+    var maxPatrolDistance = Math.max(settings.patrolRadius * settings.returnToSpawnDistanceMultiplier, settings.patrolRadius + 0.5, 1);
+
+    for (var attempt = 0; attempt < 12; attempt++) {
+      var angle;
+      if (!forceFullRandom && distFromSpawn > settings.patrolRadius * 0.8 && attempt < 8) {
+        angle = inwardAngle + ((Math.random() - 0.5) * Math.PI);
+      } else {
+        angle = (Math.random() * Math.PI * 2) - Math.PI;
+      }
+
+      var direction = getAnimalDirectionVectorFromAngle(angle);
+      var sampleX = objData.worldX + (direction.x * sampleDistance);
+      var sampleZ = objData.worldZ + (direction.z * sampleDistance);
+      var sampleSpawnDx = sampleX - spawnX;
+      var sampleSpawnDz = sampleZ - spawnZ;
+      if (((sampleSpawnDx * sampleSpawnDx) + (sampleSpawnDz * sampleSpawnDz)) > (maxPatrolDistance * maxPatrolDistance) && attempt < 10) {
+        continue;
+      }
+      if (!canAnimalMoveTo(sampleX, sampleZ)) {
+        continue;
+      }
+
+      mesh.userData._patrolDirX = direction.x;
+      mesh.userData._patrolDirZ = direction.z;
+      mesh.userData._nextDirectionChangeAt = time + getAnimalPatrolDirectionChangeSeconds(settings);
+      return true;
+    }
+
+    if (distFromSpawn > 0.001) {
+      mesh.userData._patrolDirX = distXToSpawn / distFromSpawn;
+      mesh.userData._patrolDirZ = distZToSpawn / distFromSpawn;
+    } else {
+      mesh.userData._patrolDirX = 1;
+      mesh.userData._patrolDirZ = 0;
+    }
+    mesh.userData._nextDirectionChangeAt = time + getAnimalPatrolDirectionChangeSeconds(settings);
+    return false;
+  }
+
+  function moveAnimalAlongPatrolDirection(mesh, objData, settings, dt, time) {
+    if (mesh.userData._patrolAction === 'idle' && time < (mesh.userData._nextDirectionChangeAt || 0)) {
+      mesh.userData._movementState = 'idle';
+      mesh.userData._moveSpeed = 0;
+      return false;
+    }
+
+    var retryAt = mesh.userData._patrolRetryAt || 0;
+    var needsDirection = mesh.userData._patrolAction !== 'move' ||
+      (!mesh.userData._patrolDirX && !mesh.userData._patrolDirZ) ||
+      time >= (mesh.userData._nextDirectionChangeAt || 0);
+
+    if ((!mesh.userData._patrolDirX && !mesh.userData._patrolDirZ) && time < retryAt) {
+      mesh.userData._movementState = 'idle';
+      mesh.userData._moveSpeed = 0;
+      return false;
+    }
+
+    if (needsDirection) {
+      if (!startAnimalPatrolAction(mesh, objData, settings, time, false, false)) {
+        mesh.userData._movementState = 'idle';
+        return false;
       }
     }
-    return { x: spawnX, z: spawnZ };
+
+    mesh.userData._movementState = 'patrol';
+
+    var horizonDistance = Math.max(2, settings.patrolRadius * settings.returnToSpawnDistanceMultiplier);
+    var patrolTargetX = objData.worldX + (mesh.userData._patrolDirX * horizonDistance);
+    var patrolTargetZ = objData.worldZ + (mesh.userData._patrolDirZ * horizonDistance);
+    moveAnimal(mesh, objData, patrolTargetX, patrolTargetZ, settings.patrolSpeed, dt, settings.turnRate);
+
+    if (!mesh.userData._moveObstructed) {
+      mesh.userData._patrolRetryAt = 0;
+      return mesh.userData._moveSpeed > 0;
+    }
+
+    if (setAnimalPatrolDirection(mesh, objData, settings, time, true)) {
+      patrolTargetX = objData.worldX + (mesh.userData._patrolDirX * horizonDistance);
+      patrolTargetZ = objData.worldZ + (mesh.userData._patrolDirZ * horizonDistance);
+      moveAnimal(mesh, objData, patrolTargetX, patrolTargetZ, settings.patrolSpeed, dt, settings.turnRate);
+      if (!mesh.userData._moveObstructed) {
+        mesh.userData._patrolRetryAt = 0;
+        return mesh.userData._moveSpeed > 0;
+      }
+    }
+
+    setAnimalPatrolIdle(mesh, time + getAnimalPatrolRetrySeconds());
+    mesh.userData._patrolRetryAt = mesh.userData._nextDirectionChangeAt;
+    mesh.userData._movementState = 'idle';
+    return false;
   }
 
   function moveAnimal(mesh, objData, targetX, targetZ, speed, dt, turnRate, facingAngleOverride) {
+    mesh.userData._moveObstructed = false;
     var dx = targetX - objData.worldX;
     var dz = targetZ - objData.worldZ;
     var distance = Math.sqrt(dx * dx + dz * dz);
@@ -1261,15 +1446,21 @@ window.GameEntities = (function () {
     } else if (canAnimalMoveTo(nextX, objData.worldZ)) {
       objData.worldX = nextX;
       moved = true;
+      mesh.userData._moveObstructed = true;
     } else if (canAnimalMoveTo(objData.worldX, nextZ)) {
       objData.worldZ = nextZ;
       moved = true;
+      mesh.userData._moveObstructed = true;
+    } else {
+      mesh.userData._moveObstructed = true;
     }
 
     mesh.position.x = objData.worldX;
     mesh.position.z = objData.worldZ;
     mesh.userData._moveSpeed = moved ? speed : 0;
-    turnAnimalTowards(mesh, facingAngleOverride === undefined ? getAnimalFacingAngle(dirX, dirZ) : facingAngleOverride, turnRate, 0.02);
+    if (moved) {
+      turnAnimalTowards(mesh, facingAngleOverride === undefined ? getAnimalFacingAngle(dirX, dirZ) : facingAngleOverride, turnRate, 0.02);
+    }
     return moved && distance <= moveDistance + 0.08;
   }
 
@@ -1356,15 +1547,14 @@ window.GameEntities = (function () {
 
         if (isOwnCombat) {
           mesh.userData._movementState = 'combat';
-          mesh.userData._patrolTarget = null;
+          clearAnimalPatrolDirection(mesh);
           mesh.userData._moveSpeed = 0;
           if (playerPos) {
             turnAnimalTowards(mesh, getAnimalFacingAngleToTarget(objData.worldX, objData.worldZ, playerPos.x, playerPos.z), 1, 0.02);
           }
         } else if (settings.isThreat && workerTarget && preferWorker) {
           mesh.userData._movementState = 'chase';
-          mesh.userData._patrolTarget = null;
-          mesh.userData._idleUntil = 0;
+          clearAnimalPatrolDirection(mesh);
 
           if (window.NPCSystem && NPCSystem.reportWorkerThreat) {
             NPCSystem.reportWorkerThreat(workerTarget.npcUid, objData.type, objData.id, distToWorker, distToWorker <= settings.attackRange);
@@ -1381,30 +1571,14 @@ window.GameEntities = (function () {
           }
         } else if (distFromSpawn > settings.patrolRadius * settings.returnToSpawnDistanceMultiplier || mesh.userData._movementState === 'return') {
           mesh.userData._movementState = 'return';
-          mesh.userData._patrolTarget = null;
+          clearAnimalPatrolDirection(mesh);
           if (moveAnimal(mesh, objData, mesh.userData._spawnX, mesh.userData._spawnZ, settings.returnSpeed, dt, settings.turnRate)) {
-            mesh.userData._movementState = 'patrol';
-            mesh.userData._idleUntil = time + settings.returnIdleBaseSeconds + (Math.random() * settings.returnIdleRandomSeconds);
-            mesh.userData._moveSpeed = 0;
+            setAnimalPatrolIdle(mesh, time + getAnimalReturnIdleSeconds(settings));
+            mesh.userData._movementState = 'idle';
           }
         } else {
           mesh.userData._movementState = 'patrol';
-
-          if (!mesh.userData._patrolTarget && time >= (mesh.userData._idleUntil || 0)) {
-            mesh.userData._patrolTarget = pickAnimalPatrolTarget(mesh, settings);
-          }
-
-          if (mesh.userData._patrolTarget) {
-            var patrolTarget = mesh.userData._patrolTarget;
-            var reachedPatrol = moveAnimal(mesh, objData, patrolTarget.x, patrolTarget.z, settings.patrolSpeed, dt, settings.turnRate);
-            if (reachedPatrol || mesh.userData._moveSpeed === 0) {
-              mesh.userData._patrolTarget = null;
-              mesh.userData._idleUntil = time + settings.patrolIdleBaseSeconds + (Math.random() * settings.patrolIdleRandomSeconds);
-              mesh.userData._moveSpeed = 0;
-            }
-          } else {
-            mesh.userData._moveSpeed = 0;
-          }
+          moveAnimalAlongPatrolDirection(mesh, objData, settings, dt, time);
         }
 
         updateAnimalAnimation(mesh, time, mesh.userData._movementState);
